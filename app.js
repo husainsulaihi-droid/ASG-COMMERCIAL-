@@ -5905,7 +5905,7 @@ async function renderXlsyncModal() {
     <div class="xlsync-status">
       <div class="xlsync-status-icon">${twoWay ? '⇄' : '✓'}</div>
       <div class="xlsync-status-info">
-        <div class="xlsync-status-title">Connected: ${he(_xlsyncFileName || handle.name || 'Excel file')}</div>
+        <div class="xlsync-status-title">Connected: ${h(_xlsyncFileName || handle.name || 'Excel file')}</div>
         <div class="xlsync-status-detail">
           ${propCount} properties · last sync ${lastSyncRel} ·
           ${twoWay
