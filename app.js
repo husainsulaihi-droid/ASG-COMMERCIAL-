@@ -713,22 +713,72 @@ function renderNavCounts(props) {
 }
 
 function renderAlerts(props) {
-  const today    = new Date();
-  const expiring = props.filter(p => {
-    if (p.status !== 'rented' || !p.leaseEnd) return false;
-    const threshold = Number(p.reminderDays) || 60;
-    return Math.ceil((new Date(p.leaseEnd) - today) / 86400000) <= threshold;
-  });
   const banner = $('alertBanner');
-  if (!expiring.length) { banner.style.display = 'none'; return; }
-  const msgs = expiring.map(p => {
-    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
-    return days <= 0
-      ? `⛔ <strong>${h(p.name)}</strong> lease expired ${Math.abs(days)}d ago`
-      : `⚠️ <strong>${h(p.name)}</strong> lease expires in ${days} days`;
-  });
+  if (!banner) return;
+
+  // Hidden for this session?
+  if (sessionStorage.getItem('asg_alerts_dismissed') === '1') {
+    banner.style.display = 'none';
+    return;
+  }
+
+  const today = new Date();
+  const items = props
+    .filter(p => p.status === 'rented' && p.leaseEnd)
+    .map(p => {
+      const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+      const threshold = Number(p.reminderDays) || 60;
+      return { p, days, threshold };
+    })
+    .filter(x => x.days <= x.threshold)
+    .sort((a, b) => a.days - b.days);
+
+  if (!items.length) { banner.style.display = 'none'; return; }
+
+  const expired = items.filter(x => x.days <= 0);
+  const soon    = items.filter(x => x.days > 0);
+
+  // Show up to 2 most-critical items inline
+  const critical = items.slice(0, 2).map(x => {
+    const isExp = x.days <= 0;
+    const label = isExp
+      ? `expired ${Math.abs(x.days)}d ago`
+      : `${x.days}d left`;
+    const cls = isExp ? 'al-pill al-pill-exp' : (x.days <= 14 ? 'al-pill al-pill-warn' : 'al-pill');
+    return `<span class="${cls}" onclick="event.stopPropagation();openDetailModal('${x.p.id}')">
+              <strong>${h(x.p.name)}</strong> · ${label}
+            </span>`;
+  }).join('');
+
+  const moreCount = items.length - 2;
+
   banner.style.display = 'flex';
-  banner.innerHTML = '🔔 &nbsp;' + msgs.join(' &nbsp;|&nbsp; ');
+  banner.innerHTML = `
+    <div class="al-left">
+      <span class="al-icon">🔔</span>
+      <div class="al-summary">
+        <span class="al-title">Lease Alerts</span>
+        <span class="al-counts">
+          ${expired.length ? `<span class="al-c-exp">${expired.length} expired</span>` : ''}
+          ${expired.length && soon.length ? `<span class="al-dot">·</span>` : ''}
+          ${soon.length ? `<span class="al-c-soon">${soon.length} expiring soon</span>` : ''}
+        </span>
+      </div>
+    </div>
+    <div class="al-mid">${critical}${moreCount > 0 ? `<span class="al-more">+${moreCount} more</span>` : ''}</div>
+    <div class="al-right">
+      <button class="al-cta" onclick="showTab('reminders')">View All
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+      <button class="al-close" onclick="dismissAlertBanner()" title="Hide for this session">×</button>
+    </div>
+  `;
+}
+
+function dismissAlertBanner() {
+  sessionStorage.setItem('asg_alerts_dismissed', '1');
+  const b = $('alertBanner');
+  if (b) b.style.display = 'none';
 }
 
 function renderGrid(props) {
