@@ -5272,7 +5272,18 @@ function downloadAgentContract() {
   if (!w) { showToast('Pop-up blocked — allow pop-ups and try again', 'error'); return; }
   w.document.write(html);
   w.document.close();
-  setTimeout(() => w.print(), 800);
+  // Wait for all images (logos) to load before triggering print
+  w.addEventListener('load', () => {
+    const imgs = w.document.images;
+    let loaded = 0;
+    const total = imgs.length;
+    if (total === 0) { setTimeout(() => w.print(), 300); return; }
+    const tryPrint = () => { if (++loaded >= total) setTimeout(() => w.print(), 200); };
+    Array.from(imgs).forEach(img => {
+      if (img.complete) tryPrint();
+      else { img.onload = tryPrint; img.onerror = tryPrint; }
+    });
+  });
 }
 
 function buildAgentContractHTML(d) {
@@ -5399,11 +5410,32 @@ function buildAgentContractHTML(d) {
 <meta charset="UTF-8">
 <title>Tenancy Contract${d.tenantName?' — '+he(d.tenantName):''}</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
 body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
-.page{width:210mm;min-height:297mm;margin:0 auto;padding:12mm 13mm;display:flex;flex-direction:column;}
-.page-break{page-break-after:always;}
-@media print{body{margin:0;}.page{margin:0;padding:10mm 11mm;}@page{size:A4;margin:0;}}
+.page{width:210mm;min-height:297mm;margin:0 auto;padding:12mm 13mm;background:#fff;position:relative;}
+.page-break{page-break-after:always;break-after:page;}
+@media print{
+  html,body{width:210mm;margin:0;padding:0;}
+  .page{width:210mm;min-height:297mm;margin:0;padding:10mm 11mm;page-break-after:always;break-after:page;}
+  .page:last-child{page-break-after:avoid;break-after:avoid;}
+  @page{size:A4 portrait;margin:0;}
+}
+
+/* ── EJARI Watermark ── */
+.page::before{
+  content:'إيجاري';
+  position:fixed;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  font-size:110pt;
+  font-weight:900;
+  color:rgba(180,160,100,0.10);
+  white-space:nowrap;
+  pointer-events:none;
+  z-index:0;
+  letter-spacing:8px;
+}
+.page>*{position:relative;z-index:1;}
 
 /* ── Header ── */
 .hdr{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #bbb;padding-bottom:8px;margin-bottom:7px;}
@@ -5420,9 +5452,9 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 .date-val{border-bottom:1px solid #999;min-width:160px;font-weight:700;font-size:9.5pt;padding-bottom:1px;}
 
 /* ── Section header ── */
-.sh{background:#1c2b4a;color:#fff;padding:4px 8px;display:flex;justify-content:space-between;align-items:center;margin-bottom:0;}
-.sh-en{font-size:9pt;font-weight:700;}
-.sh-ar{font-size:9pt;font-weight:700;direction:rtl;}
+.sh{background:#1c2b4a !important;color:#fff !important;padding:4px 8px;display:flex;justify-content:space-between;align-items:center;margin-bottom:0;}
+.sh-en{font-size:9pt;font-weight:700;color:#fff !important;}
+.sh-ar{font-size:9pt;font-weight:700;direction:rtl;color:#fff !important;}
 
 /* ── Field table ── */
 .sec{border:1px solid #c5c5c5;margin-bottom:5px;}
@@ -5442,18 +5474,19 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 .usage-opts{display:flex;gap:22px;}
 .uopt{display:flex;align-items:center;gap:5px;font-size:9pt;}
 .rb{display:inline-block;width:11px;height:11px;border:1.5px solid #444;border-radius:50%;flex-shrink:0;}
-.rb.rb-on{background:#1c2b4a;border-color:#1c2b4a;}
+.rb.rb-on{background:#1c2b4a !important;border-color:#1c2b4a !important;}
 
 /* ── Clauses ── */
-.cls-hdr{background:#1c2b4a;color:#fff;padding:4px 8px;display:flex;justify-content:space-between;font-size:9pt;font-weight:700;}
+.cls-hdr{background:#1c2b4a !important;color:#fff !important;padding:4px 8px;display:flex;justify-content:space-between;font-size:9pt;font-weight:700;}
 .cls-hdr span:last-child{font-weight:400;font-size:7.5pt;}
-.cls-tbl{width:100%;border-collapse:collapse;font-size:8.5pt;}
-.cls-tbl td{vertical-align:top;padding:4px 6px;border:1px solid #ddd;line-height:1.5;}
-.cl-n{width:18px;font-weight:700;color:#1c2b4a;text-align:center;white-space:nowrap;background:#f0f3f8;}
+.cls-tbl{width:100%;border-collapse:collapse;font-size:8pt;}
+.cls-tbl tr{page-break-inside:avoid;break-inside:avoid;}
+.cls-tbl td{vertical-align:top;padding:3px 5px;border:1px solid #ddd;line-height:1.4;}
+.cl-n{width:18px;font-weight:700;color:#1c2b4a;text-align:center;white-space:nowrap;background:#f0f3f8 !important;}
 .cl-e{width:52%;}
 .cl-a{direction:rtl;text-align:right;color:#333;}
-.cl-even td{background:#f8f9fb;}
-.cl-even .cl-n{background:#e8edf5;}
+.cl-even td{background:#f8f9fb !important;}
+.cl-even .cl-n{background:#e8edf5 !important;}
 
 /* ── Know Your Rights ── */
 .rights{border:1px solid #c9a84c;padding:6px 9px;margin-bottom:4px;}
@@ -5476,7 +5509,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 .add-note span:last-child{direction:rtl;color:#888;}
 
 /* ── Signatures ── */
-.sig-wrap{border:1px solid #c5c5c5;margin-top:6px;}
+.sig-wrap{border:1px solid #c5c5c5;margin-top:6px;page-break-inside:avoid;break-inside:avoid;page-break-before:avoid;break-before:avoid;}
 .sig-tbl{width:100%;border-collapse:collapse;}
 .sig-box{width:50%;padding:8px 10px;border-right:1px solid #c5c5c5;vertical-align:top;}
 .sig-box:last-child{border-right:none;}
