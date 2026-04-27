@@ -228,8 +228,9 @@ function showTab(tab) {
   $('paymentView').style.display      = tab === 'payment'      ? '' : 'none';
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('teamView').style.display         = tab === 'team'         ? '' : 'none';
+  $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
 
-  ['Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Map','Team'].forEach(t => {
+  ['Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Map','Team','Financials'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -247,6 +248,7 @@ function showTab(tab) {
   if (tab === 'payment')      renderPayments();
   if (tab === 'map')          initMapTab();
   if (tab === 'team')         renderTeamTab();
+  if (tab === 'financials')   renderFinancials();
 }
 
 // ─── Contract Builder ─────────────────────────────
@@ -5698,6 +5700,335 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 </div>
 
 </body></html>`;
+}
+
+// ═══════════════════════════════════════════════════
+// FINANCIALS TAB (admin only)
+// ═══════════════════════════════════════════════════
+let _finYear = new Date().getFullYear();
+let _finType = 'warehouse';   // warehouse | office | residential | all
+
+function renderFinancials() {
+  const props = loadProps();
+  const yearsAvail = _finCollectYears(props);
+  const root = document.getElementById('finPage');
+  if (!root) return;
+
+  // Build year selector options (current ± span)
+  const allYears = Array.from(new Set([...yearsAvail, _finYear, new Date().getFullYear()]))
+    .sort((a,b)=>b-a);
+
+  const typeOpts = [
+    ['warehouse',   'Warehouses'],
+    ['office',      'Offices'],
+    ['residential', 'Residential'],
+    ['all',         'All Properties']
+  ];
+
+  root.innerHTML = `
+    <div class="fin-header">
+      <div>
+        <h1 class="fin-title">Financials</h1>
+        <p class="fin-sub">Track rental income and management fees across your portfolio</p>
+      </div>
+      <div class="fin-controls">
+        <label class="fin-ctl">
+          <span>Type</span>
+          <select id="finTypeSel" onchange="_finSetType(this.value)">
+            ${typeOpts.map(([v,l])=>`<option value="${v}" ${v===_finType?'selected':''}>${l}</option>`).join('')}
+          </select>
+        </label>
+        <label class="fin-ctl">
+          <span>Year</span>
+          <select id="finYearSel" onchange="_finSetYear(+this.value)">
+            ${allYears.map(y=>`<option value="${y}" ${y===_finYear?'selected':''}>${y}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+    </div>
+    <div id="finBody"></div>
+  `;
+
+  _finRenderBody(props);
+}
+
+function _finSetYear(y) { _finYear = y; renderFinancials(); }
+function _finSetType(t) { _finType = t; renderFinancials(); }
+
+function _finCollectYears(props) {
+  const years = new Set();
+  props.forEach(p => {
+    [p.contractFrom, p.contractTo, p.leaseStart, p.leaseEnd].forEach(d => {
+      if (d) {
+        const y = new Date(d).getFullYear();
+        if (!isNaN(y)) years.add(y);
+      }
+    });
+  });
+  // Always include current year
+  years.add(new Date().getFullYear());
+  return Array.from(years);
+}
+
+// Did this property's lease/contract overlap with the selected year?
+function _finActiveInYear(p, year) {
+  const start = p.contractFrom || p.leaseStart;
+  const end   = p.contractTo   || p.leaseEnd;
+  if (!start && !end) return false;
+  const ys = new Date(year, 0, 1).getTime();
+  const ye = new Date(year, 11, 31, 23, 59, 59).getTime();
+  const ps = start ? new Date(start).getTime() : -Infinity;
+  const pe = end   ? new Date(end).getTime()   :  Infinity;
+  return ps <= ye && pe >= ys;
+}
+
+// Months of the year that are covered by the lease (0–12)
+function _finMonthsActive(p, year) {
+  const start = p.contractFrom || p.leaseStart;
+  const end   = p.contractTo   || p.leaseEnd;
+  if (!start || !end) return _finActiveInYear(p, year) ? 12 : 0;
+  const ys = new Date(year, 0, 1);
+  const ye = new Date(year, 11, 31);
+  const ps = new Date(start);
+  const pe = new Date(end);
+  const a = ps > ys ? ps : ys;
+  const b = pe < ye ? pe : ye;
+  if (a > b) return 0;
+  // calculate inclusive months
+  const months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
+  return Math.max(0, Math.min(12, months));
+}
+
+function _finRenderBody(props) {
+  const body = document.getElementById('finBody');
+  if (!body) return;
+
+  // Filter by selected type
+  let pool = props;
+  if (_finType !== 'all') pool = props.filter(p => p.type === _finType);
+
+  // ── Rental income (rented properties, our share, prorated by months in year) ──
+  const rentRows = pool
+    .filter(p => p.status === 'rented' && (p.annualRent||0) > 0 && _finActiveInYear(p, _finYear))
+    .map(p => {
+      const months = _finMonthsActive(p, _finYear);
+      const annual = Number(p.annualRent) || 0;
+      const incomeYr = Math.round(annual * (months/12));
+      const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
+      const ourIncome = Math.round(incomeYr * (sharePct/100));
+      return { p, months, annual, incomeYr, sharePct, ourIncome };
+    })
+    .sort((a,b) => b.ourIncome - a.ourIncome);
+
+  const rentTotalGross = rentRows.reduce((s,r)=>s+r.incomeYr, 0);
+  const rentTotalOurs  = rentRows.reduce((s,r)=>s+r.ourIncome, 0);
+
+  // Vacant in year (warehouses we own/partner with that aren't generating)
+  const vacantList = pool.filter(p =>
+    p.status === 'vacant' && (p.ownership === 'own' || p.ownership === 'partnership')
+  );
+
+  // ── Management fee income (managed properties only) ──
+  const mgmtRows = pool
+    .filter(p => p.ownership === 'management' && (p.mgmtFee||0) > 0 && _finActiveInYear(p, _finYear))
+    .map(p => {
+      const months = _finMonthsActive(p, _finYear);
+      const annual = Number(p.mgmtFee) || 0;
+      const feeYr  = Math.round(annual * (months/12));
+      return { p, months, annual, feeYr };
+    })
+    .sort((a,b) => b.feeYr - a.feeYr);
+
+  const mgmtTotal = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
+
+  const grandTotal = rentTotalOurs + mgmtTotal;
+  const typeLabel  = _finType === 'all' ? 'Properties'
+                   : _finType === 'warehouse' ? 'Warehouses'
+                   : _finType === 'office' ? 'Offices' : 'Residential';
+
+  body.innerHTML = `
+    <!-- ── KPI ROW ──────────────────────────────── -->
+    <div class="fin-kpis">
+      <div class="fin-kpi fin-kpi-primary">
+        <div class="fin-kpi-label">Total Income (${_finYear})</div>
+        <div class="fin-kpi-value">AED ${grandTotal.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Rental + Management fees</div>
+      </div>
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">Rental Income</div>
+        <div class="fin-kpi-value">AED ${rentTotalOurs.toLocaleString()}</div>
+        <div class="fin-kpi-sub">${rentRows.length} active rental${rentRows.length===1?'':'s'}</div>
+      </div>
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">Management Fees</div>
+        <div class="fin-kpi-value">AED ${mgmtTotal.toLocaleString()}</div>
+        <div class="fin-kpi-sub">${mgmtRows.length} managed propert${mgmtRows.length===1?'y':'ies'}</div>
+      </div>
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">Vacant ${typeLabel}</div>
+        <div class="fin-kpi-value fin-kpi-warn">${vacantList.length}</div>
+        <div class="fin-kpi-sub">Not generating rent</div>
+      </div>
+    </div>
+
+    <!-- ── RENTAL INCOME TABLE ──────────────────── -->
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Rental Income — ${typeLabel}</h2>
+          <span class="fin-section-sub">Income generated per ${typeLabel.toLowerCase().replace(/s$/,'')} for ${_finYear}</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Our Income</span>
+          <span class="fin-tot-value">AED ${rentTotalOurs.toLocaleString()}</span>
+        </div>
+      </div>
+      ${rentRows.length === 0 ? `
+        <div class="fin-empty">
+          <div class="fin-empty-icon">💰</div>
+          <div class="fin-empty-title">No rental income for ${_finYear}</div>
+          <div class="fin-empty-sub">No rented ${typeLabel.toLowerCase()} have active contracts in this year.</div>
+        </div>
+      ` : `
+        <div class="fin-tbl-wrap">
+          <table class="fin-tbl">
+            <thead>
+              <tr>
+                <th style="width:34px">#</th>
+                <th>Property</th>
+                <th>Tenant</th>
+                <th>Ownership</th>
+                <th class="ta-r">Annual Rent</th>
+                <th class="ta-c">Months Active</th>
+                <th class="ta-r">Year Income</th>
+                <th class="ta-c">Our Share</th>
+                <th class="ta-r">Our Income</th>
+                <th>Contract Period</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rentRows.map((r,i)=>{
+                const o = r.p.ownership;
+                const ownChip = o === 'own'         ? `<span class="fin-chip fin-chip-own">100% Own</span>`
+                              : o === 'partnership' ? `<span class="fin-chip fin-chip-part">Partnership</span>`
+                              : o === 'management'  ? `<span class="fin-chip fin-chip-mgmt">Managed</span>`
+                              : `<span class="fin-chip">—</span>`;
+                return `
+                <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                  <td class="fin-num">${i+1}</td>
+                  <td><strong>${h(r.p.name)}</strong></td>
+                  <td>${h(r.p.tenantName||'—')}</td>
+                  <td>${ownChip}</td>
+                  <td class="ta-r">AED ${r.annual.toLocaleString()}</td>
+                  <td class="ta-c">${r.months}/12</td>
+                  <td class="ta-r">AED ${r.incomeYr.toLocaleString()}</td>
+                  <td class="ta-c">${r.sharePct}%</td>
+                  <td class="ta-r fin-our">AED ${r.ourIncome.toLocaleString()}</td>
+                  <td class="fin-period">${_finFmtPeriod(r.p)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" class="ta-r"><strong>TOTAL</strong></td>
+                <td class="ta-r"><strong>AED ${rentRows.reduce((s,r)=>s+r.annual,0).toLocaleString()}</strong></td>
+                <td></td>
+                <td class="ta-r"><strong>AED ${rentTotalGross.toLocaleString()}</strong></td>
+                <td></td>
+                <td class="ta-r fin-our"><strong>AED ${rentTotalOurs.toLocaleString()}</strong></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `}
+    </div>
+
+    <!-- ── MANAGEMENT FEE INCOME ────────────────── -->
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Management Fee Income</h2>
+          <span class="fin-section-sub">Fees earned for managing ${typeLabel.toLowerCase()} owned by others — ${_finYear}</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Total Fees</span>
+          <span class="fin-tot-value">AED ${mgmtTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      ${mgmtRows.length === 0 ? `
+        <div class="fin-empty">
+          <div class="fin-empty-icon">📋</div>
+          <div class="fin-empty-title">No management fees for ${_finYear}</div>
+          <div class="fin-empty-sub">Add a managed property with a Management Fee value to see income here.</div>
+        </div>
+      ` : `
+        <div class="fin-tbl-wrap">
+          <table class="fin-tbl">
+            <thead>
+              <tr>
+                <th style="width:34px">#</th>
+                <th>Property</th>
+                <th>Property Owner</th>
+                <th>Tenant</th>
+                <th class="ta-r">Annual Mgmt Fee</th>
+                <th class="ta-c">Months Active</th>
+                <th class="ta-r">Year Income</th>
+                <th>Contract Period</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${mgmtRows.map((r,i)=>`
+                <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                  <td class="fin-num">${i+1}</td>
+                  <td><strong>${h(r.p.name)}</strong></td>
+                  <td>${h(r.p.ownerName||'—')}</td>
+                  <td>${h(r.p.tenantName||'—')}</td>
+                  <td class="ta-r">AED ${r.annual.toLocaleString()}</td>
+                  <td class="ta-c">${r.months}/12</td>
+                  <td class="ta-r fin-our">AED ${r.feeYr.toLocaleString()}</td>
+                  <td class="fin-period">${_finFmtPeriod(r.p)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" class="ta-r"><strong>TOTAL</strong></td>
+                <td class="ta-r"><strong>AED ${mgmtRows.reduce((s,r)=>s+r.annual,0).toLocaleString()}</strong></td>
+                <td></td>
+                <td class="ta-r fin-our"><strong>AED ${mgmtTotal.toLocaleString()}</strong></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `}
+    </div>
+
+    <!-- ── COMBINED TOTAL ───────────────────────── -->
+    <div class="fin-grand">
+      <div class="fin-grand-row">
+        <span>Rental Income (Our Share)</span>
+        <span>AED ${rentTotalOurs.toLocaleString()}</span>
+      </div>
+      <div class="fin-grand-row">
+        <span>Management Fee Income</span>
+        <span>AED ${mgmtTotal.toLocaleString()}</span>
+      </div>
+      <div class="fin-grand-row fin-grand-total">
+        <span>TOTAL INCOME — ${_finYear}</span>
+        <span>AED ${grandTotal.toLocaleString()}</span>
+      </div>
+    </div>
+  `;
+}
+
+function _finFmtPeriod(p) {
+  const s = p.contractFrom || p.leaseStart;
+  const e = p.contractTo   || p.leaseEnd;
+  if (!s && !e) return '—';
+  const fmt = d => d ? new Date(d).toLocaleDateString('en-GB',{month:'short',year:'2-digit'}) : '—';
+  return `${fmt(s)} → ${fmt(e)}`;
 }
 
 // ── Boot update for agent ──────────────────────────
