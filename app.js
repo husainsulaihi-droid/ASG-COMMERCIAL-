@@ -5816,11 +5816,30 @@ const xlsyncSupported = () => typeof window.showOpenFilePicker === 'function';
 
 // ── UI: open the modal ──
 function openExcelSyncModal() {
-  document.getElementById('excelSyncOverlay').style.display = 'flex';
-  renderXlsyncModal();
+  try {
+    const ov = document.getElementById('excelSyncOverlay');
+    if (!ov) {
+      console.error('[xlsync] excelSyncOverlay element not found in DOM');
+      if (typeof showToast === 'function') showToast('Excel sync UI failed to load — try refreshing (Cmd+Shift+R)', 'error');
+      return;
+    }
+    ov.style.display = 'flex';
+    renderXlsyncModal().catch(err => {
+      console.error('[xlsync] renderXlsyncModal error:', err);
+      const body = document.getElementById('excelSyncBody');
+      if (body) body.innerHTML = `<div style="padding:20px;color:#b91c1c;background:#fee2e2;border-radius:8px;">
+        <strong>Error opening Excel sync:</strong><br>${err.message || err}
+        <br><br><button class="xlsync-btn xlsync-btn-ghost" onclick="closeExcelSyncModal()">Close</button>
+      </div>`;
+    });
+  } catch (e) {
+    console.error('[xlsync] openExcelSyncModal error:', e);
+    alert('Excel sync error: ' + (e.message || e));
+  }
 }
 function closeExcelSyncModal() {
-  document.getElementById('excelSyncOverlay').style.display = 'none';
+  const ov = document.getElementById('excelSyncOverlay');
+  if (ov) ov.style.display = 'none';
 }
 
 async function renderXlsyncModal() {
