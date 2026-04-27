@@ -178,7 +178,7 @@ async function boot() {
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
     bindUI();
-    showTab('warehouses');
+    showTab('home');
     renderNavCounts(loadProps());
     setInterval(checkLeaseAlerts, 60000);
     checkLeaseAlerts();
@@ -227,6 +227,7 @@ function showTab(tab) {
   const propTabs = ['warehouses', 'offices', 'residential'];
   const isPropTab = propTabs.includes(tab);
 
+  const homeEl = $('homeView');         if (homeEl) homeEl.style.display = tab === 'home' ? '' : 'none';
   $('dashboardView').style.display    = isPropTab             ? '' : 'none';
   $('remindersView').style.display    = tab === 'reminders'    ? '' : 'none';
   $('calendarView').style.display     = tab === 'calendar'     ? '' : 'none';
@@ -238,7 +239,7 @@ function showTab(tab) {
   $('teamView').style.display         = tab === 'team'         ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
 
-  ['Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Map','Team','Financials'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Map','Team','Financials'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -248,6 +249,7 @@ function showTab(tab) {
     activeTypeFilter = typeMap[tab];
     refresh();
   }
+  if (tab === 'home')         renderHome();
   if (tab === 'reminders')    renderReminders();
   if (tab === 'calendar')     renderCalendar();
   if (tab === 'contract')     initContractTab();
@@ -6473,6 +6475,142 @@ function autoImportPropertiesFromExcel() {
 }
 
 // ═══════════════════════════════════════════════════
+// HOME TAB (landing dashboard with tile navigation)
+// ═══════════════════════════════════════════════════
+function renderHome() {
+  const root = document.getElementById('homeView');
+  if (!root) return;
+
+  const props      = loadProps();
+  const warehouses = props.filter(p => p.type === 'warehouse').length;
+  const offices    = props.filter(p => p.type === 'office').length;
+  const residential= props.filter(p => p.type === 'residential').length;
+  const rented     = props.filter(p => p.status === 'rented').length;
+  const vacant     = props.filter(p => p.status === 'vacant').length;
+  const totalRent  = props.filter(p => p.status === 'rented').reduce((s,p)=>s+(Number(p.annualRent)||0),0);
+
+  // Lease alerts
+  const today = new Date();
+  const leaseAlerts = props.filter(p => {
+    if (p.status !== 'rented' || !p.leaseEnd) return false;
+    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+    const threshold = Number(p.reminderDays) || 60;
+    return days <= threshold;
+  }).length;
+
+  let agentCount = 0, disputeCount = 0, projectCount = 0;
+  try { agentCount   = (loadAgents()   || []).length; } catch {}
+  try { disputeCount = (loadDisputes() || []).filter(d => d.status !== 'closed').length; } catch {}
+  try { projectCount = (loadProjects() || []).filter(p => p.status !== 'completed').length; } catch {}
+
+  // Tile definitions: tab id, label, group, badge count, accent colour, SVG path content
+  const tiles = [
+    { tab:'warehouses',  label:'Warehouses',       group:'Properties',  count:warehouses,  color:'#1c2b4a',
+      svg:'<rect x="1" y="8" width="22" height="13" rx="2"/><path d="M1 8l11-6 11 6"/>' },
+    { tab:'offices',     label:'Offices',          group:'Properties',  count:offices,     color:'#1c2b4a',
+      svg:'<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="9" y1="7" x2="9" y2="7.01"/><line x1="15" y1="7" x2="15.01" y2="7"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="15" y1="12" x2="15.01" y2="12"/>' },
+    { tab:'residential', label:'Residential',      group:'Properties',  count:residential, color:'#1c2b4a',
+      svg:'<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' },
+
+    { tab:'reminders',   label:'Reminders',        group:'Operations',  count:leaseAlerts, color:'#dc2626',
+      svg:'<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>' },
+    { tab:'calendar',    label:'Calendar',         group:'Operations',                     color:'#0d9488',
+      svg:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>' },
+    { tab:'contract',    label:'Contracts',        group:'Operations',                     color:'#7c3aed',
+      svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
+    { tab:'payment',     label:'Payment Schedule', group:'Operations',                     color:'#059669',
+      svg:'<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
+
+    { tab:'disputes',    label:'Disputes',         group:'Estate',      count:disputeCount,color:'#dc2626',
+      svg:'<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
+    { tab:'construction',label:'Construction',     group:'Estate',      count:projectCount,color:'#ea580c',
+      svg:'<polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/>' },
+    { tab:'map',         label:'Map View',         group:'Estate',                         color:'#0369a1',
+      svg:'<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>' },
+
+    { tab:'team',        label:'Team',             group:'Management',  count:agentCount,  color:'#0891b2',
+      svg:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>' },
+    { tab:'financials',  label:'Financials',       group:'Management',                     color:'#c9a84c',
+      svg:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>' },
+  ];
+
+  const groups = ['Properties','Operations','Estate','Management'];
+  const tilesByGroup = groups.map(g => ({
+    name: g,
+    items: tiles.filter(t => t.group === g),
+  }));
+
+  const auth = (() => { try { return JSON.parse(localStorage.getItem('asg_auth')) || {}; } catch { return {}; } })();
+  const username = auth.user || 'Admin';
+
+  root.innerHTML = `
+    <div class="home-page">
+      <div class="home-hero">
+        <div class="home-hero-text">
+          <div class="home-greet">${_homeGreeting()}</div>
+          <h1 class="home-welcome">Welcome back, <span>${h(username)}</span></h1>
+          <p class="home-tagline">Your complete portfolio at a glance — pick a section below to dive in.</p>
+        </div>
+        <div class="home-hero-stats">
+          <div class="home-stat">
+            <div class="home-stat-value">${props.length}</div>
+            <div class="home-stat-label">Total Properties</div>
+          </div>
+          <div class="home-stat">
+            <div class="home-stat-value home-stat-success">${rented}</div>
+            <div class="home-stat-label">Rented</div>
+          </div>
+          <div class="home-stat">
+            <div class="home-stat-value home-stat-warn">${vacant}</div>
+            <div class="home-stat-label">Vacant</div>
+          </div>
+          <div class="home-stat home-stat-wide">
+            <div class="home-stat-value home-stat-gold">AED ${totalRent.toLocaleString()}</div>
+            <div class="home-stat-label">Annual Rental Income</div>
+          </div>
+        </div>
+      </div>
+
+      ${tilesByGroup.map(grp => `
+        <div class="home-group">
+          <div class="home-group-label">${grp.name}</div>
+          <div class="home-tiles">
+            ${grp.items.map(t => `
+              <button class="home-tile" onclick="showTab('${t.tab}')">
+                <div class="home-tile-icon" style="background:linear-gradient(135deg, ${t.color}, ${_lightenHex(t.color, 18)});">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    ${t.svg}
+                  </svg>
+                  ${t.count != null && t.count > 0 ? `<span class="home-tile-badge" style="background:${t.color};">${t.count}</span>` : ''}
+                </div>
+                <div class="home-tile-label">${t.label}</div>
+                <div class="home-tile-arrow">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function _homeGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function _lightenHex(hex, amount) {
+  const m = hex.replace('#','').match(/.{2}/g);
+  if (!m) return hex;
+  const [r,g,b] = m.map(x => Math.min(255, parseInt(x,16) + amount));
+  return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+}
+
+// ═══════════════════════════════════════════════════
 // FINANCIALS TAB (admin only)
 // ═══════════════════════════════════════════════════
 let _finYear = new Date().getFullYear();
@@ -6815,7 +6953,7 @@ boot = async function() {
     bindUI();
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
-    showTab('warehouses');
+    showTab('home');
     renderNavCounts(loadProps());
     setInterval(checkLeaseAlerts, 60000);
     checkLeaseAlerts();
