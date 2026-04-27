@@ -1,0 +1,2906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASG Commercial — Property Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- LOGIN SCREEN                           -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-box">
+      <div class="login-logo-wrap">
+        <div class="login-logo-mark">ASG</div>
+        <div class="login-logo-text">
+          <span>Commercial Properties</span>
+          <span>Portfolio Dashboard</span>
+        </div>
+      </div>
+      <div class="login-heading">Welcome Back</div>
+      <div class="login-error" id="loginError"></div>
+      <div class="login-field">
+        <label>Username</label>
+        <input type="text" id="loginUser" placeholder="Enter username" autocomplete="username"
+               onkeydown="if(event.key==='Enter') $('loginPass').focus()">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter') doLogin()">
+      </div>
+      <button class="login-btn" onclick="doLogin()">Sign In</button>
+      <div class="login-hint">Default credentials: <strong>admin</strong> / <strong>asg2024</strong></div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CHANGE CREDENTIALS MODAL              -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="changePassOverlay">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🔐</div>
+          <div>
+            <h2>Change Credentials</h2>
+            <p class="modal-subtitle">Update your login username and password</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeChangePass()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="form-group">
+            <label>Current Password</label>
+            <input type="password" id="cpCurrent" placeholder="Enter current password">
+          </div>
+          <div class="form-group">
+            <label>New Username</label>
+            <input type="text" id="cpUser" placeholder="New username">
+          </div>
+          <div class="form-group">
+            <label>New Password</label>
+            <input type="password" id="cpNew" placeholder="Minimum 6 characters">
+          </div>
+          <div class="form-group">
+            <label>Confirm New Password</label>
+            <input type="password" id="cpConfirm" placeholder="Repeat new password">
+          </div>
+          <div class="login-error" id="cpError" style="margin-top:8px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeChangePass()">Cancel</button>
+        <button class="btn-primary" onclick="doChangePass()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Update Credentials
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Header -->
+  <header class="header" id="adminHeader">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-mark">ASG</div>
+        <div>
+          <span class="logo-title">Commercial Properties</span>
+          <span class="logo-sub">Portfolio Dashboard</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn-icon-hdr" onclick="openChangePass()" title="Change Password">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+      </button>
+      <button class="btn-logout" onclick="doLogout()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
+      <button class="btn-primary" id="addPropertyBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Property
+      </button>
+    </div>
+  </header>
+
+  <div class="app-body" id="appBody">
+
+    <!-- ══ SIDEBAR ══════════════════════════ -->
+    <nav class="sidebar">
+      <div class="nav-group">
+        <div class="nav-group-label">Properties</div>
+        <button class="nav-item active" id="tabWarehouses" onclick="showTab('warehouses')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="8" width="22" height="13" rx="2"/><path d="M1 8l11-6 11 6"/></svg>
+          Warehouses
+          <span class="nav-count" id="navCountWarehouses"></span>
+        </button>
+        <button class="nav-item" id="tabOffices" onclick="showTab('offices')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="9" y1="7" x2="9" y2="7.01"/><line x1="15" y1="7" x2="15.01" y2="7"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="15" y1="12" x2="15.01" y2="12"/></svg>
+          Offices
+          <span class="nav-count" id="navCountOffices"></span>
+        </button>
+        <button class="nav-item" id="tabResidential" onclick="showTab('residential')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Residential
+          <span class="nav-count" id="navCountResidential"></span>
+        </button>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-group">
+        <div class="nav-group-label">Tools</div>
+        <button class="nav-item" id="tabReminders" onclick="showTab('reminders')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          Reminders
+          <span class="tab-badge" id="reminderBadge" style="display:none;">0</span>
+        </button>
+        <button class="nav-item" id="tabCalendar" onclick="showTab('calendar')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Calendar
+        </button>
+        <button class="nav-item" id="tabContract" onclick="showTab('contract')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Contract
+        </button>
+        <button class="nav-item" id="tabDisputes" onclick="showTab('disputes')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Disputes
+        </button>
+        <button class="nav-item" id="tabConstruction" onclick="showTab('construction')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg>
+          Construction
+        </button>
+        <button class="nav-item" id="tabPayment" onclick="showTab('payment')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Payment Structure
+        </button>
+        <button class="nav-item" id="tabMap" onclick="showTab('map')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+          Map
+        </button>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-group">
+        <div class="nav-group-label">Management</div>
+        <button class="nav-item" id="tabTeam" onclick="showTab('team')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Team
+          <span class="nav-count" id="navCountTasks"></span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- ══ MAIN CONTENT ══════════════════════ -->
+    <main class="main-content">
+
+  <!-- Lease Alert Banner -->
+  <div class="alert-banner" id="alertBanner" style="display:none;"></div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PROPERTIES VIEW                        -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="dashboardView">
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-icon" id="statTypeIcon">🏭</div>
+      <div class="stat-info">
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label" id="statTotalLabel">Warehouses</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">✅</div>
+      <div class="stat-info">
+        <div class="stat-value" id="statRented">0</div>
+        <div class="stat-label">Rented</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🔓</div>
+      <div class="stat-info">
+        <div class="stat-value" id="statVacant">0</div>
+        <div class="stat-label">Vacant</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📋</div>
+      <div class="stat-info">
+        <div class="stat-value" id="statManaged">0</div>
+        <div class="stat-label">Managed</div>
+      </div>
+    </div>
+    <div class="stat-card accent">
+      <div class="stat-icon">💰</div>
+      <div class="stat-info">
+        <div class="stat-value" id="statRevenue">AED 0</div>
+        <div class="stat-label">Annual Income</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📐</div>
+      <div class="stat-info">
+        <div class="stat-value" id="statTotalArea">0</div>
+        <div class="stat-label">Total Sq Ft</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters-bar">
+    <div class="search-wrap">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="searchInput" placeholder="Search by name, location or tenant..." class="search-input">
+    </div>
+    <div class="filter-controls">
+      <select id="filterStatus" class="filter-select">
+        <option value="">All Status</option>
+        <option value="rented">Rented</option>
+        <option value="vacant">Vacant</option>
+      </select>
+      <select id="filterOwnership" class="filter-select">
+        <option value="">All Ownership</option>
+        <option value="own">Own</option>
+        <option value="partnership">Partnership</option>
+        <option value="management">Management</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Properties Grid -->
+  <div class="properties-grid" id="propertiesGrid"></div>
+
+  <!-- Empty State -->
+  <div class="empty-state" id="emptyState" style="display:none;">
+    <div class="empty-icon">🏗️</div>
+    <h3>No Properties Added Yet</h3>
+    <p>Start building your portfolio by adding your first commercial property.</p>
+    <button class="btn-primary" onclick="openAddModal()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add First Property
+    </button>
+  </div>
+
+  </div><!-- end #dashboardView -->
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- REMINDERS VIEW                         -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="remindersView" style="display:none;">
+    <div class="reminders-page">
+
+      <!-- Page Title -->
+      <div class="reminders-header">
+        <div>
+          <h1 class="reminders-title">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            Tenancy Reminders
+          </h1>
+          <p class="reminders-sub">Properties whose contracts are approaching expiry based on your set reminder thresholds</p>
+        </div>
+        <div class="reminder-summary-chips" id="reminderSummaryChips"></div>
+      </div>
+
+      <!-- Reminder Groups (rendered by JS) -->
+      <div id="reminderGroups"></div>
+
+      <!-- Empty reminders state -->
+      <div class="reminders-empty" id="remindersEmpty" style="display:none;">
+        <div class="empty-icon">✅</div>
+        <h3>All Clear — No Upcoming Expirations</h3>
+        <p>None of your tenancy contracts are within their reminder window right now.</p>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CONTRACT BUILDER VIEW                 -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="contractView" style="display:none;">
+    <div class="contract-page">
+
+      <!-- Toolbar -->
+      <div class="contract-toolbar">
+        <div>
+          <h2 class="contract-page-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Tenancy Contract Builder
+          </h2>
+          <p class="contract-page-sub">Fill in the fields below, then download as PDF and attach it to your property.</p>
+        </div>
+        <div class="contract-toolbar-actions">
+          <select id="contractLoadProp" class="filter-select" onchange="loadContractFromProperty(this.value)" style="min-width:220px;">
+            <option value="">— Auto-fill from property —</option>
+          </select>
+          <button class="btn-ghost" onclick="clearContractForm()">Clear</button>
+          <button class="btn-primary" onclick="previewContract()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            Download PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Form Body -->
+      <div class="contract-form-body">
+
+        <!-- Date -->
+        <div class="cf-section">
+          <div class="cf-section-head">
+            <span class="cf-en">TENANCY CONTRACT</span>
+            <span class="cf-ar">عـقـد إيـجـــار</span>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Contract Date — التاريخ</label>
+              <input type="date" id="cf_date">
+            </div>
+            <div class="form-group"></div>
+          </div>
+        </div>
+
+        <!-- Owner / Lessor -->
+        <div class="cf-section">
+          <div class="cf-section-head">
+            <span class="cf-en">Owner / Lessor Information</span>
+            <span class="cf-ar">معلومات المالك / المؤجر</span>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Owner's Name — اسم المالك</label>
+              <input type="text" id="cf_owner_name" placeholder="Full legal name">
+            </div>
+            <div class="form-group">
+              <label>Lessor's Name — اسم المؤجر</label>
+              <input type="text" id="cf_lessor_name" placeholder="Full legal name">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lessor's Emirates ID — الهوية الإماراتية للمؤجر</label>
+              <input type="text" id="cf_lessor_eid" placeholder="784-XXXX-XXXXXXX-X">
+            </div>
+            <div class="form-group">
+              <label>License No. — رقم الرخصة <span class="cf-note">(if company)</span></label>
+              <input type="text" id="cf_lessor_license" placeholder="License number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Licensing Authority — سلطة الترخيص <span class="cf-note">(if company)</span></label>
+              <input type="text" id="cf_lessor_auth" placeholder="e.g. DED, DMCC">
+            </div>
+            <div class="form-group">
+              <label>Lessor's Phone — رقم هاتف المؤجر</label>
+              <input type="tel" id="cf_lessor_phone" placeholder="+971 XX XXX XXXX">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lessor's Email — البريد الإلكتروني للمؤجر</label>
+              <input type="email" id="cf_lessor_email" placeholder="lessor@email.com">
+            </div>
+            <div class="form-group"></div>
+          </div>
+        </div>
+
+        <!-- Tenant -->
+        <div class="cf-section">
+          <div class="cf-section-head">
+            <span class="cf-en">Tenant Information</span>
+            <span class="cf-ar">معلومات المستأجر</span>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenant's Name — اسم المستأجر</label>
+              <input type="text" id="cf_tenant_name" placeholder="Full legal name">
+            </div>
+            <div class="form-group">
+              <label>Tenant's Emirates ID — الهوية الإماراتية للمستأجر</label>
+              <input type="text" id="cf_tenant_eid" placeholder="784-XXXX-XXXXXXX-X">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>License No. — رقم الرخصة <span class="cf-note">(if company)</span></label>
+              <input type="text" id="cf_tenant_license" placeholder="License number">
+            </div>
+            <div class="form-group">
+              <label>Licensing Authority — سلطة الترخيص <span class="cf-note">(if company)</span></label>
+              <input type="text" id="cf_tenant_auth" placeholder="e.g. DED, DMCC">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenant's Email — البريد الإلكتروني للمستأجر</label>
+              <input type="email" id="cf_tenant_email" placeholder="tenant@email.com">
+            </div>
+            <div class="form-group">
+              <label>Tenant's Phone — رقم هاتف المستأجر</label>
+              <input type="tel" id="cf_tenant_phone" placeholder="+971 XX XXX XXXX">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Number of Co-Occupants — عدد القاطنين</label>
+              <input type="number" id="cf_cooccupants" placeholder="0" min="0">
+            </div>
+            <div class="form-group"></div>
+          </div>
+        </div>
+
+        <!-- Property -->
+        <div class="cf-section">
+          <div class="cf-section-head">
+            <span class="cf-en">Property Information</span>
+            <span class="cf-ar">معلومات العقار</span>
+          </div>
+          <div class="form-row">
+            <div class="form-group full-width">
+              <label>Property Usage — استخدام العقار</label>
+              <div class="radio-group">
+                <label class="radio-opt">
+                  <input type="radio" name="cf_usage" value="Residential"> <span>Residential — سكني</span>
+                </label>
+                <label class="radio-opt">
+                  <input type="radio" name="cf_usage" value="Commercial" checked> <span>Commercial — تجاري</span>
+                </label>
+                <label class="radio-opt">
+                  <input type="radio" name="cf_usage" value="Industrial"> <span>Industrial — صناعي</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Plot No. — رقم الأرض</label>
+              <input type="text" id="cf_plot_no" placeholder="Plot number">
+            </div>
+            <div class="form-group">
+              <label>Makani No. — رقم مكاني</label>
+              <input type="text" id="cf_makani_no" placeholder="Makani number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Building Name — اسم المبنى</label>
+              <input type="text" id="cf_building_name" placeholder="Building name">
+            </div>
+            <div class="form-group">
+              <label>Property No. — رقم العقار</label>
+              <input type="text" id="cf_property_no" placeholder="Property number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Property Type — نوع الوحدة</label>
+              <input type="text" id="cf_property_type" placeholder="e.g. Warehouse, Office">
+            </div>
+            <div class="form-group">
+              <label>Property Area (sq.m) — مساحة العقار</label>
+              <input type="number" id="cf_property_area" placeholder="e.g. 500" min="0" step="0.01">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Location — الموقع</label>
+              <input type="text" id="cf_location" placeholder="Full address">
+            </div>
+            <div class="form-group">
+              <label>Premises No. (DEWA) — رقم المبنى (ديوا)</label>
+              <input type="text" id="cf_dewa_no" placeholder="DEWA premises number">
+            </div>
+          </div>
+        </div>
+
+        <!-- Contract Info -->
+        <div class="cf-section">
+          <div class="cf-section-head">
+            <span class="cf-en">Contract Information</span>
+            <span class="cf-ar">معلومات العقد</span>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Contract Period — From — من</label>
+              <input type="date" id="cf_from">
+            </div>
+            <div class="form-group">
+              <label>Contract Period — To — إلى</label>
+              <input type="date" id="cf_to">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Contract Value (AED) — قيمة العقد</label>
+              <input type="number" id="cf_contract_value" placeholder="e.g. 180,000" min="0">
+            </div>
+            <div class="form-group">
+              <label>Annual Rent (AED) — الايجار السنوي</label>
+              <input type="number" id="cf_annual_rent" placeholder="e.g. 180,000" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Security Deposit (AED) — مبلغ التأمين</label>
+              <input type="number" id="cf_security_deposit" placeholder="e.g. 18,000" min="0">
+            </div>
+            <div class="form-group">
+              <label>Mode of Payment — طريقة الدفع</label>
+              <input type="text" id="cf_payment_mode" placeholder="e.g. 1 Cheque, 4 Cheques, Bank Transfer">
+            </div>
+          </div>
+        </div>
+
+        <!-- Additional Terms -->
+        <div class="cf-section">
+          <div class="cf-section-head">
+            <span class="cf-en">Additional Terms</span>
+            <span class="cf-ar">شروط إضافية</span>
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 1</label>
+            <input type="text" id="cf_term_1" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 2</label>
+            <input type="text" id="cf_term_2" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 3</label>
+            <input type="text" id="cf_term_3" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 4</label>
+            <input type="text" id="cf_term_4" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width">
+            <label>Term 5</label>
+            <input type="text" id="cf_term_5" placeholder="Additional term or condition...">
+          </div>
+        </div>
+
+        <!-- Download CTA -->
+        <div class="cf-download-bar">
+          <div>
+            <strong>Ready to generate?</strong> Click Download PDF — your browser will open a print-ready contract. Choose "Save as PDF" in the print dialog.
+          </div>
+          <button class="btn-primary" onclick="previewContract()" style="white-space:nowrap;flex-shrink:0;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            Download PDF
+          </button>
+        </div>
+
+      </div><!-- end contract-form-body -->
+    </div><!-- end contract-page -->
+  </div><!-- end #contractView -->
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- ADD / EDIT PROPERTY MODAL              -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="propertyModalOverlay">
+    <div class="modal" id="propertyModal">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🏢</div>
+          <div>
+            <h2 id="modalTitle">Add New Property</h2>
+            <p class="modal-subtitle">Only Name & Type are required — fill in the rest anytime</p>
+          </div>
+        </div>
+        <button class="modal-close" id="closePropertyModal" title="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <form id="propertyForm" onsubmit="return false;">
+          <input type="hidden" id="editPropertyId">
+
+          <!-- Section 1: Basic Info -->
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">01</span>
+              <h3 class="section-title">Basic Information</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Property Name <span class="req">*</span></label>
+                <input type="text" id="propName" required placeholder="e.g. Warehouse A — Al Quoz">
+              </div>
+              <div class="form-group">
+                <label>Property Type <span class="req">*</span></label>
+                <select id="propType" required>
+                  <option value="">Select type</option>
+                  <option value="warehouse">🏭 Warehouse</option>
+                  <option value="office">🏢 Office</option>
+                  <option value="residential">🏠 Residential</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Location / Address</label>
+                <input type="text" id="propLocation" placeholder="e.g. Al Quoz Industrial Area 3, Dubai">
+              </div>
+              <div class="form-group">
+                <label>Google Maps Link</label>
+                <input type="url" id="propMapLink" placeholder="https://maps.google.com/...">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Coordinates <span class="cf-note">for Map tab — paste from Google Maps</span></label>
+                <input type="text" id="propCoords" placeholder="e.g. 25.2048, 55.2708">
+              </div>
+              <div class="form-group"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Size — Built-up Area (sq ft)</label>
+                <input type="number" id="propSize" placeholder="e.g. 5000" min="0">
+              </div>
+              <div class="form-group">
+                <label>Total Plot / Land Area (sq ft)</label>
+                <input type="number" id="propArea" placeholder="e.g. 8000" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Is it a Compound?</label>
+                <div class="radio-group">
+                  <label class="radio-opt">
+                    <input type="radio" name="propCompound" value="yes"> <span>Yes</span>
+                  </label>
+                  <label class="radio-opt">
+                    <input type="radio" name="propCompound" value="no" checked> <span>No</span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Mezzanine Included?</label>
+                <div class="radio-group">
+                  <label class="radio-opt">
+                    <input type="radio" name="propMezzanine" value="yes"> <span>Yes</span>
+                  </label>
+                  <label class="radio-opt">
+                    <input type="radio" name="propMezzanine" value="no" checked> <span>No</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Ownership -->
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">02</span>
+              <h3 class="section-title">Ownership & Financials</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Ownership Type</label>
+                <select id="propOwnership" onchange="toggleOwnership()">
+                  <option value="">Select ownership</option>
+                  <option value="own">Own — 100%</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="management">📋 Management Only (0% share)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Original Purchase Price (AED)</label>
+                <input type="number" id="propPurchasePrice" placeholder="e.g. 2,500,000" min="0">
+              </div>
+            </div>
+            <div id="partnershipFields" style="display:none;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Partner Name / Company</label>
+                  <input type="text" id="propPartnerName" placeholder="Partner's full name or company">
+                </div>
+                <div class="form-group">
+                  <label>Our Ownership Share (%)</label>
+                  <input type="number" id="propOurShare" placeholder="e.g. 50" min="1" max="99">
+                </div>
+              </div>
+            </div>
+            <div id="managementFields" style="display:none;">
+              <div class="mgmt-notice">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                You manage this property on behalf of its owner and earn a management fee — you hold 0% equity.
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Property Owner Name</label>
+                  <input type="text" id="propOwnerName" placeholder="Owner's full name or company">
+                </div>
+                <div class="form-group">
+                  <label>Owner's Contact / Phone</label>
+                  <input type="tel" id="propOwnerPhone" placeholder="+971 XX XXX XXXX">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Management Fee (AED / year)</label>
+                  <input type="number" id="propMgmtFee" placeholder="e.g. 15,000" min="0">
+                </div>
+                <div class="form-group">
+                  <label>Management Agreement Date</label>
+                  <input type="date" id="propMgmtDate">
+                </div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Purchase Date</label>
+                <input type="date" id="propPurchaseDate">
+              </div>
+              <div class="form-group">
+                <label>Current Market Value (AED)</label>
+                <input type="number" id="propMarketValue" placeholder="Optional estimate" min="0">
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Rental -->
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">03</span>
+              <h3 class="section-title">Rental Details</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Rental Status</label>
+                <div class="status-toggle-group">
+                  <label class="status-opt status-opt-rented" id="statusOptRented">
+                    <input type="radio" name="propStatus" value="rented" onchange="toggleRentalSection()">
+                    <span class="status-opt-inner">
+                      <span class="status-dot dot-rented"></span>
+                      Rented
+                    </span>
+                  </label>
+                  <label class="status-opt status-opt-vacant" id="statusOptVacant">
+                    <input type="radio" name="propStatus" value="vacant" onchange="toggleRentalSection()">
+                    <span class="status-opt-inner">
+                      <span class="status-dot dot-vacant"></span>
+                      Vacant
+                    </span>
+                  </label>
+                  <label class="status-opt status-opt-none" id="statusOptNone">
+                    <input type="radio" name="propStatus" value="" checked onchange="toggleRentalSection()">
+                    <span class="status-opt-inner">Not Set</span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Annual Rent (AED) <span id="rentLabel" class="optional-label"></span></label>
+                <input type="number" id="propRent" placeholder="e.g. 180,000" min="0">
+              </div>
+            </div>
+
+            <!-- Tenant section — hidden when Vacant -->
+            <div id="tenantSection">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Tenant Name / Company</label>
+                  <input type="text" id="propTenantName" placeholder="Current tenant">
+                </div>
+                <div class="form-group">
+                  <label>Tenant Phone Number</label>
+                  <input type="tel" id="propTenantPhone" placeholder="+971 50 000 0000">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Tenant Email Address</label>
+                  <input type="email" id="propTenantEmail" placeholder="tenant@email.com">
+                </div>
+                <div class="form-group">
+                  <label>Contract Expiry Reminder</label>
+                  <select id="propReminderDays">
+                    <option value="120">120 days before expiry</option>
+                    <option value="90">90 days before expiry</option>
+                    <option value="60" selected>60 days before expiry</option>
+                    <option value="30">30 days before expiry</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Lease Start Date</label>
+                  <input type="date" id="propLeaseStart">
+                </div>
+                <div class="form-group">
+                  <label>Lease End Date</label>
+                  <input type="date" id="propLeaseEnd">
+                </div>
+              </div>
+
+              <!-- Cheque Schedule -->
+              <div class="cheque-section-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                Cheque Schedule
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Number of Cheques</label>
+                  <select id="propNumCheques" onchange="renderChequeFields()">
+                    <option value="">— Not applicable —</option>
+                    <option value="1">1 cheque</option>
+                    <option value="2">2 cheques</option>
+                    <option value="3">3 cheques</option>
+                    <option value="4">4 cheques</option>
+                    <option value="5">5 cheques</option>
+                    <option value="6">6 cheques</option>
+                  </select>
+                </div>
+              </div>
+              <div id="chequeFields"></div>
+            </div>
+
+            <!-- Vacant notice -->
+            <div id="vacantNotice" class="vacant-notice" style="display:none;">
+              <span>🔓</span>
+              <div>
+                <strong>Property is Vacant</strong>
+                <p>Tenant details are hidden. You can add an asking rent above.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 4: Documents -->
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">04</span>
+              <h3 class="section-title">Documents & Attachments</h3>
+            </div>
+            <div class="form-row three-col">
+              <div class="form-group">
+                <label>Ijari Document</label>
+                <div class="file-zone" onclick="document.getElementById('fileIjari').click()">
+                  <input type="file" id="fileIjari" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'ijari')">
+                  <div class="file-zone-icon">📄</div>
+                  <div class="file-zone-text" id="fileIjariLabel">Upload Ijari</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" id="existingIjari"></div>
+              </div>
+              <div class="form-group">
+                <label>Affection Plan</label>
+                <div class="file-zone" onclick="document.getElementById('fileAffection').click()">
+                  <input type="file" id="fileAffection" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'affection')">
+                  <div class="file-zone-icon">🗺️</div>
+                  <div class="file-zone-text" id="fileAffectionLabel">Upload Plan</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" id="existingAffection"></div>
+              </div>
+              <div class="form-group">
+                <label>Tenancy Contract</label>
+                <div class="file-zone" onclick="document.getElementById('fileTenancy').click()">
+                  <input type="file" id="fileTenancy" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'tenancy')">
+                  <div class="file-zone-icon">📋</div>
+                  <div class="file-zone-text" id="fileTenancyLabel">Upload Contract</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" id="existingTenancy"></div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label>Additional Notes</label>
+                <textarea id="propNotes" rows="3" placeholder="Any additional notes about this property..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 5: Media -->
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">05</span>
+              <h3 class="section-title">Photos & Videos</h3>
+            </div>
+            <div class="media-drop-zone" id="mediaDropZone" onclick="document.getElementById('mediaInput').click()">
+              <input type="file" id="mediaInput" accept="image/*,video/*" multiple onchange="handleMediaFiles(event)">
+              <div class="media-drop-icon">📸</div>
+              <div class="media-drop-text">Click to add photos & videos</div>
+              <div class="media-drop-sub">JPG, PNG, GIF, WEBP, MP4, MOV, AVI — up to 100 MB each</div>
+            </div>
+            <div class="media-preview-grid" id="mediaPreviewGrid"></div>
+          </div>
+
+        </form>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-ghost" id="cancelPropertyBtn">Cancel</button>
+        <button class="btn-primary" id="savePropertyBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span id="saveBtnText">Save Property</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PROPERTY DETAIL MODAL                  -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="detailModalOverlay">
+    <div class="modal modal-xl" id="detailModal">
+      <div class="modal-header" id="detailHeader">
+        <div class="modal-header-left">
+          <div class="modal-header-icon" id="detailTypeIcon">🏢</div>
+          <div>
+            <h2 id="detailName">Property Name</h2>
+            <div id="detailMeta" class="detail-meta"></div>
+          </div>
+        </div>
+        <button class="modal-close" id="closeDetailModal" title="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="detailBody"></div>
+      <div class="modal-footer">
+        <button class="btn-delete" id="deletePropertyBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Delete
+        </button>
+        <div style="margin-left:auto;display:flex;gap:10px;">
+          <button class="btn-ghost" id="closeDetailBtn">Close</button>
+          <button class="btn-primary" id="editFromDetailBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit Property
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- MAP VIEW                               -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="mapView" style="display:none;">
+    <div class="map-page">
+      <div id="leafletMap" class="map-container"></div>
+      <div class="map-sidebar">
+        <div class="map-sidebar-header">
+          <div class="map-sidebar-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+            Property Locations
+          </div>
+          <div class="map-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#c9a84c;"></span>Warehouse</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#111;"></span>Office</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#059669;"></span>Residential</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#ccc;"></span>No pin</span>
+          </div>
+        </div>
+        <div id="mapPropertyList"></div>
+        <div class="map-no-pins" id="mapNoPinsHint" style="display:none;">
+          <div style="font-size:28px;margin-bottom:10px;">📍</div>
+          <strong>No pins yet</strong>
+          <p>Add coordinates to your properties to see them on the map. Edit any property and enter coordinates like <code>25.2048, 55.2708</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- DISPUTES VIEW                          -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="disputesView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Legal Disputes & Court Cases
+          </h1>
+          <p class="tab-page-sub">Track all disputes, court proceedings, and legal matters for your properties</p>
+        </div>
+        <button class="btn-primary" onclick="openAddDisputeModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Dispute
+        </button>
+      </div>
+      <div class="tab-stats-bar" id="disputeStatsBar"></div>
+      <div class="items-grid" id="disputesGrid"></div>
+      <div class="empty-state" id="disputesEmpty" style="display:none;">
+        <div class="empty-icon">⚖️</div>
+        <h3>No Disputes Recorded</h3>
+        <p>Add a dispute or court case to start tracking your legal matters.</p>
+        <button class="btn-primary" onclick="openAddDisputeModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add First Dispute
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CONSTRUCTION VIEW                      -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="constructionView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg>
+            Construction Projects
+          </h1>
+          <p class="tab-page-sub">Track warehouse builds, extensions, renovations and fitouts</p>
+        </div>
+        <button class="btn-primary" onclick="openAddProjectModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Project
+        </button>
+      </div>
+      <div class="tab-stats-bar" id="constructionStatsBar"></div>
+      <div class="items-grid" id="constructionGrid"></div>
+      <div class="empty-state" id="constructionEmpty" style="display:none;">
+        <div class="empty-icon">🏗️</div>
+        <h3>No Construction Projects</h3>
+        <p>Add a project to track your warehouse builds and renovations.</p>
+        <button class="btn-primary" onclick="openAddProjectModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add First Project
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- DISPUTE ADD / EDIT MODAL               -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="disputeModalOverlay">
+    <div class="modal" id="disputeModal">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">⚖️</div>
+          <div>
+            <h2 id="disputeModalTitle">Add Dispute / Case</h2>
+            <p class="modal-subtitle">Only the title is required — fill in the rest as info becomes available</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeDisputeModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="disputeForm" onsubmit="return false;">
+
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">01</span>
+              <h3 class="section-title">Dispute Details</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Dispute Title <span class="req">*</span></label>
+                <input type="text" id="d_title" placeholder="e.g. Unpaid Rent — Al Quoz Tenant" required>
+              </div>
+              <div class="form-group">
+                <label>Linked Property</label>
+                <select id="d_property">
+                  <option value="">— None —</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Dispute Type</label>
+                <select id="d_type">
+                  <option value="">Select type</option>
+                  <option value="court">⚖️ Court Case</option>
+                  <option value="rental-dispute">🏠 Rental Dispute Center</option>
+                  <option value="mediation">🤝 Mediation</option>
+                  <option value="arbitration">📋 Arbitration</option>
+                  <option value="other">📌 Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Status</label>
+                <select id="d_status">
+                  <option value="">Select status</option>
+                  <option value="active">🔴 Active</option>
+                  <option value="pending">🟡 Pending</option>
+                  <option value="appealed">🔵 Appealed</option>
+                  <option value="resolved">🟢 Resolved</option>
+                  <option value="withdrawn">⚪ Withdrawn</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">02</span>
+              <h3 class="section-title">Case Information</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Case Number</label>
+                <input type="text" id="d_case_no" placeholder="e.g. RDC-2024-12345">
+              </div>
+              <div class="form-group">
+                <label>Court / Authority</label>
+                <input type="text" id="d_court" placeholder="e.g. Dubai Rental Dispute Center">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Opposing Party</label>
+                <input type="text" id="d_opponent" placeholder="Name of tenant / company">
+              </div>
+              <div class="form-group">
+                <label>Amount Disputed (AED)</label>
+                <input type="number" id="d_amount" placeholder="e.g. 120,000" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Filing Date</label>
+                <input type="date" id="d_filing_date">
+              </div>
+              <div class="form-group">
+                <label>Next Hearing Date</label>
+                <input type="date" id="d_hearing_date">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">03</span>
+              <h3 class="section-title">Legal Representation</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Lawyer / Legal Firm</label>
+                <input type="text" id="d_lawyer" placeholder="Lawyer or firm name">
+              </div>
+              <div class="form-group">
+                <label>Lawyer Phone</label>
+                <input type="tel" id="d_lawyer_phone" placeholder="+971 XX XXX XXXX">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label>Notes / Case Summary</label>
+                <textarea id="d_notes" rows="4" placeholder="Key facts, timeline, outcome details..."></textarea>
+              </div>
+            </div>
+          </div>
+
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-delete" id="deleteDisputeBtn" onclick="deleteCurrentDispute()" style="display:none;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Delete
+        </button>
+        <div style="margin-left:auto;display:flex;gap:10px;">
+          <button class="btn-ghost" onclick="closeDisputeModal()">Cancel</button>
+          <button class="btn-primary" onclick="handleSaveDispute()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Save Dispute
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CONSTRUCTION ADD / EDIT MODAL          -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="constructionModalOverlay">
+    <div class="modal" id="constructionModal">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🏗️</div>
+          <div>
+            <h2 id="projectModalTitle">Add Construction Project</h2>
+            <p class="modal-subtitle">Track builds, extensions, renovations and fitouts</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeProjectModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="projectForm" onsubmit="return false;">
+
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">01</span>
+              <h3 class="section-title">Project Details</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Project Name <span class="req">*</span></label>
+                <input type="text" id="p_name" placeholder="e.g. Warehouse B — New Build" required>
+              </div>
+              <div class="form-group">
+                <label>Linked Property</label>
+                <select id="p_property">
+                  <option value="">— None (standalone) —</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Project Type</label>
+                <select id="p_type">
+                  <option value="">Select type</option>
+                  <option value="new-warehouse">🏗️ New Warehouse Build</option>
+                  <option value="extension">📐 Extension / Expansion</option>
+                  <option value="renovation">🔧 Renovation / Refurbishment</option>
+                  <option value="office-fitout">🏢 Office Fitout</option>
+                  <option value="infrastructure">⚡ Infrastructure / MEP</option>
+                  <option value="other">📌 Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Status</label>
+                <select id="p_status">
+                  <option value="">Select status</option>
+                  <option value="planning">📋 Planning</option>
+                  <option value="in-progress">🔨 In Progress</option>
+                  <option value="on-hold">⏸ On Hold</option>
+                  <option value="completed">✅ Completed</option>
+                  <option value="cancelled">❌ Cancelled</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label>Location / Site Address</label>
+                <input type="text" id="p_location" placeholder="If different from linked property">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">02</span>
+              <h3 class="section-title">Contractor & Timeline</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Contractor / Company</label>
+                <input type="text" id="p_contractor" placeholder="Contractor name">
+              </div>
+              <div class="form-group">
+                <label>Contractor Phone</label>
+                <input type="tel" id="p_contractor_phone" placeholder="+971 XX XXX XXXX">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" id="p_start_date">
+              </div>
+              <div class="form-group">
+                <label>Expected Completion</label>
+                <input type="date" id="p_expected">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-header">
+              <span class="section-num">03</span>
+              <h3 class="section-title">Budget & Progress</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Total Budget (AED)</label>
+                <input type="number" id="p_budget" placeholder="e.g. 2,000,000" min="0">
+              </div>
+              <div class="form-group">
+                <label>Amount Spent to Date (AED)</label>
+                <input type="number" id="p_spent" placeholder="e.g. 850,000" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Progress (%)</label>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <input type="range" id="p_progress" min="0" max="100" value="0" oninput="$('p_progress_val').textContent=this.value+'%'" style="flex:1;">
+                  <span id="p_progress_val" style="min-width:40px;font-weight:600;color:var(--gold);">0%</span>
+                </div>
+              </div>
+              <div class="form-group"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label>Notes / Update Log</label>
+                <textarea id="p_notes" rows="4" placeholder="Progress updates, issues, milestones..."></textarea>
+              </div>
+            </div>
+          </div>
+
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-delete" id="deleteProjectBtn" onclick="deleteCurrentProject()" style="display:none;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Delete
+        </button>
+        <div style="margin-left:auto;display:flex;gap:10px;">
+          <button class="btn-ghost" onclick="closeProjectModal()">Cancel</button>
+          <button class="btn-primary" onclick="handleSaveProject()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Save Project
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PAYMENT STRUCTURE VIEW                 -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="paymentView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            Payment Structure
+          </h1>
+          <p class="tab-page-sub">All cheque schedules across your portfolio — track received, pending &amp; bounced payments</p>
+        </div>
+        <div class="pmt-filter-group">
+          <select id="pmtFilterStatus" class="filter-select" onchange="renderPayments()">
+            <option value="">All Statuses</option>
+            <option value="pending">⏳ Pending</option>
+            <option value="received">✅ Received</option>
+            <option value="bounced">❌ Bounced</option>
+          </select>
+          <select id="pmtFilterType" class="filter-select" onchange="renderPayments()">
+            <option value="">All Types</option>
+            <option value="warehouse">🏭 Warehouses</option>
+            <option value="office">🏢 Offices</option>
+            <option value="residential">🏠 Residential</option>
+          </select>
+          <button class="btn-primary" onclick="openProposalModal()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            Create Proposal
+          </button>
+        </div>
+      </div>
+
+      <!-- Payment Stats -->
+      <div class="tab-stats-bar" id="paymentStatsBar"></div>
+
+      <!-- Payment Table -->
+      <div class="pmt-table-wrap">
+        <div id="paymentTable"></div>
+        <div class="empty-state" id="paymentEmpty" style="display:none;">
+          <div class="empty-icon">💳</div>
+          <h3>No Cheque Data Found</h3>
+          <p>Add cheque schedules to your rented properties to track payments here.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CALENDAR VIEW                          -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="calendarView" style="display:none;">
+    <div class="cal-page">
+
+      <!-- Header: navigation + legend -->
+      <div class="cal-topbar">
+        <div class="cal-nav">
+          <button class="cal-nav-btn" onclick="calShift(-1)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="cal-month-label" id="calMonthLabel">April 2026</span>
+          <button class="cal-nav-btn" onclick="calShift(1)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="cal-today-btn" onclick="calGoToday()">Today</button>
+        </div>
+        <div class="cal-legend">
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#f59e0b;"></span>Cheque Pending</span>
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#059669;"></span>Cheque Received</span>
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#dc2626;"></span>Cheque Bounced</span>
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#3b82f6;"></span>Lease Start</span>
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#ef4444;"></span>Lease End</span>
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#8b5cf6;"></span>Reminder</span>
+          <span class="cal-leg"><span class="cal-leg-dot" style="background:#c9a84c;"></span>Custom</span>
+        </div>
+      </div>
+
+      <!-- Day-of-week header -->
+      <div class="cal-dow">
+        <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div>
+        <div>Fri</div><div>Sat</div><div>Sun</div>
+      </div>
+
+      <!-- Calendar grid (rendered by JS) -->
+      <div class="cal-grid" id="calGrid"></div>
+
+    </div>
+  </div>
+
+  <!-- Day Event Modal -->
+  <div class="modal-overlay" id="calDayModal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">📅</div>
+          <div>
+            <h2 id="calDayTitle">April 26, 2026</h2>
+            <p class="modal-subtitle">Events &amp; schedule for this day</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeCalDay()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height:65vh;overflow-y:auto;">
+
+        <!-- Event list -->
+        <div id="calDayEvents" style="margin-bottom:20px;"></div>
+
+        <!-- Add custom event form -->
+        <div class="cal-add-form">
+          <div class="cal-add-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Event to This Day
+          </div>
+          <div class="form-group" style="margin-bottom:10px;">
+            <label>Event Title</label>
+            <input type="text" id="calNewTitle" placeholder="e.g. Cheque transfer to ADCB, Site inspection…">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Event Type</label>
+              <select id="calNewType">
+                <option value="transfer">💸 Transfer / Payment</option>
+                <option value="inspection">🔍 Inspection</option>
+                <option value="meeting">🤝 Meeting</option>
+                <option value="legal">⚖️ Legal / Court</option>
+                <option value="deadline">⏰ Deadline</option>
+                <option value="other">📌 Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Time (optional)</label>
+              <input type="time" id="calNewTime">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Notes (optional)</label>
+            <input type="text" id="calNewNote" placeholder="Additional details…">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCalDay()">Close</button>
+        <button class="btn-primary" onclick="addCalendarEvent()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Event
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- TEAM VIEW (admin only)               -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="teamView" style="display:none;">
+    <div class="team-page">
+
+      <!-- Agents Section -->
+      <div class="team-section">
+        <div class="team-section-header">
+          <div>
+            <div class="team-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+              Agents
+            </div>
+            <div class="team-section-sub">Manage your team's login accounts and permissions</div>
+          </div>
+          <button class="btn-primary" onclick="openAgentModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Agent
+          </button>
+        </div>
+        <div id="agentsList" class="agents-list"></div>
+      </div>
+
+      <!-- Tasks Section -->
+      <div class="team-section">
+        <div class="team-section-header">
+          <div>
+            <div class="team-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              Tasks
+            </div>
+            <div class="team-section-sub">Assign and track tasks — only agents can update progress</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select class="filter-select" id="taskFilterAgent" onchange="renderTeamTab()" style="width:160px;">
+              <option value="">All Agents</option>
+            </select>
+            <select class="filter-select" id="taskFilterStatus" onchange="renderTeamTab()" style="width:140px;">
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="in-progress">In Progress</option>
+              <option value="done">Done</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button class="btn-primary" onclick="openTaskModal()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Assign Task
+            </button>
+          </div>
+        </div>
+        <div id="tasksList"></div>
+      </div>
+
+      <!-- Leads Pipeline Section -->
+      <div class="team-section">
+        <div class="team-section-header">
+          <div>
+            <div class="team-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg>
+              Leads Pipeline
+            </div>
+            <div class="team-section-sub">All inbound leads from Meta Ads and other sources — assign &amp; track progress</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select class="filter-select" id="leadFilterAgent" onchange="renderLeadsPipeline()" style="width:150px;">
+              <option value="">All Agents</option>
+            </select>
+            <select class="filter-select" id="leadFilterStage" onchange="renderLeadsPipeline()" style="width:140px;">
+              <option value="">All Stages</option>
+              <option value="new">New</option>
+              <option value="contacted">Contacted</option>
+              <option value="meeting">Meeting</option>
+              <option value="qualified">Qualified</option>
+              <option value="proposal">Proposal Sent</option>
+              <option value="negotiation">Negotiation</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
+            <select class="filter-select" id="leadFilterSource" onchange="renderLeadsPipeline()" style="width:140px;">
+              <option value="">All Sources</option>
+              <option value="meta-ads">Meta Ads</option>
+              <option value="instagram">Instagram</option>
+              <option value="google">Google Ads</option>
+              <option value="referral">Referral</option>
+              <option value="walk-in">Walk-in</option>
+              <option value="website">Website</option>
+              <option value="other">Other</option>
+            </select>
+            <button class="btn-ghost" onclick="openApiSettings()" style="display:flex;align-items:center;gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+              Connect APIs
+              <span class="api-status-dot" id="apiStatusDot"></span>
+            </button>
+            <button class="btn-ghost" id="syncNowBtn" onclick="syncAllApis()" style="display:none;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              Sync Now
+            </button>
+            <button class="btn-primary" onclick="openLeadModal()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Lead
+            </button>
+          </div>
+        </div>
+        <!-- API sync status bar -->
+        <div class="api-sync-bar" id="apiSyncBar" style="display:none;"></div>
+        <!-- Pipeline stage summary bar -->
+        <div class="pipeline-stage-bar" id="pipelineStageBar"></div>
+        <!-- Leads table -->
+        <div id="leadsTable"></div>
+      </div>
+
+      <!-- Pending Submissions Section -->
+      <div class="team-section" id="pendingPropsSection">
+        <div class="team-section-header">
+          <div>
+            <div class="team-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Pending Property Submissions
+            </div>
+            <div class="team-section-sub">Properties submitted by agents — approve to add to the main dashboard</div>
+          </div>
+          <span class="pending-badge" id="pendingBadge" style="display:none;"></span>
+        </div>
+        <div id="pendingPropsList"></div>
+      </div>
+
+    </div>
+  </div>
+
+    </main>
+  </div><!-- end .app-body -->
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- AGENT HEADER (shown for agent login)  -->
+  <!-- ═══════════════════════════════════════ -->
+  <header class="header agent-header" id="agentHeader" style="display:none;">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-mark">ASG</div>
+        <div>
+          <span class="logo-title">Commercial Properties</span>
+          <span class="logo-sub" id="agentHeaderName">Agent Dashboard</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="agent-role-badge" id="agentRoleBadge"></div>
+      <button class="btn-logout" onclick="doLogout()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- AGENT DASHBOARD (sidebar + tabs)      -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="agentDashboard" style="display:none;" class="app-body">
+
+    <!-- Agent Sidebar -->
+    <nav class="sidebar" id="agentSidebar">
+      <div class="agent-profile-card">
+        <div class="agent-nav-avatar" id="agentNavAvatar">A</div>
+        <div>
+          <div class="agent-nav-name" id="agentNavName">Agent</div>
+          <div class="agent-nav-role" id="agentNavRole">Property Agent</div>
+        </div>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-group">
+        <div class="nav-group-label">Dashboard</div>
+        <button class="nav-item active" id="aTab-overview" onclick="showAgentTab('overview')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Overview
+        </button>
+        <button class="nav-item" id="aTab-inventory" onclick="showAgentTab('inventory')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="8" width="22" height="13" rx="2"/><path d="M1 8l11-6 11 6"/></svg>
+          Inventory
+          <span class="nav-count" id="agentInvCount"></span>
+        </button>
+        <button class="nav-item" id="aTab-leads" onclick="showAgentTab('leads')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg>
+          My Leads
+          <span class="nav-count" id="agentLeadCount"></span>
+        </button>
+        <button class="nav-item" id="aTab-tasks" onclick="showAgentTab('tasks')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          Tasks
+          <span class="nav-count" id="agentTaskCount"></span>
+        </button>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-group">
+        <div class="nav-group-label">Tools</div>
+        <button class="nav-item" id="aTab-map" onclick="showAgentTab('map')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+          Map
+        </button>
+        <button class="nav-item" id="aTab-proposals" onclick="showAgentTab('proposals')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Proposals
+        </button>
+        <button class="nav-item" id="aTab-contracts" onclick="showAgentTab('contracts')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Contracts
+        </button>
+        <button class="nav-item" id="aTab-submissions" onclick="showAgentTab('submissions')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          My Submissions
+          <span class="nav-count" id="agentSubCount"></span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Agent Main Content -->
+    <main class="main-content" id="agentMainContent">
+
+      <!-- Tab: Overview -->
+      <div id="agentTabOverview" class="agent-tab-page">
+        <div class="agent-welcome" id="agentWelcome"></div>
+        <div class="agent-stats-bar" id="agentStats"></div>
+        <div id="agentWins" style="display:none;">
+          <div class="agent-section-title"><span>🏆</span> Client Wins <span class="agent-section-badge" id="agentWinsCount"></span></div>
+          <div id="agentWinsList"></div>
+        </div>
+        <div id="agentOverviewQuickTasks" style="display:none;">
+          <div class="agent-section-title"><span>📋</span> Active Tasks</div>
+          <div id="agentOverviewTasksList"></div>
+          <div style="text-align:center;margin-top:12px;">
+            <button class="btn-ghost" onclick="showAgentTab('tasks')" style="font-size:13px;">View all tasks →</button>
+          </div>
+        </div>
+        <div id="agentOverviewQuickLeads" style="display:none;">
+          <div class="agent-section-title"><span>👥</span> My Leads</div>
+          <div id="agentOverviewLeadsList"></div>
+          <div style="text-align:center;margin-top:12px;">
+            <button class="btn-ghost" onclick="showAgentTab('leads')" style="font-size:13px;">View all leads →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Inventory -->
+      <div id="agentTabInventory" class="agent-tab-page" style="display:none;">
+        <div class="agent-tab-header">
+          <h2 class="agent-tab-title">🏗️ Property Inventory</h2>
+          <p class="agent-tab-sub">Full portfolio — information, documents &amp; media</p>
+        </div>
+        <div id="agentInventoryList"></div>
+      </div>
+
+      <!-- Tab: Leads -->
+      <div id="agentTabLeads" class="agent-tab-page" style="display:none;">
+        <div id="agentLeadsContent"></div>
+      </div>
+
+      <!-- Tab: Tasks -->
+      <div id="agentTabTasks" class="agent-tab-page" style="display:none;">
+        <div class="agent-tab-header">
+          <h2 class="agent-tab-title">📋 My Tasks</h2>
+          <p class="agent-tab-sub">Tasks assigned to you — update status &amp; add progress notes</p>
+        </div>
+        <div id="agentTasksList"></div>
+      </div>
+
+      <!-- Tab: Map -->
+      <div id="agentTabMap" style="display:none;height:100%;overflow:hidden;">
+        <div id="agentMapContainer" style="width:100%;height:100%;"></div>
+      </div>
+
+      <!-- Tab: Proposals -->
+      <div id="agentTabProposals" class="agent-tab-page" style="display:none;">
+        <div class="agent-tab-header">
+          <h2 class="agent-tab-title">💼 Payment Proposals</h2>
+          <p class="agent-tab-sub">Create professional payment structure proposals to share with clients</p>
+          <button class="btn-primary" onclick="openProposalModal()" style="margin-top:12px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Create New Proposal
+          </button>
+        </div>
+        <div class="agent-tool-info-box">
+          <div class="agent-tool-icon">📄</div>
+          <div>
+            <strong>How it works</strong>
+            <p>Fill in the client details, select the property, set the payment schedule — then download a professional PDF to share directly with your client. Each proposal gets a unique reference number.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Contracts -->
+      <div id="agentTabContracts" class="agent-tab-page" style="display:none;">
+        <div class="agent-tab-header">
+          <h2 class="agent-tab-title">📝 Tenancy Contracts</h2>
+          <p class="agent-tab-sub">Build and download professional tenancy contracts for your clients</p>
+          <button class="btn-primary" onclick="openAgentContractBuilder()" style="margin-top:12px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Build New Contract
+          </button>
+        </div>
+        <div class="agent-tool-info-box">
+          <div class="agent-tool-icon">🖊️</div>
+          <div>
+            <strong>How it works</strong>
+            <p>Fill in the lessor, lessee, property, and rental details — then generate a complete tenancy contract as a PDF. The contract is auto-filled from the property you select.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Submissions -->
+      <div id="agentTabSubmissions" class="agent-tab-page" style="display:none;">
+        <div class="agent-tab-header">
+          <h2 class="agent-tab-title">➕ My Property Submissions</h2>
+          <p class="agent-tab-sub">Properties you've sourced — pending admin approval before appearing on the main dashboard</p>
+          <button class="btn-primary" onclick="openAgentPropModal()" style="margin-top:12px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Submit New Property
+          </button>
+        </div>
+        <div id="agentSubmissionsContent"></div>
+      </div>
+
+    </main>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- AGENT ADD PROPERTY MODAL               -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="agentPropModal">
+    <div class="modal" style="max-width:580px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🏗️</div>
+          <div>
+            <h2>Add Property I Sourced</h2>
+            <p class="modal-subtitle">Add a property you've found or a client has requested to manage</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeAgentPropModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Property Name <span class="req">*</span></label>
+              <input type="text" id="apName" placeholder="e.g. Warehouse 14, Industrial Zone">
+            </div>
+            <div class="form-group">
+              <label>Property Type <span class="req">*</span></label>
+              <select id="apType">
+                <option value="warehouse">🏭 Warehouse</option>
+                <option value="office">🏢 Office</option>
+                <option value="residential">🏠 Residential</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Location / Address</label>
+            <input type="text" id="apLocation" placeholder="e.g. Industrial Road, Mussafah, Abu Dhabi">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Area (sq ft)</label>
+              <input type="number" id="apSize" placeholder="e.g. 5000">
+            </div>
+            <div class="form-group">
+              <label>Annual Rent (AED)</label>
+              <input type="number" id="apRent" placeholder="e.g. 120000">
+            </div>
+          </div>
+          <div class="form-section-divider">Client / Owner Details</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Client / Owner Name <span class="req">*</span></label>
+              <input type="text" id="apClientName" placeholder="Who referred or owns this property">
+            </div>
+            <div class="form-group">
+              <label>Client Phone</label>
+              <input type="tel" id="apClientPhone" placeholder="+971 50 000 0000">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea id="apNotes" rows="3" placeholder="Any details about this property or client request…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeAgentPropModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveAgentProperty()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Submit Property
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PROPOSAL MODAL                         -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="proposalOverlay">
+    <div class="modal" style="max-width:720px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">💼</div>
+          <div>
+            <h2>Payment Structure Proposal</h2>
+            <p class="modal-subtitle">Fill in the details then download as a professional PDF to share with your client</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeProposalModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body" style="overflow-y:auto;max-height:72vh;">
+
+        <!-- Section 01: Proposal Details -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">01</span>
+            <h3 class="section-title">Proposal Details</h3>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Proposal Title</label>
+              <input type="text" id="pslTitle" value="Rental Payment Structure Proposal">
+            </div>
+            <div class="form-group">
+              <label>Reference Number</label>
+              <input type="text" id="pslRef" placeholder="e.g. PSP-2026-001">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Proposal Date</label>
+              <input type="date" id="pslDate">
+            </div>
+            <div class="form-group">
+              <label>Valid Until</label>
+              <input type="date" id="pslValidUntil">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Prepared By</label>
+              <input type="text" id="pslPreparedBy" value="ASG Commercial Properties">
+            </div>
+            <div class="form-group">
+              <label>Link to Property (auto-fill)</label>
+              <select id="pslPropLink" onchange="autofillProposalProperty()">
+                <option value="">— Select property to auto-fill —</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 02: Property Information -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">02</span>
+            <h3 class="section-title">Property Information</h3>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Property Name</label>
+              <input type="text" id="pslPropName" placeholder="e.g. Warehouse Unit 5, Al Quoz">
+            </div>
+            <div class="form-group">
+              <label>Property Type</label>
+              <select id="pslPropType">
+                <option value="">Select type</option>
+                <option value="Warehouse">🏭 Warehouse</option>
+                <option value="Office">🏢 Office</option>
+                <option value="Residential">🏠 Residential</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Location / Address</label>
+              <input type="text" id="pslPropLocation" placeholder="e.g. Al Quoz Industrial 3, Dubai">
+            </div>
+            <div class="form-group">
+              <label>Built-up Size (sq ft)</label>
+              <input type="number" id="pslPropSize" placeholder="e.g. 5,000" min="0">
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 03: Client Details -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">03</span>
+            <h3 class="section-title">Client / Tenant Details</h3>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Client Full Name</label>
+              <input type="text" id="pslClientName" placeholder="Full name">
+            </div>
+            <div class="form-group">
+              <label>Company Name</label>
+              <input type="text" id="pslClientCompany" placeholder="Company or trade name">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Phone Number</label>
+              <input type="tel" id="pslClientPhone" placeholder="+971 XX XXX XXXX">
+            </div>
+            <div class="form-group">
+              <label>Email Address</label>
+              <input type="email" id="pslClientEmail" placeholder="client@email.com">
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 04: Financial Terms -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">04</span>
+            <h3 class="section-title">Financial Terms</h3>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Annual Rent (AED)</label>
+              <input type="number" id="pslAnnualRent" placeholder="e.g. 180,000" min="0" oninput="recalcProposalCheques()">
+            </div>
+            <div class="form-group">
+              <label>Security Deposit (AED)</label>
+              <input type="number" id="pslDeposit" placeholder="e.g. 30,000" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Agency / Commission Fee (AED)</label>
+              <input type="number" id="pslAgencyFee" placeholder="e.g. 9,000" min="0">
+            </div>
+            <div class="form-group">
+              <label>Other Charges (AED)</label>
+              <input type="number" id="pslOtherCharges" placeholder="e.g. DEWA deposit" min="0">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Other Charges Description</label>
+            <input type="text" id="pslOtherDesc" placeholder="e.g. DEWA security deposit, Ejari registration fee">
+          </div>
+        </div>
+
+        <!-- Section 05: Payment Schedule -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">05</span>
+            <h3 class="section-title">Payment Schedule</h3>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Number of Cheques</label>
+              <select id="pslNumCheques" onchange="renderProposalCheques()">
+                <option value="">— Select —</option>
+                <option value="1">1 cheque (annual)</option>
+                <option value="2">2 cheques</option>
+                <option value="3">3 cheques</option>
+                <option value="4">4 cheques</option>
+                <option value="5">5 cheques</option>
+                <option value="6">6 cheques</option>
+              </select>
+            </div>
+          </div>
+          <div id="proposalChequeFields"></div>
+        </div>
+
+        <!-- Section 06: Terms & Conditions -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">06</span>
+            <h3 class="section-title">Terms &amp; Conditions</h3>
+          </div>
+          <div class="form-group">
+            <label>Terms (one per line — bullet points auto-added)</label>
+            <textarea id="pslTerms" rows="5" style="width:100%;resize:vertical;padding:10px 12px;font-family:inherit;font-size:13.5px;border:1px solid var(--border);border-radius:8px;color:var(--text);" placeholder="All post-dated cheques to be submitted upon signing&#10;Security deposit is refundable subject to property condition&#10;Rent is inclusive of building maintenance charges"></textarea>
+          </div>
+        </div>
+
+        <!-- Section 07: Notes -->
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="section-header">
+            <span class="section-num">07</span>
+            <h3 class="section-title">Additional Notes</h3>
+          </div>
+          <div class="form-group">
+            <label>Notes to Client (optional)</label>
+            <textarea id="pslNotes" rows="3" style="width:100%;resize:vertical;padding:10px 12px;font-family:inherit;font-size:13.5px;border:1px solid var(--border);border-radius:8px;color:var(--text);" placeholder="Optional remarks, instructions, or next steps"></textarea>
+          </div>
+        </div>
+
+      </div><!-- end modal-body -->
+
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeProposalModal()">Cancel</button>
+        <button class="btn-primary" onclick="downloadProposal()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download PDF
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Lightbox -->
+  <div class="lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox()">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <button class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="event.stopPropagation();lightboxNav(-1)">&#8249;</button>
+    <button class="lightbox-nav lightbox-next" id="lightboxNext" onclick="event.stopPropagation();lightboxNav(1)">&#8250;</button>
+    <div class="lightbox-content" id="lightboxContent" onclick="event.stopPropagation()"></div>
+    <div class="lightbox-caption" id="lightboxCaption"></div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- ADD / EDIT AGENT MODAL                 -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="agentModalOverlay">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">👤</div>
+          <div>
+            <h2 id="agentModalTitle">Add Agent</h2>
+            <p class="modal-subtitle">Create a login account for your team member</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeAgentModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="agentId">
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full Name <span class="req">*</span></label>
+              <input type="text" id="agentName" placeholder="e.g. Ahmed Al Mansoori">
+            </div>
+            <div class="form-group">
+              <label>Role / Title</label>
+              <input type="text" id="agentRole" placeholder="e.g. Property Agent">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Phone</label>
+              <input type="tel" id="agentPhone" placeholder="+971 50 000 0000">
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="agentEmail" placeholder="agent@email.com">
+            </div>
+          </div>
+          <div class="form-section-divider">Login Credentials</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Username <span class="req">*</span></label>
+              <input type="text" id="agentUsername" placeholder="e.g. ahmed.mansoor" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label>Password <span class="req">*</span></label>
+              <input type="password" id="agentPassword" placeholder="Min 6 characters" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="form-section-divider">Permissions</div>
+          <div class="agent-perms-grid">
+            <label class="perm-toggle">
+              <input type="checkbox" id="permViewFinancials">
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>View Financials</strong>
+                <small>Rent amounts, cheque values</small>
+              </span>
+            </label>
+            <label class="perm-toggle">
+              <input type="checkbox" id="permViewTenant" checked>
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>View Tenant Info</strong>
+                <small>Tenant name, contact, lease dates</small>
+              </span>
+            </label>
+            <label class="perm-toggle">
+              <input type="checkbox" id="permUpdateStatus" checked>
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>Update Task Status</strong>
+                <small>Mark tasks in-progress or done</small>
+              </span>
+            </label>
+            <label class="perm-toggle">
+              <input type="checkbox" id="permAddNotes" checked>
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>Add Task Notes</strong>
+                <small>Write progress updates</small>
+              </span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeAgentModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveAgent()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Save Agent
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- ASSIGN TASK MODAL                      -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="taskModalOverlay">
+    <div class="modal" style="max-width:540px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">📋</div>
+          <div>
+            <h2 id="taskModalTitle">Assign Task</h2>
+            <p class="modal-subtitle">Assign a task or property to a team member</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeTaskModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="taskId">
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Assign To <span class="req">*</span></label>
+              <select id="taskAgent">
+                <option value="">— Select agent —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Task Type <span class="req">*</span></label>
+              <select id="taskType">
+                <option value="find-tenant">🔍 Find Tenant</option>
+                <option value="follow-up">📞 Follow Up</option>
+                <option value="site-visit">🏗️ Site Visit</option>
+                <option value="maintenance">🔧 Maintenance Check</option>
+                <option value="documents">📄 Document Collection</option>
+                <option value="negotiation">🤝 Negotiation</option>
+                <option value="other">📌 Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Task Title <span class="req">*</span></label>
+            <input type="text" id="taskTitle" placeholder="e.g. Find tenant for Warehouse A, Industrial Road">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Linked Property</label>
+              <select id="taskProp">
+                <option value="">— No specific property —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Priority</label>
+              <select id="taskPriority">
+                <option value="high">🔴 High</option>
+                <option value="medium" selected>🟡 Medium</option>
+                <option value="low">🟢 Low</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Deadline</label>
+              <input type="date" id="taskDeadline">
+            </div>
+            <div class="form-group">
+              <label>Current Status</label>
+              <!-- Read-only: only agents can change task status -->
+              <div id="taskStatusDisplay" class="task-status-readonly"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Instructions / Description</label>
+            <textarea id="taskDesc" rows="3" placeholder="Specific instructions for the agent…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeTaskModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveTask()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Assign Task
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- TASK NOTES MODAL (agent view)          -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="taskNotesOverlay">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">📝</div>
+          <div>
+            <h2>Task Notes</h2>
+            <p class="modal-subtitle" id="taskNotesPropName"></p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeTaskNotes()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="taskNotesTaskId">
+        <div id="taskNotesList" style="margin-bottom:16px;max-height:280px;overflow-y:auto;"></div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Add Note</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="taskNoteInput" placeholder="Write a progress update…" style="flex:1;"
+                   onkeydown="if(event.key==='Enter') submitTaskNote()">
+            <button class="btn-primary" onclick="submitTaskNote()" style="white-space:nowrap;flex-shrink:0;">Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeTaskNotes()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- LEAD MODAL (admin creates/edits)       -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="leadModalOverlay">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">👤</div>
+          <div>
+            <h2 id="leadModalTitle">Add Lead</h2>
+            <p class="modal-subtitle">Capture an inbound lead and assign to an agent</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeLeadModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="leadId">
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full Name <span class="req">*</span></label>
+              <input type="text" id="leadName" placeholder="Lead's full name">
+            </div>
+            <div class="form-group">
+              <label>Phone <span class="req">*</span></label>
+              <input type="tel" id="leadPhone" placeholder="+971 50 000 0000">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="leadEmail" placeholder="email@example.com">
+            </div>
+            <div class="form-group">
+              <label>Company</label>
+              <input type="text" id="leadCompany" placeholder="Company name (optional)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lead Source <span class="req">*</span></label>
+              <select id="leadSource">
+                <option value="meta-ads">📱 Meta Ads</option>
+                <option value="instagram">📸 Instagram</option>
+                <option value="google">🔍 Google Ads</option>
+                <option value="referral">🤝 Referral</option>
+                <option value="walk-in">🚶 Walk-in</option>
+                <option value="website">🌐 Website</option>
+                <option value="other">📌 Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Property Interest</label>
+              <select id="leadPropType">
+                <option value="warehouse">🏭 Warehouse</option>
+                <option value="office">🏢 Office</option>
+                <option value="residential">🏠 Residential</option>
+                <option value="any">🏗️ Any Type</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Budget (AED/year)</label>
+              <input type="number" id="leadBudget" placeholder="e.g. 150000">
+            </div>
+            <div class="form-group">
+              <label>Assign To Agent</label>
+              <select id="leadAssignTo">
+                <option value="">— Unassigned —</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Requirements / Notes</label>
+            <textarea id="leadRequirements" rows="3" placeholder="What is the lead looking for? Any special requirements…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeLeadModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveLead()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Save Lead
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- LEAD DETAIL MODAL (full activity log)  -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="leadDetailOverlay">
+    <div class="modal" style="max-width:620px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">📊</div>
+          <div>
+            <h2 id="leadDetailName">Lead Details</h2>
+            <p class="modal-subtitle" id="leadDetailSub"></p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeLeadDetail()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+        <input type="hidden" id="leadDetailId">
+        <!-- Lead info summary -->
+        <div id="leadDetailInfo"></div>
+        <!-- Activity timeline -->
+        <div class="form-section-divider" style="margin:16px 0 12px;">Activity Log</div>
+        <div id="leadActivityLog" style="margin-bottom:16px;max-height:260px;overflow-y:auto;"></div>
+        <!-- Add activity (agents only — hidden for admin) -->
+        <div id="leadAddActivityForm" style="display:none;">
+          <div class="form-section-divider" style="margin:0 0 12px;">Log Activity</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Activity Type</label>
+              <select id="actType">
+                <option value="call">📞 Called</option>
+                <option value="meeting">🤝 Meeting</option>
+                <option value="email">📧 Email</option>
+                <option value="note">📝 Note</option>
+                <option value="proposal">📄 Proposal Sent</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Potential</label>
+              <select id="actPotential">
+                <option value="">— Not rated —</option>
+                <option value="high">🔥 High</option>
+                <option value="medium">⚡ Medium</option>
+                <option value="low">❄️ Low</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Update Stage To</label>
+            <select id="actStage">
+              <option value="">— Keep current stage —</option>
+              <option value="contacted">📞 Contacted</option>
+              <option value="meeting">🤝 Meeting Scheduled</option>
+              <option value="qualified">✅ Qualified</option>
+              <option value="proposal">📄 Proposal Sent</option>
+              <option value="negotiation">💬 Negotiation</option>
+              <option value="won">🏆 Won</option>
+              <option value="lost">❌ Lost</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Notes / Outcome <span class="req">*</span></label>
+            <textarea id="actNote" rows="3" placeholder="What happened? Any outcome, next steps, or details to share…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div id="leadDetailAdminActions" style="display:flex;gap:8px;flex:1;"></div>
+        <button class="btn-ghost" onclick="closeLeadDetail()">Close</button>
+        <button id="leadAddActBtn" class="btn-primary" style="display:none;" onclick="submitLeadActivity()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Log Activity
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- AGENT CONTRACT BUILDER MODAL           -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="agentContractOverlay">
+    <div class="modal" style="max-width:700px;max-height:90vh;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">📝</div>
+          <div><h2>Tenancy Contract Builder</h2><p class="modal-subtitle">Fill in and generate a professional tenancy contract PDF</p></div>
+        </div>
+        <button class="modal-close" onclick="$('agentContractOverlay').classList.remove('active')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height:68vh;overflow-y:auto;">
+        <div class="form-section">
+          <div class="section-header"><span class="section-num">01</span><h3 class="section-title">Property Details</h3></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Select Property (Auto-fill)</label>
+              <select id="acf_prop" onchange="autofillAgentContract()">
+                <option value="">— Select property —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Contract Date</label>
+              <input type="date" id="acf_date">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Property Location</label>
+              <input type="text" id="acf_location" placeholder="Full address">
+            </div>
+            <div class="form-group">
+              <label>Property Type</label>
+              <input type="text" id="acf_property_type" placeholder="e.g. Warehouse, Office">
+            </div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="section-header"><span class="section-num">02</span><h3 class="section-title">Lessor (Owner)</h3></div>
+          <div class="form-row">
+            <div class="form-group"><label>Owner Name</label><input type="text" id="acf_owner_name" placeholder="Full legal name"></div>
+            <div class="form-group"><label>Emirates ID</label><input type="text" id="acf_lessor_eid" placeholder="784-xxxx-xxxxxxx-x"></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="section-header"><span class="section-num">03</span><h3 class="section-title">Lessee (Tenant)</h3></div>
+          <div class="form-row">
+            <div class="form-group"><label>Tenant Name <span class="req">*</span></label><input type="text" id="acf_tenant_name" placeholder="Full legal name"></div>
+            <div class="form-group"><label>Phone</label><input type="tel" id="acf_tenant_phone"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Emirates ID</label><input type="text" id="acf_tenant_eid"></div>
+            <div class="form-group"><label>Email</label><input type="email" id="acf_tenant_email"></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="section-header"><span class="section-num">04</span><h3 class="section-title">Lease Terms</h3></div>
+          <div class="form-row">
+            <div class="form-group"><label>From Date</label><input type="date" id="acf_from"></div>
+            <div class="form-group"><label>To Date</label><input type="date" id="acf_to"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Annual Rent (AED)</label><input type="number" id="acf_annual_rent" placeholder="e.g. 150000"></div>
+            <div class="form-group"><label>Security Deposit (AED)</label><input type="number" id="acf_deposit" placeholder="e.g. 10000"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Number of Cheques</label><select id="acf_cheques"><option>1</option><option>2</option><option>4</option><option>6</option><option>12</option></select></div>
+            <div class="form-group"><label>Property Area (sqm)</label><input type="number" id="acf_property_area"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="$('agentContractOverlay').classList.remove('active')">Cancel</button>
+        <button class="btn-primary" onclick="downloadAgentContract()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Contract PDF
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- API SETTINGS MODAL                    -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="apiSettingsOverlay">
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🔌</div>
+          <div>
+            <h2>API Integrations</h2>
+            <p class="modal-subtitle">Connect live lead sources — Meta Ads, Google &amp; more</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeApiSettings()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height:72vh;overflow-y:auto;">
+
+        <!-- Tab pills -->
+        <div class="api-tab-pills">
+          <button class="api-pill active" id="apiPill-meta"      onclick="switchApiTab('meta')">📱 Meta Ads</button>
+          <button class="api-pill"         id="apiPill-google"    onclick="switchApiTab('google')">🔍 Google Ads</button>
+          <button class="api-pill"         id="apiPill-hubspot"   onclick="switchApiTab('hubspot')">🟠 HubSpot CRM</button>
+          <button class="api-pill"         id="apiPill-webhook"   onclick="switchApiTab('webhook')">🔗 Webhook</button>
+        </div>
+
+        <!-- ── Meta Ads Tab ── -->
+        <div id="apiTab-meta" class="api-tab-content">
+          <div class="api-source-header">
+            <div class="api-source-logo api-meta-logo">f</div>
+            <div>
+              <strong>Meta Lead Ads</strong>
+              <p>Pulls leads from your Facebook &amp; Instagram lead generation campaigns automatically.</p>
+            </div>
+            <div class="api-connected-badge" id="metaConnectedBadge" style="display:none;">✓ Connected</div>
+          </div>
+
+          <div class="api-how-to">
+            <div class="api-how-title">How to get your Access Token</div>
+            <ol class="api-how-steps">
+              <li>Go to <strong>Meta for Developers → Tools → Graph API Explorer</strong></li>
+              <li>Select your App → click <strong>Generate Access Token</strong></li>
+              <li>Grant permissions: <code>leads_retrieval</code>, <code>pages_manage_ads</code>, <code>pages_read_engagement</code></li>
+              <li>Copy the token and paste below</li>
+              <li>For your Form ID: Meta Ads Manager → Your Campaign → Lead Form → copy the numeric ID from the URL</li>
+            </ol>
+          </div>
+
+          <div class="form-group">
+            <label>Page Access Token <span class="req">*</span></label>
+            <input type="password" id="metaToken" placeholder="EAAxxxxx… (long-lived token recommended)" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label>Lead Form IDs <span class="req">*</span>
+              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — one per line, or comma-separated</span>
+            </label>
+            <textarea id="metaFormIds" rows="3" placeholder="1234567890123&#10;9876543210987" style="resize:vertical;font-family:monospace;font-size:13px;"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Default Property Type for Leads</label>
+              <select id="metaDefaultPropType">
+                <option value="warehouse">🏭 Warehouse</option>
+                <option value="office">🏢 Office</option>
+                <option value="residential">🏠 Residential</option>
+                <option value="any">🏗️ Any</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Auto-Sync Interval</label>
+              <select id="metaSyncInterval">
+                <option value="0">Manual only</option>
+                <option value="5">Every 5 minutes</option>
+                <option value="15">Every 15 minutes</option>
+                <option value="30">Every 30 minutes</option>
+                <option value="60">Every hour</option>
+              </select>
+            </div>
+          </div>
+          <div class="api-last-sync" id="metaLastSync"></div>
+
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn-ghost" onclick="testMetaConnection()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              Test Connection
+            </button>
+            <button class="btn-primary" onclick="syncMetaLeads()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              Sync Leads Now
+            </button>
+          </div>
+          <div class="api-test-result" id="metaTestResult"></div>
+        </div>
+
+        <!-- ── Google Ads Tab ── -->
+        <div id="apiTab-google" class="api-tab-content" style="display:none;">
+          <div class="api-source-header">
+            <div class="api-source-logo api-google-logo">G</div>
+            <div>
+              <strong>Google Lead Form Extensions</strong>
+              <p>Import leads from Google Ads Lead Form Extensions via Google Sheets sync.</p>
+            </div>
+          </div>
+          <div class="api-how-to">
+            <div class="api-how-title">Recommended Setup (Google Sheets Sync)</div>
+            <ol class="api-how-steps">
+              <li>In Google Ads, go to your campaign → Lead Forms → <strong>Download lead data as Google Sheet</strong></li>
+              <li>Share the sheet publicly (Anyone with link → Viewer)</li>
+              <li>Copy the Sheet ID from the URL (the long string between <code>/d/</code> and <code>/edit</code>)</li>
+              <li>Paste below — the app will read new leads every time you sync</li>
+            </ol>
+          </div>
+          <div class="form-group">
+            <label>Google Sheets ID</label>
+            <input type="text" id="googleSheetId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms">
+          </div>
+          <div class="form-group">
+            <label>Google Sheets API Key
+              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--gold);">Get from Google Cloud Console</a></span>
+            </label>
+            <input type="password" id="googleApiKey" placeholder="AIzaSy…" autocomplete="new-password">
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn-primary" onclick="syncGoogleLeads()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              Sync Google Leads
+            </button>
+          </div>
+          <div class="api-test-result" id="googleTestResult"></div>
+        </div>
+
+        <!-- ── HubSpot CRM Tab ── -->
+        <div id="apiTab-hubspot" class="api-tab-content" style="display:none;">
+          <div class="api-source-header">
+            <div class="api-source-logo api-hs-logo">HS</div>
+            <div>
+              <strong>HubSpot Free CRM</strong>
+              <p>Two-way sync — push your ASG leads into HubSpot contacts &amp; deals, or pull HubSpot contacts in as leads.</p>
+            </div>
+            <div class="api-connected-badge" id="hubspotConnectedBadge" style="display:none;">✓ Connected</div>
+          </div>
+
+          <div class="api-how-to">
+            <div class="api-how-title">How to get your Private App Token</div>
+            <ol class="api-how-steps">
+              <li>Log in to <strong>app.hubspot.com</strong> → click your account name (top right) → <strong>Account Settings</strong></li>
+              <li>Go to <strong>Integrations → Private Apps</strong> → click <strong>Create a private app</strong></li>
+              <li>Name it <em>"ASG Dashboard"</em>, then go to the <strong>Scopes</strong> tab</li>
+              <li>Enable: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>,
+                <code>crm.objects.deals.read</code>, <code>crm.objects.deals.write</code>,
+                <code>crm.associations.read</code>, <code>crm.associations.write</code></li>
+              <li>Click <strong>Create app</strong> → copy the access token shown</li>
+            </ol>
+          </div>
+
+          <div class="form-group">
+            <label>Private App Access Token <span class="req">*</span></label>
+            <input type="password" id="hubspotToken" placeholder="pat-eu1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="new-password">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Sync Direction</label>
+              <select id="hubspotSyncDir">
+                <option value="push">Push only → Send ASG leads to HubSpot</option>
+                <option value="pull">Pull only ← Import HubSpot contacts as leads</option>
+                <option value="both">Two-way ↔ Both directions</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Deal Pipeline ID
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — leave blank for default</span>
+              </label>
+              <input type="text" id="hubspotPipelineId" placeholder="default">
+            </div>
+          </div>
+
+          <div class="hs-options-row">
+            <label class="perm-toggle" style="flex:1;">
+              <input type="checkbox" id="hubspotCreateDeals" checked>
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>Create Deals</strong>
+                <small>Also create a Deal record for each lead in HubSpot pipeline</small>
+              </span>
+            </label>
+            <label class="perm-toggle" style="flex:1;">
+              <input type="checkbox" id="hubspotSyncStages" checked>
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>Sync Pipeline Stages</strong>
+                <small>Map ASG lead stages to HubSpot deal stages</small>
+              </span>
+            </label>
+          </div>
+
+          <!-- Stage mapping reference -->
+          <div class="hs-stage-map-ref">
+            <div class="hs-stage-map-title">Stage Mapping (ASG → HubSpot)</div>
+            <div class="hs-stage-map-grid">
+              <span class="hs-stage-from ls-new">🆕 New</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Appointment Scheduled</span>
+              <span class="hs-stage-from ls-contacted">📞 Contacted</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Qualified to Buy</span>
+              <span class="hs-stage-from ls-meeting">🤝 Meeting</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Presentation Scheduled</span>
+              <span class="hs-stage-from ls-qualified">✅ Qualified</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Decision Maker Bought-In</span>
+              <span class="hs-stage-from ls-proposal">📄 Proposal</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Contract Sent</span>
+              <span class="hs-stage-from ls-won">🏆 Won</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Closed Won</span>
+              <span class="hs-stage-from ls-lost">❌ Lost</span><span class="hs-stage-arrow">→</span><span class="hs-stage-to">Closed Lost</span>
+            </div>
+          </div>
+
+          <div id="hubspotLastSync" class="api-last-sync"></div>
+
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+            <button class="btn-ghost" onclick="testHubSpotConnection()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              Test Connection
+            </button>
+            <button class="btn-primary" onclick="pushLeadsToHubSpot()" style="background:#ff7a59;border-color:#ff7a59;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              Push Leads → HubSpot
+            </button>
+            <button class="btn-ghost" onclick="pullLeadsFromHubSpot()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              Pull ← HubSpot Contacts
+            </button>
+          </div>
+          <div class="api-test-result" id="hubspotTestResult"></div>
+          <div class="api-test-result" id="hubspotSyncResult" style="margin-top:6px;"></div>
+        </div>
+
+        <!-- ── Webhook Tab ── -->
+        <div id="apiTab-webhook" class="api-tab-content" style="display:none;">
+          <div class="api-source-header">
+            <div class="api-source-logo" style="background:#6d28d9;">⚡</div>
+            <div>
+              <strong>Real-Time Webhooks</strong>
+              <p>Receive leads <em>instantly</em> the second someone fills your form — requires a live server endpoint.</p>
+            </div>
+          </div>
+
+          <div class="webhook-status-box" id="webhookStatusBox">
+            <div class="webhook-status-icon">🔴</div>
+            <div>
+              <strong>No webhook endpoint configured</strong>
+              <p>You need a server URL to receive webhooks. Once your site is hosted (Netlify, Railway, etc.) this endpoint is auto-generated.</p>
+            </div>
+          </div>
+
+          <div class="api-how-to">
+            <div class="api-how-title">How Real-Time Works</div>
+            <ol class="api-how-steps">
+              <li><strong>You host this app</strong> (e.g. Netlify) — a serverless function endpoint is created automatically</li>
+              <li>Your endpoint URL looks like: <code>https://yoursite.netlify.app/.netlify/functions/meta-webhook</code></li>
+              <li>In Meta Ads Manager → Lead Forms → <strong>Webhooks → Subscribe to Lead Ads</strong></li>
+              <li>Paste your endpoint URL + verify token → Meta will send leads instantly 24/7</li>
+              <li>Every new lead appears in your pipeline within seconds — no manual sync needed</li>
+            </ol>
+          </div>
+
+          <div class="api-how-to" style="background:#f0fdf4;border-color:#bbf7d0;">
+            <div class="api-how-title" style="color:#065f46;">✅ Ready to deploy?</div>
+            <p style="font-size:13px;color:#047857;margin:0;">When you're ready to go live, let me know — I'll generate the complete webhook server file and deployment instructions in one step.</p>
+          </div>
+
+          <div class="form-group" style="margin-top:12px;">
+            <label>Verify Token (set this in Meta Webhooks)</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="webhookVerifyToken" placeholder="Your custom verify token" style="flex:1;" readonly>
+              <button class="btn-ghost" onclick="generateVerifyToken()">Generate</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeApiSettings()">Cancel</button>
+        <button class="btn-primary" onclick="saveApiSettings_()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5207 @@
+/* ═══════════════════════════════════════════════════
+   ASG Commercial — Property Dashboard
+   ═══════════════════════════════════════════════════ */
+
+// ─── Auth ─────────────────────────────────────────
+const AUTH_KEY     = 'asg_credentials';
+const SESSION_KEY  = 'asg_session';
+
+function getCredentials() {
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY)) || { user: 'admin', pass: 'asg2024' }; }
+  catch { return { user: 'admin', pass: 'asg2024' }; }
+}
+
+function getSession()  { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; } }
+function isLoggedIn()  { return getSession() !== null; }
+function isAdmin()     { const s = getSession(); return s && s.type === 'admin'; }
+function isAgentUser() { const s = getSession(); return s && s.type === 'agent'; }
+
+function doLogin() {
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const err  = document.getElementById('loginError');
+  err.style.display = 'none';
+  if (!user || !pass) { err.textContent = 'Please enter your username and password.'; err.style.display = 'block'; return; }
+
+  // Check admin credentials
+  const creds = getCredentials();
+  if (user === creds.user && pass === creds.pass) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'admin' }));
+    document.getElementById('loginScreen').style.display = 'none';
+    boot();
+    return;
+  }
+
+  // Check agent credentials
+  const agents = loadAgents();
+  const agent  = agents.find(a => a.active && a.username === user && a.password === pass);
+  if (agent) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'agent', agentId: agent.id, name: agent.name, role: agent.role || '', perms: agent.permissions || {} }));
+    document.getElementById('loginScreen').style.display = 'none';
+    boot();
+    return;
+  }
+
+  err.textContent = 'Incorrect username or password. Please try again.';
+  err.style.display = 'block';
+  document.getElementById('loginPass').value = '';
+  document.getElementById('loginPass').focus();
+}
+
+function doLogout() {
+  if (!confirm('Sign out of ASG Commercial?')) return;
+  sessionStorage.removeItem(SESSION_KEY);
+  location.reload();
+}
+
+function openChangePass() {
+  document.getElementById('cpCurrent').value = '';
+  document.getElementById('cpUser').value    = getCredentials().user;
+  document.getElementById('cpNew').value     = '';
+  document.getElementById('cpConfirm').value = '';
+  const err = document.getElementById('cpError');
+  err.style.display = 'none';
+  document.getElementById('changePassOverlay').classList.add('active');
+}
+
+function closeChangePass() {
+  document.getElementById('changePassOverlay').classList.remove('active');
+}
+
+function doChangePass() {
+  const current = document.getElementById('cpCurrent').value;
+  const newUser = document.getElementById('cpUser').value.trim();
+  const newPass = document.getElementById('cpNew').value;
+  const confirm = document.getElementById('cpConfirm').value;
+  const creds   = getCredentials();
+  const err     = document.getElementById('cpError');
+  err.style.display = 'none';
+
+  if (current !== creds.pass) { err.textContent = 'Current password is incorrect.'; err.style.display = 'block'; return; }
+  if (!newUser)                { err.textContent = 'Username cannot be empty.'; err.style.display = 'block'; return; }
+  if (newPass.length < 6)      { err.textContent = 'New password must be at least 6 characters.'; err.style.display = 'block'; return; }
+  if (newPass !== confirm)     { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
+
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ user: newUser, pass: newPass }));
+  closeChangePass();
+  showToast('Credentials updated successfully', 'success');
+}
+
+// ─── IndexedDB (file + media storage) ────────────
+const IDB_NAME    = 'asg_files_db';
+const IDB_VERSION = 1;
+const IDB_STORE   = 'files';
+let idb = null;
+
+function openIDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(IDB_STORE))
+        d.createObjectStore(IDB_STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = e => { idb = e.target.result; res(); };
+    req.onerror   = () => rej(req.error);
+  });
+}
+
+function idbPut(id, file) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const tx = idb.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put({ id, name: file.name, mime: file.type, data: e.target.result });
+      tx.oncomplete = res;
+      tx.onerror    = () => rej(tx.error);
+    };
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+}
+
+function idbGet(id) {
+  return new Promise((res, rej) => {
+    const tx  = idb.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(id);
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+
+function idbDel(id) {
+  return new Promise((res, rej) => {
+    const tx = idb.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(id);
+    tx.oncomplete = res;
+    tx.onerror    = () => rej(tx.error);
+  });
+}
+
+// ─── LocalStorage (property data) ────────────────
+function loadProps()       { return JSON.parse(localStorage.getItem('asg_props') || '[]'); }
+function persistProps(arr) { localStorage.setItem('asg_props', JSON.stringify(arr)); }
+function uid()             { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+// ─── State ────────────────────────────────────────
+let pendingFiles      = { ijari: null, affection: null, tenancy: null };
+let pendingMedia      = [];           // new File objects to add
+let existingMediaMeta = [];           // { id, name, mime } already saved
+let removedMediaIds   = [];           // IDB ids to delete on save
+let currentDetailId   = null;
+
+// Lightbox state
+let lbItems = [];   // { data, mime, name }
+let lbIndex = 0;
+
+// ─── Tab State ────────────────────────────────────
+let activeTab        = 'warehouses';
+let activeTypeFilter = 'warehouse';
+
+// ─── Boot ─────────────────────────────────────────
+async function boot() {
+  const session = getSession();
+  if (!session) { location.reload(); return; }
+
+  if (session.type === 'admin') {
+    document.getElementById('adminHeader').style.display    = '';
+    document.getElementById('appBody').style.display        = '';
+    document.getElementById('agentHeader').style.display    = 'none';
+    document.getElementById('agentDashboard').style.display = 'none';
+    await openIDB();
+    bindUI();
+    showTab('warehouses');
+    renderNavCounts(loadProps());
+    setInterval(checkLeaseAlerts, 60000);
+    checkLeaseAlerts();
+    updateApiStatusUI();
+    setupMetaAutoSync();
+  } else if (session.type === 'agent') {
+    document.getElementById('adminHeader').style.display    = 'none';
+    document.getElementById('appBody').style.display        = 'none';
+    document.getElementById('agentHeader').style.display    = '';
+    document.getElementById('agentDashboard').style.display = '';
+    showAgentTab('overview');
+    updateAgentBadges();
+  }
+}
+
+// ─── Event Bindings ───────────────────────────────
+function bindUI() {
+  $('addPropertyBtn').addEventListener('click', openAddModal);
+  $('closePropertyModal').addEventListener('click', closeAddModal);
+  $('cancelPropertyBtn').addEventListener('click', closeAddModal);
+  $('savePropertyBtn').addEventListener('click', handleSave);
+
+  $('closeDetailModal').addEventListener('click', closeDetailModal);
+  $('closeDetailBtn').addEventListener('click', closeDetailModal);
+  $('editFromDetailBtn').addEventListener('click', () => { closeDetailModal(); openEditModal(currentDetailId); });
+  $('deletePropertyBtn').addEventListener('click', handleDelete);
+
+  $('searchInput').addEventListener('input', refresh);
+  $('filterStatus').addEventListener('change', refresh);
+  $('filterOwnership').addEventListener('change', refresh);
+
+  $('propertyModalOverlay').addEventListener('click', e => { if (e.target === $('propertyModalOverlay')) closeAddModal(); });
+  $('detailModalOverlay').addEventListener('click',   e => { if (e.target === $('detailModalOverlay'))   closeDetailModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeLightbox(); closeAddModal(); closeDetailModal(); }
+    if (e.key === 'ArrowLeft')  lightboxNav(-1);
+    if (e.key === 'ArrowRight') lightboxNav(1);
+  });
+}
+
+function $(id) { return document.getElementById(id); }
+
+// ─── Tab Switching ────────────────────────────────
+function showTab(tab) {
+  activeTab = tab;
+  const propTabs = ['warehouses', 'offices', 'residential'];
+  const isPropTab = propTabs.includes(tab);
+
+  $('dashboardView').style.display    = isPropTab             ? '' : 'none';
+  $('remindersView').style.display    = tab === 'reminders'    ? '' : 'none';
+  $('calendarView').style.display     = tab === 'calendar'     ? '' : 'none';
+  $('contractView').style.display     = tab === 'contract'     ? '' : 'none';
+  $('disputesView').style.display     = tab === 'disputes'     ? '' : 'none';
+  $('constructionView').style.display = tab === 'construction' ? '' : 'none';
+  $('paymentView').style.display      = tab === 'payment'      ? '' : 'none';
+  $('mapView').style.display          = tab === 'map'          ? '' : 'none';
+  $('teamView').style.display         = tab === 'team'         ? '' : 'none';
+
+  ['Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Map','Team'].forEach(t => {
+    const el = $('tab' + t);
+    if (el) el.classList.toggle('active', t.toLowerCase() === tab);
+  });
+
+  if (isPropTab) {
+    const typeMap = { warehouses: 'warehouse', offices: 'office', residential: 'residential' };
+    activeTypeFilter = typeMap[tab];
+    refresh();
+  }
+  if (tab === 'reminders')    renderReminders();
+  if (tab === 'calendar')     renderCalendar();
+  if (tab === 'contract')     initContractTab();
+  if (tab === 'disputes')     renderDisputes();
+  if (tab === 'construction') renderProjects();
+  if (tab === 'payment')      renderPayments();
+  if (tab === 'map')          initMapTab();
+  if (tab === 'team')         renderTeamTab();
+}
+
+// ─── Contract Builder ─────────────────────────────
+function initContractTab() {
+  const sel = $('contractLoadProp');
+  const props = loadProps();
+  sel.innerHTML = '<option value="">— Auto-fill from property —</option>' +
+    props.map(p => `<option value="${p.id}">${h(p.name)}</option>`).join('');
+  if (!$('cf_date').value) $('cf_date').value = new Date().toISOString().split('T')[0];
+}
+
+function loadContractFromProperty(propId) {
+  if (!propId) return;
+  const p = loadProps().find(x => x.id === propId);
+  if (!p) return;
+  if (p.tenantName)  $('cf_tenant_name').value   = p.tenantName;
+  if (p.tenantPhone) $('cf_tenant_phone').value   = p.tenantPhone;
+  if (p.tenantEmail) $('cf_tenant_email').value   = p.tenantEmail;
+  if (p.location)    $('cf_location').value       = p.location;
+  if (p.type)        $('cf_property_type').value  = p.type === 'warehouse' ? 'Warehouse' : 'Office';
+  if (p.size)        $('cf_property_area').value  = (p.size / 10.764).toFixed(1);
+  if (p.annualRent)  { $('cf_annual_rent').value  = p.annualRent; $('cf_contract_value').value = p.annualRent; }
+  if (p.leaseStart)  $('cf_from').value           = p.leaseStart;
+  if (p.leaseEnd)    $('cf_to').value             = p.leaseEnd;
+  const usageInput = document.querySelector('input[name="cf_usage"][value="Commercial"]');
+  if (usageInput) usageInput.checked = true;
+  showToast(`Filled from "${p.name}"`, 'success');
+}
+
+function clearContractForm() {
+  ['cf_date','cf_owner_name','cf_lessor_name','cf_lessor_eid','cf_lessor_license','cf_lessor_auth',
+   'cf_lessor_phone','cf_lessor_email','cf_tenant_name','cf_tenant_eid','cf_tenant_license',
+   'cf_tenant_auth','cf_tenant_email','cf_tenant_phone','cf_cooccupants','cf_plot_no','cf_makani_no',
+   'cf_building_name','cf_property_no','cf_property_type','cf_property_area','cf_location',
+   'cf_dewa_no','cf_from','cf_to','cf_contract_value','cf_annual_rent','cf_security_deposit',
+   'cf_payment_mode','cf_term_1','cf_term_2','cf_term_3','cf_term_4','cf_term_5'
+  ].forEach(id => { if ($(id)) $(id).value = ''; });
+  const usageInput = document.querySelector('input[name="cf_usage"][value="Commercial"]');
+  if (usageInput) usageInput.checked = true;
+  $('contractLoadProp').value = '';
+  $('cf_date').value = new Date().toISOString().split('T')[0];
+  showToast('Form cleared', 'success');
+}
+
+function getContractData() {
+  return {
+    date:            $('cf_date').value,
+    ownerName:       $('cf_owner_name').value.trim(),
+    lessorName:      $('cf_lessor_name').value.trim(),
+    lessorEid:       $('cf_lessor_eid').value.trim(),
+    lessorLicense:   $('cf_lessor_license').value.trim(),
+    lessorAuth:      $('cf_lessor_auth').value.trim(),
+    lessorPhone:     $('cf_lessor_phone').value.trim(),
+    lessorEmail:     $('cf_lessor_email').value.trim(),
+    tenantName:      $('cf_tenant_name').value.trim(),
+    tenantEid:       $('cf_tenant_eid').value.trim(),
+    tenantLicense:   $('cf_tenant_license').value.trim(),
+    tenantAuth:      $('cf_tenant_auth').value.trim(),
+    tenantEmail:     $('cf_tenant_email').value.trim(),
+    tenantPhone:     $('cf_tenant_phone').value.trim(),
+    coOccupants:     $('cf_cooccupants').value.trim(),
+    propUsage:       document.querySelector('input[name="cf_usage"]:checked')?.value || 'Commercial',
+    plotNo:          $('cf_plot_no').value.trim(),
+    makaniNo:        $('cf_makani_no').value.trim(),
+    buildingName:    $('cf_building_name').value.trim(),
+    propertyNo:      $('cf_property_no').value.trim(),
+    propertyType:    $('cf_property_type').value.trim(),
+    propertyArea:    $('cf_property_area').value.trim(),
+    location:        $('cf_location').value.trim(),
+    dewaNo:          $('cf_dewa_no').value.trim(),
+    contractFrom:    $('cf_from').value,
+    contractTo:      $('cf_to').value,
+    contractValue:   $('cf_contract_value').value.trim(),
+    annualRent:      $('cf_annual_rent').value.trim(),
+    securityDeposit: $('cf_security_deposit').value.trim(),
+    paymentMode:     $('cf_payment_mode').value.trim(),
+    term1:           $('cf_term_1').value.trim(),
+    term2:           $('cf_term_2').value.trim(),
+    term3:           $('cf_term_3').value.trim(),
+    term4:           $('cf_term_4').value.trim(),
+    term5:           $('cf_term_5').value.trim(),
+  };
+}
+
+function fv(val) { return val || ''; }
+function fmtAED(val) { return val ? 'AED ' + Number(val).toLocaleString() : ''; }
+function fmtContractDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('en-AE', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function previewContract() {
+  const d = getContractData();
+  const html = generateContractHTML(d);
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Please allow pop-ups to download PDF', 'error'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 800);
+}
+
+function generateContractHTML(d) {
+  const usageCheck = u => d.propUsage === u
+    ? '<span style="display:inline-block;width:12px;height:12px;border:1.5px solid #333;border-radius:50%;background:#111;margin-right:4px;vertical-align:middle;"></span>'
+    : '<span style="display:inline-block;width:12px;height:12px;border:1.5px solid #333;border-radius:50%;margin-right:4px;vertical-align:middle;"></span>';
+
+  const line = val => `<span style="display:inline-block;min-width:200px;border-bottom:1px solid #aaa;padding:0 4px;"> ${val || ''}</span>`;
+  const row  = (label, val, labelAr) =>
+    `<tr><td class="fl">${label}</td><td class="fv">${line(val)}</td><td class="far">${labelAr}</td></tr>`;
+
+  const additionalTermsRows = [d.term1, d.term2, d.term3, d.term4, d.term5]
+    .filter(t => t)
+    .map((t, i) =>
+      `<tr><td style="padding:6px 8px;border:1px solid #ccc;width:24px;font-weight:600;">${i+1}</td>
+           <td style="padding:6px 8px;border:1px solid #ccc;">${h(t)}</td>
+           <td style="padding:6px 8px;border:1px solid #ccc;width:24px;font-weight:600;">${i+1}</td></tr>`
+    ).join('');
+
+  const usageAr = { Residential: 'سكني', Commercial: 'تجاري', Industrial: 'صناعي' };
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tenancy Contract${d.tenantName ? ' — ' + d.tenantName : ''}</title>
+<style>
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: #fff; padding: 20px; }
+  .page { max-width: 780px; margin: 0 auto; }
+  .header { display:flex; justify-content:space-between; align-items:center; border-bottom: 3px double #c9a84c; padding-bottom:12px; margin-bottom:14px; }
+  .header-logo { font-size:13pt; font-weight:800; color:#111; letter-spacing:1px; }
+  .header-logo span { color:#c9a84c; }
+  .header-dld { text-align:right; font-size:8pt; color:#555; }
+  .contract-title { text-align:center; margin:14px 0; }
+  .contract-title h1 { font-size:16pt; font-weight:800; letter-spacing:3px; color:#111; }
+  .contract-title .ar { font-size:13pt; color:#555; margin-top:2px; }
+  .contract-date { text-align:right; font-size:9pt; margin-bottom:12px; }
+  .section { margin-bottom:12px; border:1px solid #c9a84c; border-radius:4px; overflow:hidden; }
+  .section-head { background:#111; color:#fff; padding:6px 12px; display:flex; justify-content:space-between; align-items:center; }
+  .section-head .en { font-weight:700; font-size:9.5pt; }
+  .section-head .ar { font-size:9pt; color:#c9a84c; }
+  table.fields { width:100%; border-collapse:collapse; }
+  table.fields td { padding:5px 10px; vertical-align:middle; font-size:9pt; }
+  td.fl  { width:30%; font-weight:600; color:#333; white-space:nowrap; }
+  td.fv  { width:40%; }
+  td.far { width:30%; text-align:right; color:#555; font-size:8.5pt; direction:rtl; }
+  .usage-row { padding:8px 12px; display:flex; gap:24px; align-items:center; }
+  .usage-item { display:flex; align-items:center; gap:6px; font-size:9.5pt; }
+  .tc-section { margin-bottom:12px; }
+  .tc-section .tc-head { background:#111; color:#fff; padding:6px 12px; display:flex; justify-content:space-between; border-radius:4px 4px 0 0; }
+  .tc-section .tc-head .en { font-weight:700; font-size:9.5pt; }
+  .tc-section .tc-head .ar { font-size:9pt; color:#c9a84c; }
+  .tc-body { border:1px solid #c9a84c; border-top:none; border-radius:0 0 4px 4px; padding:10px 14px; }
+  .tc-item { display:flex; gap:8px; margin-bottom:7px; font-size:8.5pt; line-height:1.5; }
+  .tc-num { font-weight:700; min-width:18px; }
+  .tc-ar { direction:rtl; text-align:right; color:#555; margin-top:4px; font-size:8pt; }
+  .sig-section { margin-top:16px; }
+  .sig-row { display:flex; gap:20px; justify-content:space-between; }
+  .sig-box { flex:1; border:1px solid #ccc; border-radius:4px; padding:12px; text-align:center; min-height:80px; }
+  .sig-box .sig-label { font-size:8.5pt; color:#555; margin-bottom:4px; }
+  .sig-box .sig-label-ar { font-size:8pt; color:#888; }
+  .sig-line { border-bottom:1px solid #ccc; height:40px; margin:8px 0 4px; }
+  .sig-date { font-size:8pt; color:#777; }
+  .additional-terms table { width:100%; border-collapse:collapse; }
+  .footer-note { margin-top:14px; border-top:1px solid #ddd; padding-top:8px; font-size:7.5pt; color:#888; text-align:center; }
+  .know-rights { margin-top:10px; background:#f9f6ee; border:1px solid #c9a84c; border-radius:4px; padding:8px 12px; font-size:8pt; }
+  .know-rights h4 { font-size:9pt; margin-bottom:6px; display:flex; justify-content:space-between; }
+  .ejari { margin-top:8px; background:#f0f0f0; border-radius:4px; padding:8px 12px; font-size:8pt; }
+  .ejari h4 { font-size:9pt; margin-bottom:6px; display:flex; justify-content:space-between; }
+  @media print {
+    body { padding:0; font-size:9pt; }
+    .page { max-width:100%; }
+    @page { size: A4; margin: 14mm 12mm; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-logo">ASG <span>Commercial</span></div>
+    <div class="contract-title">
+      <h1>TENANCY CONTRACT</h1>
+      <div class="ar">عـقـد إيـجـــار</div>
+    </div>
+    <div class="header-dld">
+      دائرة الأراضي والأملاك<br>Land Department<br>
+      <strong>Date: ${fmtContractDate(d.date)}</strong><br>
+      <span style="direction:rtl;">التاريخ: ${fmtContractDate(d.date)}</span>
+    </div>
+  </div>
+
+  <!-- Owner / Lessor -->
+  <div class="section">
+    <div class="section-head">
+      <span class="en">Owner / Lessor Information</span>
+      <span class="ar">معلومات المالك / المؤجر</span>
+    </div>
+    <table class="fields">
+      ${row("Owner's Name", fv(d.ownerName), "اسم المالك")}
+      ${row("Lessor's Name", fv(d.lessorName), "اسم المؤجر")}
+      ${row("Lessor's Emirates ID", fv(d.lessorEid), "الهوية الإماراتية للمؤجر")}
+      ${row("License No.", fv(d.lessorLicense), "رقم الرخصة")}
+      ${row("Licensing Authority", fv(d.lessorAuth), "سلطة الترخيص")}
+      ${row("Lessor's Email", fv(d.lessorEmail), "البريد الإلكتروني للمؤجر")}
+      ${row("Lessor's Phone", fv(d.lessorPhone), "رقم هاتف المؤجر")}
+    </table>
+  </div>
+
+  <!-- Tenant -->
+  <div class="section">
+    <div class="section-head">
+      <span class="en">Tenant Information</span>
+      <span class="ar">معلومات المستأجر</span>
+    </div>
+    <table class="fields">
+      ${row("Tenant's Name", fv(d.tenantName), "اسم المستأجر")}
+      ${row("Tenant's Emirates ID", fv(d.tenantEid), "الهوية الإماراتية للمستأجر")}
+      ${row("License No.", fv(d.tenantLicense), "رقم الرخصة")}
+      ${row("Licensing Authority", fv(d.tenantAuth), "سلطة الترخيص")}
+      ${row("Tenant's Email", fv(d.tenantEmail), "البريد الإلكتروني للمستأجر")}
+      ${row("Tenant's Phone", fv(d.tenantPhone), "رقم هاتف المستأجر")}
+      ${row("Number of Co-Occupants", fv(d.coOccupants), "عدد القاطنين")}
+    </table>
+  </div>
+
+  <!-- Property -->
+  <div class="section">
+    <div class="section-head">
+      <span class="en">Property Information</span>
+      <span class="ar">معلومات العقار</span>
+    </div>
+    <div class="usage-row">
+      <span style="font-weight:600;font-size:9pt;">Property Usage — استخدام العقار:</span>
+      <span class="usage-item">${usageCheck('Residential')} Residential — سكني</span>
+      <span class="usage-item">${usageCheck('Commercial')} Commercial — تجاري</span>
+      <span class="usage-item">${usageCheck('Industrial')} Industrial — صناعي</span>
+    </div>
+    <table class="fields">
+      ${row("Plot No.", fv(d.plotNo), "رقم الأرض")}
+      ${row("Makani No.", fv(d.makaniNo), "رقم مكاني")}
+      ${row("Building Name", fv(d.buildingName), "اسم المبنى")}
+      ${row("Property No.", fv(d.propertyNo), "رقم العقار")}
+      ${row("Property Type", fv(d.propertyType), "نوع الوحدة")}
+      ${row("Property Area (sq.m)", fv(d.propertyArea), "مساحة العقار (متر.مربع)")}
+      ${row("Location", fv(d.location), "الموقع")}
+      ${row("Premises No. (DEWA)", fv(d.dewaNo), "رقم المبنى (ديوا)")}
+    </table>
+  </div>
+
+  <!-- Contract Info -->
+  <div class="section">
+    <div class="section-head">
+      <span class="en">Contract Information</span>
+      <span class="ar">معلومات العقد</span>
+    </div>
+    <table class="fields">
+      <tr>
+        <td class="fl">Contract Period — فترة العقد</td>
+        <td class="fv">From ${line(fmtContractDate(d.contractFrom))} &nbsp; To ${line(fmtContractDate(d.contractTo))}</td>
+        <td class="far">من — إلى</td>
+      </tr>
+      ${row("Contract Value — قيمة العقد", fmtAED(d.contractValue), "قيمة العقد")}
+      ${row("Annual Rent — الايجار السنوي", fmtAED(d.annualRent), "الايجار السنوي")}
+      ${row("Security Deposit — مبلغ التأمين", fmtAED(d.securityDeposit), "مبلغ التأمين")}
+      ${row("Mode of Payment — طريقة الدفع", fv(d.paymentMode), "طريقة الدفع")}
+    </table>
+  </div>
+
+  <!-- Terms & Conditions -->
+  <div class="tc-section">
+    <div class="tc-head">
+      <span class="en">Terms and Conditions</span>
+      <span class="ar">الأحكام و الشروط</span>
+    </div>
+    <div class="tc-body">
+      <div class="tc-item"><span class="tc-num">1.</span><span>The tenant has inspected the premises and agreed to lease the unit on its current condition.</span></div>
+      <div class="tc-item"><span class="tc-num">2.</span><span>Tenant undertakes to use the premises for designated purpose. Tenant has no rights to transfer or relinquish the tenancy contract either with or without counterpart to any party without landlord written approval. Also, tenant is not allowed to sublease the premises or any part thereof to third party in whole or in part unless it is legally permitted.</span></div>
+      <div class="tc-item"><span class="tc-num">3.</span><span>The tenant undertakes not to make any amendments, modifications or addendums to the premises subject of the contract without obtaining the landlord written approval. Tenant shall be liable for any damages or failure due to that.</span></div>
+      <div class="tc-item"><span class="tc-num">4.</span><span>The tenant shall be responsible for payment of all electricity, water, cooling and gas charges resulting of occupying leased unit unless other condition agreed in written.</span></div>
+      <div class="tc-item"><span class="tc-num">5.</span><span>The tenant must pay the rent amount in the manner and dates agreed with the landlord.</span></div>
+      <div class="tc-item"><span class="tc-num">6.</span><span>The tenant fully undertakes to comply with all the regulations and instructions related to the management of the property and the use of the premises and of common areas.</span></div>
+      <div class="tc-item"><span class="tc-num">7.</span><span>Tenancy contract parties declare all mentioned email addresses and phone numbers are correct, all formal and legal notifications will be sent to those addresses in case of dispute between parties.</span></div>
+      <div class="tc-item"><span class="tc-num">8.</span><span>The landlord undertakes to enable the tenant of the full use of the premises including its facilities and do the regular maintenance as intended unless other condition agreed in written.</span></div>
+      <div class="tc-item"><span class="tc-num">9.</span><span>By signing this agreement, the "Landlord" hereby confirms and undertakes that he is the current owner of the property or his legal representative under legal power of attorney duly entitled by the competent authorities.</span></div>
+      <div class="tc-item"><span class="tc-num">10.</span><span>Any disagreement or dispute may arise from execution or interpretation of this contract shall be settled by the Rental Dispute Center.</span></div>
+      <div class="tc-item"><span class="tc-num">11.</span><span>This contract is subject to all provisions of Law No (26) of 2007 regulating the relation between landlords and tenants in the emirate of Dubai as amended, and as it will be changed or amended from time to time, as long with any related legislations and regulations applied in the emirate of Dubai.</span></div>
+      <div class="tc-item"><span class="tc-num">12.</span><span>Any additional condition will not be considered in case it conflicts with law.</span></div>
+      <div class="tc-item"><span class="tc-num">13.</span><span>In case of discrepancy occurs between Arabic and non-Arabic texts with regards to the interpretation of this agreement or the scope of its application, the Arabic text shall prevail.</span></div>
+      <div class="tc-item"><span class="tc-num">14.</span><span>The landlord undertakes to register this tenancy contract on EJARI affiliated to Dubai Land Department and provide with all required documents.</span></div>
+    </div>
+  </div>
+
+  <!-- Signatures Page 1 -->
+  <div class="sig-section">
+    <div class="sig-row">
+      <div class="sig-box">
+        <div class="sig-label">Lessor's Signature — <span class="sig-label-ar">توقيع المؤجر</span></div>
+        <div class="sig-line"></div>
+        <div class="sig-date">Date التاريخ: ____________________</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-label">Tenant's Signature — <span class="sig-label-ar">توقيع المستأجر</span></div>
+        <div class="sig-line"></div>
+        <div class="sig-date">Date التاريخ: ____________________</div>
+      </div>
+    </div>
+  </div>
+
+  ${additionalTermsRows ? `
+  <!-- Additional Terms -->
+  <div class="tc-section additional-terms" style="margin-top:14px;">
+    <div class="tc-head">
+      <span class="en">Additional Terms</span>
+      <span class="ar">شروط إضافية</span>
+    </div>
+    <div class="tc-body" style="padding:0;">
+      <table style="width:100%;border-collapse:collapse;">
+        ${additionalTermsRows}
+      </table>
+    </div>
+  </div>` : ''}
+
+  <!-- Know Your Rights -->
+  <div class="know-rights" style="margin-top:14px;">
+    <h4><span>Know Your Rights</span><span style="direction:rtl;">لمعرفة حقوق الأطراف</span></h4>
+    <div style="display:flex;gap:20px;">
+      <ul style="list-style:disc;padding-left:16px;line-height:1.8;">
+        <li>You may visit Rental Dispute Center website through <strong>www.dubailand.gov.ae</strong></li>
+        <li>Law No 26 of 2007 regulating relationship between landlords and tenants.</li>
+        <li>Law No 33 of 2008 amending law 26 of year 2007.</li>
+        <li>Law No 43 of 2013 determining rent increases for properties.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Ejari -->
+  <div class="ejari">
+    <h4><span>Attachments for Ejari Registration</span><span style="direction:rtl;">مرفقات التسجيل في إيجاري</span></h4>
+    <ol style="padding-left:16px;line-height:1.8;">
+      <li>Original unified tenancy contract — نسخة أصلية عن عقد الايجار الموحد</li>
+      <li>Original emirates ID of applicant — الهوية الإماراتية الأصلية لمقدم الطلب</li>
+    </ol>
+  </div>
+
+  <!-- Final Signatures -->
+  <div class="sig-section" style="margin-top:14px;">
+    <div class="sig-row">
+      <div class="sig-box">
+        <div class="sig-label">Lessor's Signature — <span class="sig-label-ar">توقيع المؤجر</span></div>
+        <div class="sig-line"></div>
+        <div class="sig-date">Date التاريخ: ____________________</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-label">Tenant's Signature — <span class="sig-label-ar">توقيع المستأجر</span></div>
+        <div class="sig-line"></div>
+        <div class="sig-date">Date التاريخ: ____________________</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    Note: You may add addendum to this tenancy contract in case you have additional terms while it needs to be signed by all parties.<br>
+    ملاحظة: يمكن إضافة ملحق إلى هذا العقد في حال وجود أي شروط إضافية، على أن يوقع من أطراف التعاقد.
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
+// ─── Render Pipeline ──────────────────────────────
+function refresh() {
+  const all      = loadProps();
+  const filtered = applyFilters(all);
+  renderStats(all);
+  renderNavCounts(all);
+  renderAlerts(all);
+  renderReminderBadge(all);
+  renderGrid(filtered);
+  if (activeTab === 'reminders') renderReminders();
+}
+
+function applyFilters(props) {
+  const q          = $('searchInput').value.toLowerCase().trim();
+  const statusF    = $('filterStatus').value;
+  const ownershipF = $('filterOwnership').value;
+  return props.filter(p => {
+    if (q && !`${p.name} ${p.location||''} ${p.tenantName||''}`.toLowerCase().includes(q)) return false;
+    if (activeTypeFilter && p.type !== activeTypeFilter) return false;
+    if (statusF    && p.status    !== statusF)    return false;
+    if (ownershipF && p.ownership !== ownershipF) return false;
+    return true;
+  });
+}
+
+function renderStats(props) {
+  const tf      = activeTypeFilter;
+  const typed   = tf ? props.filter(p => p.type === tf) : props;
+  const revenue = typed.filter(p => p.status === 'rented').reduce((s, p) => s + (Number(p.annualRent)||0), 0);
+  const area    = typed.reduce((s, p) => s + (Number(p.size)||0), 0);
+  const icons   = { warehouse: '🏭', office: '🏢', residential: '🏠' };
+  const labels  = { warehouse: 'Warehouses', office: 'Offices', residential: 'Residential' };
+  if ($('statTypeIcon'))   $('statTypeIcon').textContent   = icons[tf]  || '🏗️';
+  if ($('statTotalLabel')) $('statTotalLabel').textContent = labels[tf] || 'All Properties';
+  $('statTotal').textContent     = typed.length;
+  $('statRented').textContent    = typed.filter(p => p.status === 'rented').length;
+  $('statVacant').textContent    = typed.filter(p => p.status === 'vacant').length;
+  $('statManaged').textContent   = typed.filter(p => p.ownership === 'management').length;
+  $('statRevenue').textContent   = revenue ? 'AED ' + revenue.toLocaleString() : 'AED 0';
+  $('statTotalArea').textContent = area ? area.toLocaleString() : '0';
+}
+
+function renderNavCounts(props) {
+  props = props || loadProps();
+  const wEl = $('navCountWarehouses');
+  const oEl = $('navCountOffices');
+  const rEl = $('navCountResidential');
+  if (wEl) wEl.textContent = props.filter(p => p.type === 'warehouse').length  || '';
+  if (oEl) oEl.textContent = props.filter(p => p.type === 'office').length     || '';
+  if (rEl) rEl.textContent = props.filter(p => p.type === 'residential').length || '';
+  updateTaskBadge();
+}
+
+function renderAlerts(props) {
+  const today    = new Date();
+  const expiring = props.filter(p => {
+    if (p.status !== 'rented' || !p.leaseEnd) return false;
+    const threshold = Number(p.reminderDays) || 60;
+    return Math.ceil((new Date(p.leaseEnd) - today) / 86400000) <= threshold;
+  });
+  const banner = $('alertBanner');
+  if (!expiring.length) { banner.style.display = 'none'; return; }
+  const msgs = expiring.map(p => {
+    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+    return days <= 0
+      ? `⛔ <strong>${h(p.name)}</strong> lease expired ${Math.abs(days)}d ago`
+      : `⚠️ <strong>${h(p.name)}</strong> lease expires in ${days} days`;
+  });
+  banner.style.display = 'flex';
+  banner.innerHTML = '🔔 &nbsp;' + msgs.join(' &nbsp;|&nbsp; ');
+}
+
+function renderGrid(props) {
+  const grid  = $('propertiesGrid');
+  const empty = $('emptyState');
+  if (!props.length) {
+    grid.innerHTML = '';
+    const icons  = { warehouse: '🏭', office: '🏢', residential: '🏠' };
+    const labels = { warehouse: 'Warehouses', office: 'Offices', residential: 'Residential Properties' };
+    const icon   = icons[activeTypeFilter]  || '🏗️';
+    const label  = labels[activeTypeFilter] || 'Properties';
+    const el = empty.querySelector('.empty-icon');
+    const h3 = empty.querySelector('h3');
+    const p  = empty.querySelector('p');
+    if (el) el.textContent = icon;
+    if (h3) h3.textContent = `No ${label} Added Yet`;
+    if (p)  p.textContent  = `Add your first ${label.toLowerCase().replace(' properties','')} to get started.`;
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = props.map(cardHTML).join('');
+  props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+}
+
+// ─── Property Card ────────────────────────────────
+function cardHTML(p) {
+  const typeIcon = p.type === 'warehouse' ? '🏭' : '🏢';
+  const today    = new Date();
+  const reminderThreshold = Number(p.reminderDays) || 60;
+  let leaseBadge = '';
+  if (p.status === 'rented' && p.leaseEnd) {
+    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+    if      (days < 0)                    leaseBadge = `<span class="lease-badge lease-expired">Expired</span>`;
+    else if (days <= reminderThreshold)   leaseBadge = `<span class="lease-badge lease-warning">${days}d left</span>`;
+    else                                  leaseBadge = `<span class="lease-badge lease-ok">${days}d left</span>`;
+  }
+
+  const ownershipChip = p.ownership === 'partnership'
+    ? `<span class="chip chip-partnership">🤝 Partnership ${p.ourShare ? p.ourShare+'%' : ''}</span>`
+    : p.ownership === 'own'        ? `<span class="chip chip-on">✓ Own</span>`
+    : p.ownership === 'management' ? `<span class="chip chip-management">📋 Managed</span>`
+    : '';
+  const agentSourcedChip = p.addedByAgent
+    ? `<span class="chip chip-agent-sourced" title="Sourced by ${h(p.addedByAgentName||'agent')}">⭐ ${h(p.addedByAgentName||'Agent')}</span>`
+    : '';
+
+  const mapChip = p.mapLink
+    ? `<span class="chip chip-map" onclick="event.stopPropagation();window.open('${p.mapLink}','_blank')">🗺 Map</span>`
+    : '';
+
+  const mediaStrip = p.media?.length
+    ? `<div class="card-media-strip count-${Math.min(p.media.length, 3)}" id="strip-${p.id}">
+        ${p.media.slice(0, 3).map((m, i) =>
+          isVideo(m.mime)
+            ? `<video id="strip-${p.id}-${i}" muted></video>`
+            : `<img id="strip-${p.id}-${i}" alt="">`
+        ).join('')}
+        ${p.media.length > 3 ? `<div class="card-media-more">+${p.media.length - 3}</div>` : ''}
+      </div>`
+    : '';
+
+  const cardWaHref = waLink(p.tenantPhone, p.tenantName, p.name);
+  const tenantSection = (p.status === 'rented' && p.tenantName) ? `
+    <hr class="card-divider">
+    <div class="card-tenant">
+      <div class="tenant-left">
+        <div class="tenant-avatar">${p.tenantName.charAt(0).toUpperCase()}</div>
+        <div>
+          <div class="tenant-name">${h(p.tenantName)}</div>
+          <div class="tenant-dates">${fmtDate(p.leaseStart)} → ${fmtDate(p.leaseEnd)}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        ${cardWaHref ? `<a href="${cardWaHref}" target="_blank" class="card-wa-btn" onclick="event.stopPropagation()" title="WhatsApp ${h(p.tenantName)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.533 5.858L.057 23.5l5.797-1.452A11.943 11.943 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.891 0-3.667-.498-5.2-1.37l-.373-.22-3.44.861.92-3.352-.242-.386A9.944 9.944 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg></a>` : ''}
+        ${leaseBadge}
+      </div>
+    </div>` : '';
+
+  const vacantBanner = p.status === 'vacant'
+    ? `<div style="padding:6px 10px;background:var(--danger-bg);border-radius:6px;font-size:12px;font-weight:600;color:var(--danger);text-align:center;">🔓 Vacant — Available for Rent${p.annualRent ? ' · Asking AED '+num(p.annualRent) : ''}</div>`
+    : '';
+
+  return `
+    <div class="property-card${p.status === 'vacant' ? ' card-vacant' : ''}" onclick="openDetailModal('${p.id}')">
+      <div class="card-header">
+        <div class="card-header-top">
+          <div>
+            <div class="card-type-pill pill-${p.type}">${typeIcon} ${p.type}</div>
+            <div class="card-title">${h(p.name)}</div>
+            ${p.location ? `<div class="card-location">📍 ${h(p.location)}</div>` : ''}
+          </div>
+          ${p.status ? `<span class="card-status-badge status-${p.status}">${p.status}</span>` : ''}
+        </div>
+      </div>
+      ${mediaStrip}
+      <div class="card-body">
+        <div class="card-kpis">
+          <div class="kpi">
+            <span class="kpi-label">Size</span>
+            <span class="kpi-value">${p.size ? num(p.size)+' sq ft' : '—'}</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-label">Purchase Price</span>
+            <span class="kpi-value">${p.purchasePrice ? 'AED '+num(p.purchasePrice) : '—'}</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span>
+            <span class="kpi-value gold">${p.annualRent ? 'AED '+num(p.annualRent) : '—'}</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-label">Yield</span>
+            <span class="kpi-value">${yieldPct(p.annualRent, p.purchasePrice)}</span>
+          </div>
+        </div>
+        <div class="card-chips">
+          <span class="chip ${p.compound  === 'yes' ? 'chip-on' : 'chip-off'}">${p.compound  === 'yes' ? '✓' : '✗'} Compound</span>
+          <span class="chip ${p.mezzanine === 'yes' ? 'chip-on' : 'chip-off'}">${p.mezzanine === 'yes' ? '✓' : '✗'} Mezzanine</span>
+          ${ownershipChip}
+          ${agentSourcedChip}
+          ${mapChip}
+        </div>
+        ${vacantBanner}
+        ${tenantSection}
+      </div>
+      <div class="card-actions" onclick="event.stopPropagation()">
+        <button class="card-action-btn" onclick="openDetailModal('${p.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          View
+        </button>
+        <button class="card-action-btn" onclick="openEditModal('${p.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </button>
+        <button class="card-action-btn del" onclick="quickDelete('${p.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          Delete
+        </button>
+      </div>
+    </div>`;
+}
+
+async function loadCardMedia(p) {
+  for (let i = 0; i < Math.min(p.media.length, 3); i++) {
+    const rec = await idbGet(p.media[i].id).catch(() => null);
+    if (!rec) continue;
+    const el = $(`strip-${p.id}-${i}`);
+    if (el) el.src = rec.data;
+  }
+}
+
+// ─── Add / Edit Modal ─────────────────────────────
+function openAddModal() {
+  $('editPropertyId').value = '';
+  $('modalTitle').textContent = 'Add New Property';
+  $('saveBtnText').textContent = 'Save Property';
+  $('propertyForm').reset();
+  pendingFiles = { ijari: null, affection: null, tenancy: null };
+  pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
+  resetFileZones();
+  renderMediaPreviews();
+  toggleOwnership();
+  toggleRentalSection();
+  $('propNumCheques').value = '';
+  $('chequeFields').innerHTML = '';
+  $('propertyModalOverlay').classList.add('active');
+}
+
+async function openEditModal(id) {
+  const p = loadProps().find(x => x.id === id);
+  if (!p) return;
+
+  $('editPropertyId').value = id;
+  $('modalTitle').textContent = 'Edit Property';
+  $('saveBtnText').textContent = 'Save Changes';
+  pendingFiles = { ijari: null, affection: null, tenancy: null };
+  pendingMedia = [];
+  existingMediaMeta = p.media ? [...p.media] : [];
+  removedMediaIds   = [];
+  resetFileZones();
+
+  $('propName').value          = p.name          || '';
+  $('propType').value          = p.type          || '';
+  $('propLocation').value      = p.location      || '';
+  $('propMapLink').value       = p.mapLink        || '';
+  $('propCoords').value        = p.coords         || '';
+  $('propSize').value          = p.size          || '';
+  $('propArea').value          = p.area          || '';
+  $('propOwnership').value     = p.ownership     || '';
+  $('propPurchasePrice').value = p.purchasePrice || '';
+  $('propPartnerName').value   = p.partnerName   || '';
+  $('propOurShare').value      = p.ourShare      || '';
+  $('propOwnerName').value     = p.ownerName     || '';
+  $('propOwnerPhone').value    = p.ownerPhone    || '';
+  $('propMgmtFee').value       = p.mgmtFee       || '';
+  $('propMgmtDate').value      = p.mgmtDate      || '';
+  $('propPurchaseDate').value  = p.purchaseDate  || '';
+  $('propMarketValue').value   = p.marketValue   || '';
+  $('propRent').value          = p.annualRent    || '';
+  $('propTenantName').value    = p.tenantName    || '';
+  $('propTenantPhone').value   = p.tenantPhone   || '';
+  $('propTenantEmail').value   = p.tenantEmail   || '';
+  $('propReminderDays').value  = p.reminderDays  || '60';
+  $('propLeaseStart').value    = p.leaseStart    || '';
+  $('propLeaseEnd').value      = p.leaseEnd      || '';
+  $('propNotes').value         = p.notes         || '';
+
+  $('propNumCheques').value = p.numCheques || '';
+  renderChequeFields();
+  if (p.cheques?.length) {
+    $('chequeFields').querySelectorAll('.cheque-row').forEach((row, i) => {
+      const c = p.cheques[i];
+      if (!c) return;
+      row.querySelector('.cheque-date').value   = c.date   || '';
+      row.querySelector('.cheque-amount').value = c.amount || '';
+      row.querySelector('.cheque-status').value = c.status || 'pending';
+    });
+  }
+
+  setRadio('propCompound',  p.compound  || 'no');
+  setRadio('propMezzanine', p.mezzanine || 'no');
+  if (p.status) setRadio('propStatus', p.status);
+  else          setRadio('propStatus', '');
+
+  toggleOwnership();
+  toggleRentalSection();
+
+  showExisting('ijari',     p.files?.ijari);
+  showExisting('affection', p.files?.affection);
+  showExisting('tenancy',   p.files?.tenancy);
+
+  await renderMediaPreviews();
+  $('propertyModalOverlay').classList.add('active');
+}
+
+function closeAddModal() {
+  $('propertyModalOverlay').classList.remove('active');
+}
+
+function toggleOwnership() {
+  const v = $('propOwnership').value;
+  $('partnershipFields').style.display = v === 'partnership' ? 'block' : 'none';
+  $('managementFields').style.display  = v === 'management'  ? 'block' : 'none';
+}
+
+function renderChequeFields() {
+  const n         = parseInt($('propNumCheques').value) || 0;
+  const container = $('chequeFields');
+  if (!n) { container.innerHTML = ''; return; }
+  const existing = [];
+  container.querySelectorAll('.cheque-row').forEach((row, i) => {
+    existing[i] = {
+      date:   row.querySelector('.cheque-date')?.value   || '',
+      amount: row.querySelector('.cheque-amount')?.value || '',
+      status: row.querySelector('.cheque-status')?.value || 'pending',
+    };
+  });
+  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
+  for (let i = 0; i < n; i++) {
+    const prev = existing[i] || {};
+    html += `<div class="cheque-row">
+      <span class="cheque-num">${i + 1}</span>
+      <input type="date" class="cheque-date" value="${prev.date || ''}">
+      <input type="number" class="cheque-amount" placeholder="e.g. 45,000" min="0" value="${prev.amount || ''}">
+      <select class="cheque-status">
+        <option value="pending"  ${(!prev.status || prev.status==='pending')  ? 'selected':''}>⏳ Pending</option>
+        <option value="received" ${prev.status==='received' ? 'selected':''}>✅ Received</option>
+        <option value="bounced"  ${prev.status==='bounced'  ? 'selected':''}>❌ Bounced</option>
+      </select>
+    </div>`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function toggleRentalSection() {
+  const status = getRadio('propStatus');
+  const tenantSec  = $('tenantSection');
+  const vacantNote = $('vacantNotice');
+  const rentLabel  = $('rentLabel');
+
+  if (status === 'vacant') {
+    tenantSec.classList.add('collapsed');
+    vacantNote.style.display = 'flex';
+    if (rentLabel) rentLabel.textContent = '(asking rent)';
+  } else {
+    tenantSec.classList.remove('collapsed');
+    vacantNote.style.display = 'none';
+    if (rentLabel) rentLabel.textContent = '';
+  }
+}
+
+function setRadio(name, val) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r => { r.checked = r.value === val; });
+}
+
+function getRadio(name) {
+  return document.querySelector(`input[name="${name}"]:checked`)?.value || null;
+}
+
+// ─── Document File Handling ───────────────────────
+function handleFile(e, key) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 50 * 1024 * 1024) { showToast('File too large (max 50 MB)', 'error'); return; }
+  pendingFiles[key] = file;
+  const zone  = e.target.closest('.file-zone');
+  const label = $(`file${cap(key)}Label`);
+  zone.classList.add('has-file');
+  label.textContent = file.name.length > 24 ? file.name.slice(0, 22) + '…' : file.name;
+}
+
+function showExisting(key, info) {
+  const tagEl = $(`existing${cap(key)}`);
+  if (info?.name) {
+    tagEl.style.display = 'flex';
+    tagEl.innerHTML = `✅ ${h(info.name)} <span style="color:var(--text-3)">(existing)</span>`;
+  } else {
+    tagEl.style.display = 'none';
+  }
+}
+
+function resetFileZones() {
+  ['ijari', 'affection', 'tenancy'].forEach(key => {
+    const input = $(`file${cap(key)}`);
+    if (input) input.value = '';
+    const zone = input?.closest('.file-zone');
+    if (zone) zone.classList.remove('has-file');
+    const label = $(`file${cap(key)}Label`);
+    if (label) label.textContent = `Upload ${key === 'ijari' ? 'Ijari' : key === 'affection' ? 'Plan' : 'Contract'}`;
+    const tag = $(`existing${cap(key)}`);
+    if (tag) tag.style.display = 'none';
+  });
+}
+
+// ─── Media Handling ───────────────────────────────
+function handleMediaFiles(e) {
+  const files = Array.from(e.target.files);
+  for (const file of files) {
+    if (file.size > 100 * 1024 * 1024) { showToast(`${file.name} is too large (max 100 MB)`, 'error'); continue; }
+    pendingMedia.push(file);
+  }
+  e.target.value = ''; // allow re-selecting same file
+  renderMediaPreviews();
+}
+
+async function renderMediaPreviews() {
+  const grid = $('mediaPreviewGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  // Existing media (already saved)
+  for (let i = 0; i < existingMediaMeta.length; i++) {
+    const meta = existingMediaMeta[i];
+    const rec  = await idbGet(meta.id).catch(() => null);
+    if (!rec) continue;
+
+    const thumb = document.createElement('div');
+    thumb.className = 'media-thumb';
+
+    if (isVideo(meta.mime)) {
+      const vid = document.createElement('video');
+      vid.src = rec.data; vid.muted = true;
+      vid.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      thumb.appendChild(vid);
+      const icon = document.createElement('div');
+      icon.className = 'media-thumb-video-icon'; icon.textContent = '▶';
+      thumb.appendChild(icon);
+    } else {
+      const img = document.createElement('img');
+      img.src = rec.data; img.alt = meta.name;
+      thumb.appendChild(img);
+    }
+
+    const badge = document.createElement('div');
+    badge.className = 'media-thumb-badge'; badge.textContent = 'Saved';
+    thumb.appendChild(badge);
+
+    const name = document.createElement('div');
+    name.className = 'media-thumb-name';
+    name.textContent = meta.name;
+    thumb.appendChild(name);
+
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'media-thumb-remove'; rmBtn.textContent = '×';
+    rmBtn.title = 'Remove';
+    const capturedId   = meta.id;
+    const capturedIdx  = i;
+    rmBtn.onclick = e => {
+      e.stopPropagation();
+      removedMediaIds.push(capturedId);
+      existingMediaMeta = existingMediaMeta.filter((_, idx) => idx !== capturedIdx);
+      renderMediaPreviews();
+    };
+    thumb.appendChild(rmBtn);
+    grid.appendChild(thumb);
+  }
+
+  // Pending new media (not yet saved)
+  pendingMedia.forEach((file, i) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'media-thumb';
+    const url = URL.createObjectURL(file);
+
+    if (isVideo(file.type)) {
+      const vid = document.createElement('video');
+      vid.src = url; vid.muted = true;
+      vid.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      thumb.appendChild(vid);
+      const icon = document.createElement('div');
+      icon.className = 'media-thumb-video-icon'; icon.textContent = '▶';
+      thumb.appendChild(icon);
+    } else {
+      const img = document.createElement('img');
+      img.src = url; img.alt = file.name;
+      thumb.appendChild(img);
+    }
+
+    const badge = document.createElement('div');
+    badge.className = 'media-thumb-badge'; badge.textContent = 'New';
+    badge.style.background = 'rgba(5,150,105,.8)';
+    thumb.appendChild(badge);
+
+    const name = document.createElement('div');
+    name.className = 'media-thumb-name'; name.textContent = file.name;
+    thumb.appendChild(name);
+
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'media-thumb-remove'; rmBtn.textContent = '×';
+    rmBtn.title = 'Remove';
+    const capturedIdx = i;
+    rmBtn.onclick = e => {
+      e.stopPropagation();
+      pendingMedia.splice(capturedIdx, 1);
+      renderMediaPreviews();
+    };
+    thumb.appendChild(rmBtn);
+    grid.appendChild(thumb);
+  });
+}
+
+// ─── Save Property ────────────────────────────────
+async function handleSave() {
+  const name = $('propName').value.trim();
+  const type = $('propType').value;
+  if (!name || !type) { showToast('Property Name and Type are required', 'error'); return; }
+
+  const btn = $('savePropertyBtn');
+  btn.disabled = true;
+  $('saveBtnText').textContent = 'Saving…';
+
+  const editId = $('editPropertyId').value;
+  const props  = loadProps();
+
+  const property = {
+    id:            editId || uid(),
+    name, type,
+    location:      $('propLocation').value.trim()      || null,
+    mapLink:       $('propMapLink').value.trim()        || null,
+    size:          Number($('propSize').value)          || null,
+    area:          Number($('propArea').value)          || null,
+    compound:      getRadio('propCompound')             || 'no',
+    mezzanine:     getRadio('propMezzanine')            || 'no',
+    ownership:     $('propOwnership').value             || null,
+    partnerName:   $('propPartnerName').value.trim()    || null,
+    ourShare:      Number($('propOurShare').value)      || null,
+    ownerName:     $('propOwnerName').value.trim()      || null,
+    ownerPhone:    $('propOwnerPhone').value.trim()     || null,
+    mgmtFee:       Number($('propMgmtFee').value)       || null,
+    mgmtDate:      $('propMgmtDate').value              || null,
+    purchasePrice: Number($('propPurchasePrice').value) || null,
+    purchaseDate:  $('propPurchaseDate').value          || null,
+    marketValue:   Number($('propMarketValue').value)   || null,
+    status:        getRadio('propStatus')               || null,
+    annualRent:    Number($('propRent').value)          || null,
+    coords:        $('propCoords').value.trim()        || null,
+    tenantName:    $('propTenantName').value.trim()   || null,
+    tenantPhone:   $('propTenantPhone').value.trim()  || null,
+    tenantEmail:   $('propTenantEmail').value.trim()  || null,
+    reminderDays:  Number($('propReminderDays').value) || 60,
+    leaseStart:    $('propLeaseStart').value           || null,
+    leaseEnd:      $('propLeaseEnd').value             || null,
+    notes:         $('propNotes').value.trim()          || null,
+    numCheques:    parseInt($('propNumCheques').value)  || null,
+    cheques:       (() => {
+      const rows = [];
+      $('chequeFields').querySelectorAll('.cheque-row').forEach((row, i) => {
+        rows.push({
+          n:      i + 1,
+          date:   row.querySelector('.cheque-date')?.value                  || null,
+          amount: Number(row.querySelector('.cheque-amount')?.value)        || null,
+          status: row.querySelector('.cheque-status')?.value                || 'pending',
+        });
+      });
+      return rows.length ? rows : null;
+    })(),
+    files:         {},
+    media:         [],
+    createdAt:     editId ? (props.find(p => p.id === editId)?.createdAt || iso()) : iso(),
+    updatedAt:     iso(),
+  };
+
+  // Carry over existing docs
+  if (editId) {
+    const existing = props.find(p => p.id === editId);
+    if (existing?.files) property.files = { ...existing.files };
+  }
+
+  // Save new doc files
+  for (const key of ['ijari', 'affection', 'tenancy']) {
+    const file = pendingFiles[key];
+    if (file) {
+      const fileId = `${property.id}_${key}`;
+      await idbPut(fileId, file);
+      property.files[key] = { name: file.name, id: fileId };
+    }
+  }
+
+  // Delete removed media
+  for (const id of removedMediaIds) {
+    await idbDel(id).catch(() => {});
+  }
+
+  // Carry over existing (non-removed) media
+  property.media = [...existingMediaMeta];
+
+  // Save new media
+  for (let i = 0; i < pendingMedia.length; i++) {
+    const file   = pendingMedia[i];
+    const fileId = `${property.id}_media_${uid()}`;
+    await idbPut(fileId, file);
+    property.media.push({ id: fileId, name: file.name, mime: file.type });
+  }
+
+  if (editId) {
+    const idx = props.findIndex(p => p.id === editId);
+    if (idx >= 0) props[idx] = property;
+  } else {
+    props.push(property);
+  }
+
+  persistProps(props);
+  closeAddModal();
+  refresh();
+  showToast(editId ? 'Property updated' : 'Property added', 'success');
+
+  btn.disabled = false;
+  $('saveBtnText').textContent = 'Save Property';
+}
+
+// ─── Delete ───────────────────────────────────────
+function quickDelete(id) {
+  if (!confirm('Delete this property? This cannot be undone.')) return;
+  doDelete(id);
+}
+
+async function handleDelete() {
+  if (!currentDetailId) return;
+  if (!confirm('Delete this property? This cannot be undone.')) return;
+  await doDelete(currentDetailId);
+  closeDetailModal();
+}
+
+async function doDelete(id) {
+  const props = loadProps();
+  const p     = props.find(x => x.id === id);
+  if (p?.files) {
+    for (const info of Object.values(p.files)) {
+      if (info?.id) await idbDel(info.id).catch(() => {});
+    }
+  }
+  if (p?.media) {
+    for (const m of p.media) {
+      await idbDel(m.id).catch(() => {});
+    }
+  }
+  persistProps(props.filter(x => x.id !== id));
+  refresh();
+  showToast('Property deleted', 'success');
+}
+
+// ─── Detail Modal ─────────────────────────────────
+async function openDetailModal(id) {
+  currentDetailId = id;
+  const p = loadProps().find(x => x.id === id);
+  if (!p) return;
+
+  const typeIcon = p.type === 'warehouse' ? '🏭' : '🏢';
+  $('detailTypeIcon').textContent = typeIcon;
+  $('detailName').textContent     = p.name;
+
+  let leaseNote = '';
+  if (p.status === 'rented' && p.leaseEnd) {
+    const days = Math.ceil((new Date(p.leaseEnd) - new Date()) / 86400000);
+    if      (days < 0)   leaseNote = `<span class="d-badge d-badge-vacant">Lease Expired ${Math.abs(days)}d ago</span>`;
+    else if (days <= 60) leaseNote = `<span class="d-badge" style="background:var(--warn-bg);color:var(--warn);">⚠️ ${days}d until expiry</span>`;
+  }
+
+  $('detailMeta').innerHTML = `
+    <span class="d-badge d-badge-${p.type}">${typeIcon} ${p.type}</span>
+    ${p.status ? `<span class="d-badge d-badge-${p.status}">${p.status}</span>` : ''}
+    ${p.ownership ? `<span class="d-badge d-badge-${p.ownership}">${
+      p.ownership === 'own'        ? '100% Own'
+      : p.ownership === 'management' ? '📋 Managed'
+      : `Partnership${p.ourShare ? ' ('+p.ourShare+'%)' : ''}`
+    }</span>` : ''}
+    ${leaseNote}
+  `;
+
+  $('detailBody').innerHTML = `
+    <div class="detail-sections">
+
+      <div class="two-col-blocks">
+        <div class="detail-block">
+          <div class="detail-block-header">📍 Property Details</div>
+          <div class="detail-rows">
+            ${p.location ? `<div class="detail-row"><span class="dr-label">Location</span><span class="dr-value">${h(p.location)}</span></div>` : ''}
+            ${p.mapLink  ? `<div class="detail-row"><span class="dr-label">Google Maps</span><span class="dr-value"><a href="${p.mapLink}" target="_blank">Open in Maps ↗</a></span></div>` : ''}
+            ${p.size     ? `<div class="detail-row"><span class="dr-label">Built-up Size</span><span class="dr-value">${num(p.size)} sq ft</span></div>` : ''}
+            ${p.area     ? `<div class="detail-row"><span class="dr-label">Plot Area</span><span class="dr-value">${num(p.area)} sq ft</span></div>` : ''}
+            <div class="detail-row"><span class="dr-label">Compound</span><span class="dr-value">${p.compound  === 'yes' ? '✅ Yes' : '❌ No'}</span></div>
+            <div class="detail-row"><span class="dr-label">Mezzanine</span><span class="dr-value">${p.mezzanine === 'yes' ? '✅ Yes' : '❌ No'}</span></div>
+          </div>
+        </div>
+        <div class="detail-block">
+          <div class="detail-block-header">💰 Financial Details</div>
+          <div class="detail-rows">
+            ${p.ownership ? `<div class="detail-row"><span class="dr-label">Ownership</span><span class="dr-value">${
+              p.ownership === 'own' ? '100% Own'
+              : p.ownership === 'management' ? '📋 Management Only (0%)'
+              : 'Partnership'
+            }</span></div>` : ''}
+            ${p.ownership === 'partnership' && p.partnerName ? `<div class="detail-row"><span class="dr-label">Partner</span><span class="dr-value">${h(p.partnerName)}</span></div>` : ''}
+            ${p.ownership === 'partnership' && p.ourShare    ? `<div class="detail-row"><span class="dr-label">Our Share</span><span class="dr-value">${p.ourShare}%</span></div>` : ''}
+            ${p.ownership === 'management' && p.ownerName  ? `<div class="detail-row"><span class="dr-label">Property Owner</span><span class="dr-value">${h(p.ownerName)}</span></div>` : ''}
+            ${p.ownership === 'management' && p.ownerPhone ? `<div class="detail-row"><span class="dr-label">Owner Phone</span><span class="dr-value"><a href="tel:${h(p.ownerPhone)}" class="contact-link phone-link">📞 ${h(p.ownerPhone)}</a></span></div>` : ''}
+            ${p.ownership === 'management' && p.mgmtFee    ? `<div class="detail-row"><span class="dr-label">Management Fee</span><span class="dr-value big">AED ${num(p.mgmtFee)} / year</span></div>` : ''}
+            ${p.ownership === 'management' && p.mgmtDate   ? `<div class="detail-row"><span class="dr-label">Agreement Date</span><span class="dr-value">${fmtDate(p.mgmtDate)}</span></div>` : ''}
+            ${p.purchasePrice ? `<div class="detail-row"><span class="dr-label">Purchase Price</span><span class="dr-value big">AED ${num(p.purchasePrice)}</span></div>` : ''}
+            ${p.purchaseDate  ? `<div class="detail-row"><span class="dr-label">Purchase Date</span><span class="dr-value">${fmtDate(p.purchaseDate)}</span></div>` : ''}
+            ${p.marketValue   ? `<div class="detail-row"><span class="dr-label">Market Value</span><span class="dr-value">AED ${num(p.marketValue)}</span></div>` : ''}
+            ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span><span class="dr-value big">AED ${num(p.annualRent)}</span></div>` : ''}
+            ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, p.purchasePrice)}</span></div>` : ''}
+          </div>
+        </div>
+      </div>
+
+      ${p.status === 'rented' && (p.tenantName || p.leaseStart) ? `
+      <div class="detail-block">
+        <div class="detail-block-header">👤 Tenant Information</div>
+        <div class="two-col-blocks" style="padding:0;">
+          <div class="detail-rows">
+            ${p.tenantName  ? `<div class="detail-row"><span class="dr-label">Tenant</span><span class="dr-value">${h(p.tenantName)}</span></div>` : ''}
+            ${p.tenantPhone ? `<div class="detail-row"><span class="dr-label">Phone</span><span class="dr-value contact-actions"><a href="tel:${h(p.tenantPhone)}" class="contact-link phone-link">📞 ${h(p.tenantPhone)}</a>${waLink(p.tenantPhone, p.tenantName, p.name) ? `<a href="${waLink(p.tenantPhone, p.tenantName, p.name)}" target="_blank" class="wa-btn">WhatsApp</a>` : ''}</span></div>` : ''}
+            ${p.tenantEmail ? `<div class="detail-row"><span class="dr-label">Email</span><span class="dr-value contact-actions"><a href="mailto:${h(p.tenantEmail)}" class="contact-link email-link" title="Open in mail app">✉️ ${h(p.tenantEmail)}</a><a href="https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(p.tenantEmail)}" target="_blank" class="gmail-btn" title="Open in Gmail">Gmail ↗</a></span></div>` : ''}
+            ${p.annualRent  ? `<div class="detail-row"><span class="dr-label">Monthly Rent</span><span class="dr-value green">AED ${Math.round(p.annualRent/12).toLocaleString()}</span></div>` : ''}
+          </div>
+          <div class="detail-rows">
+            ${p.leaseStart    ? `<div class="detail-row"><span class="dr-label">Lease Start</span><span class="dr-value">${fmtDate(p.leaseStart)}</span></div>` : ''}
+            ${p.leaseEnd      ? `<div class="detail-row"><span class="dr-label">Lease End</span><span class="dr-value">${fmtDate(p.leaseEnd)}</span></div>` : ''}
+            ${p.leaseEnd      ? `<div class="detail-row"><span class="dr-label">Remaining</span><span class="dr-value ${daysClass(p.leaseEnd, p.reminderDays)}">${daysRemaining(p.leaseEnd)}</span></div>` : ''}
+            ${p.reminderDays  ? `<div class="detail-row"><span class="dr-label">Reminder Set</span><span class="dr-value reminder-pill">🔔 ${p.reminderDays} days before expiry</span></div>` : ''}
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${p.status === 'vacant' ? `
+      <div class="detail-block">
+        <div class="detail-block-header">🔓 Vacant Property</div>
+        <div class="detail-rows">
+          <div class="detail-row"><span class="dr-label">Status</span><span class="dr-value red">Available for Rent</span></div>
+          ${p.annualRent ? `<div class="detail-row"><span class="dr-label">Asking Rent</span><span class="dr-value big">AED ${num(p.annualRent)} / year</span></div>` : ''}
+          ${p.annualRent ? `<div class="detail-row"><span class="dr-label">Per Month</span><span class="dr-value">AED ${Math.round(p.annualRent/12).toLocaleString()}</span></div>` : ''}
+        </div>
+      </div>` : ''}
+
+      ${p.cheques?.length ? `
+      <div class="detail-block">
+        <div class="detail-block-header">💳 Cheque Schedule</div>
+        <div class="cheque-detail-table">
+          <div class="cdt-head"><span>#</span><span>Date</span><span>Amount</span><span>Status</span></div>
+          ${p.cheques.map((c, i) => `
+          <div class="cdt-row">
+            <span class="cdt-num">${i+1}</span>
+            <span>${fmtDate(c.date)||'—'}</span>
+            <span>${c.amount ? 'AED '+num(c.amount) : '—'}</span>
+            <span class="cdt-badge cdt-${c.status||'pending'}">${
+              c.status==='received' ? '✅ Received'
+              : c.status==='bounced' ? '❌ Bounced'
+              : '⏳ Pending'
+            }</span>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
+
+      <div class="detail-block">
+        <div class="detail-block-header">📁 Documents & Attachments</div>
+        <div class="docs-grid">
+          ${docTile('Ijari Document', p.files?.ijari)}
+          ${docTile('Affection Plan', p.files?.affection)}
+          ${docTile('Tenancy Contract', p.files?.tenancy)}
+        </div>
+      </div>
+
+      <div class="detail-block" id="mediaGalleryBlock" style="${p.media?.length ? '' : 'display:none;'}">
+        <div class="detail-block-header">📸 Photos & Videos <span style="margin-left:auto;font-weight:400;opacity:.6;">${p.media?.length || 0} file${(p.media?.length||0) === 1 ? '' : 's'}</span></div>
+        <div class="detail-media-gallery" id="detailMediaGallery"></div>
+      </div>
+
+      ${p.notes ? `
+      <div class="detail-block">
+        <div class="detail-block-header">📝 Notes</div>
+        <div style="padding:14px 16px;font-size:14px;color:var(--text);line-height:1.7;">${h(p.notes)}</div>
+      </div>` : ''}
+
+    </div>`;
+
+  $('detailModalOverlay').classList.add('active');
+
+  // Load media gallery async
+  if (p.media?.length) {
+    await loadDetailMedia(p);
+  }
+}
+
+async function loadDetailMedia(p) {
+  const gallery = $('detailMediaGallery');
+  if (!gallery) return;
+
+  const mediaItems = []; // collect { data, mime, name } for lightbox
+
+  for (let i = 0; i < p.media.length; i++) {
+    const meta = p.media[i];
+    const rec  = await idbGet(meta.id).catch(() => null);
+    if (!rec) continue;
+    mediaItems.push({ data: rec.data, mime: meta.mime, name: meta.name });
+
+    const item = document.createElement('div');
+    item.className = 'detail-media-item';
+    const idx = mediaItems.length - 1;
+    item.onclick = () => openLightbox(mediaItems, idx);
+
+    if (isVideo(meta.mime)) {
+      const vid = document.createElement('video');
+      vid.src = rec.data; vid.muted = true;
+      item.appendChild(vid);
+      const badge = document.createElement('div');
+      badge.className = 'detail-media-video-badge'; badge.textContent = '▶';
+      item.appendChild(badge);
+    } else {
+      const img = document.createElement('img');
+      img.src = rec.data; img.alt = meta.name;
+      item.appendChild(img);
+    }
+
+    const nameBadge = document.createElement('div');
+    nameBadge.className = 'media-thumb-name'; nameBadge.textContent = meta.name;
+    item.appendChild(nameBadge);
+
+    gallery.appendChild(item);
+  }
+}
+
+function docTile(label, info) {
+  if (!info) return `
+    <div class="doc-tile doc-empty">
+      <div class="doc-tile-icon">📋</div>
+      <div class="doc-tile-title">${label}</div>
+      <div class="doc-tile-name">Not uploaded</div>
+    </div>`;
+  const safeId   = info.id.replace(/'/g, "\\'");
+  const safeName = info.name.replace(/'/g, "\\'");
+  const ext  = info.name.split('.').pop().toLowerCase();
+  const icon = ['jpg','jpeg','png','gif','webp'].includes(ext) ? '🖼️' : ext === 'pdf' ? '📄' : '📋';
+  return `
+    <div class="doc-tile" onclick="downloadFile('${safeId}','${safeName}')">
+      <div class="doc-tile-icon">${icon}</div>
+      <div class="doc-tile-title">${label}</div>
+      <div class="doc-tile-name">${h(info.name)}</div>
+      <div class="doc-tile-action">⬇ Download</div>
+    </div>`;
+}
+
+async function downloadFile(fileId, fallbackName) {
+  const rec = await idbGet(fileId);
+  if (!rec) { showToast('File not found', 'error'); return; }
+  const a = document.createElement('a');
+  a.href = rec.data; a.download = rec.name || fallbackName;
+  a.click();
+}
+
+function closeDetailModal() {
+  $('detailModalOverlay').classList.remove('active');
+  currentDetailId = null;
+}
+
+// ─── Reminder Badge ───────────────────────────────
+function renderReminderBadge(props) {
+  const today   = new Date();
+  const count   = props.filter(p => {
+    if (p.status !== 'rented' || !p.leaseEnd) return false;
+    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+    return days <= (Number(p.reminderDays) || 60);
+  }).length;
+
+  const badge = $('reminderBadge');
+  if (count > 0) {
+    badge.textContent  = count;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ─── Reminders Page ───────────────────────────────
+function renderReminders() {
+  const today = new Date();
+  const props = loadProps();
+
+  // Only include rented properties within their reminder window
+  const triggered = props.filter(p => {
+    if (p.status !== 'rented' || !p.leaseEnd) return false;
+    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+    return days <= (Number(p.reminderDays) || 60);
+  });
+
+  // Sort by days remaining ascending (most urgent first)
+  triggered.sort((a, b) => {
+    const da = Math.ceil((new Date(a.leaseEnd) - today) / 86400000);
+    const db = Math.ceil((new Date(b.leaseEnd) - today) / 86400000);
+    return da - db;
+  });
+
+  const groups = [
+    { key: 'expired',  label: '⛔ Expired',              cls: 'rg-expired',  stripe: 'stripe-expired',  cd: 'cd-expired',  filter: d => d < 0 },
+    { key: 'critical', label: '🔴 Critical — Under 30 Days', cls: 'rg-critical', stripe: 'stripe-critical', cd: 'cd-critical', filter: d => d >= 0  && d <= 30 },
+    { key: 'warning',  label: '🟡 Soon — 31 to 60 Days', cls: 'rg-warning',  stripe: 'stripe-warning',  cd: 'cd-warning',  filter: d => d >= 31 && d <= 60 },
+    { key: 'upcoming', label: '🔵 Upcoming — 61 to 90 Days', cls: 'rg-upcoming', stripe: 'stripe-upcoming', cd: 'cd-upcoming', filter: d => d >= 61 && d <= 90 },
+    { key: 'advance',  label: '🟢 Advance Notice — 91 to 120 Days', cls: 'rg-advance',  stripe: 'stripe-advance',  cd: 'cd-advance',  filter: d => d >= 91 && d <= 120 },
+  ];
+
+  // Summary chips
+  const chipDefs = [
+    { key: 'expired',  label: 'Expired',    cls: 'chip-expired'  },
+    { key: 'critical', label: 'Critical',   cls: 'chip-critical' },
+    { key: 'warning',  label: 'Soon',       cls: 'chip-warning'  },
+    { key: 'upcoming', label: 'Upcoming',   cls: 'chip-upcoming' },
+    { key: 'advance',  label: 'Advance',    cls: 'chip-advance'  },
+  ];
+
+  const groupedCounts = {};
+  groups.forEach(g => {
+    groupedCounts[g.key] = triggered.filter(p => {
+      const d = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+      return g.filter(d);
+    }).length;
+  });
+
+  const chips = chipDefs
+    .filter(c => groupedCounts[c.key] > 0)
+    .map(c => `
+      <div class="summary-chip ${c.cls}">
+        <span class="chip-count">${groupedCounts[c.key]}</span>
+        ${c.label}
+      </div>`).join('');
+
+  $('reminderSummaryChips').innerHTML = chips;
+
+  const groupsEl  = $('reminderGroups');
+  const emptyEl   = $('remindersEmpty');
+
+  if (!triggered.length) {
+    groupsEl.innerHTML  = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  let html = '';
+  for (const grp of groups) {
+    const items = triggered.filter(p => {
+      const d = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+      return grp.filter(d);
+    });
+    if (!items.length) continue;
+
+    html += `
+      <div class="reminder-group">
+        <div class="reminder-group-header ${grp.cls}">
+          ${grp.label}
+          <span class="rg-count">${items.length} propert${items.length === 1 ? 'y' : 'ies'}</span>
+        </div>
+        <div class="reminder-cards">
+          ${items.map(p => reminderCardHTML(p, grp.stripe, grp.cd)).join('')}
+        </div>
+      </div>`;
+  }
+  groupsEl.innerHTML = html;
+}
+
+function reminderCardHTML(p, stripeClass, cdClass) {
+  const today   = new Date();
+  const days    = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+  const typeIcon = p.type === 'warehouse' ? '🏭' : '🏢';
+
+  const countdownText = days < 0
+    ? `${Math.abs(days)}<span style="font-size:18px;font-weight:600"> days\noverdue</span>`
+    : `${days}`;
+  const countdownLabel = days < 0 ? 'Days Overdue' : days === 0 ? 'Expires Today' : 'Days Left';
+
+  const waHref = waLink(p.tenantPhone, p.tenantName, p.name);
+  const phoneBtn = p.tenantPhone
+    ? `<a href="tel:${h(p.tenantPhone)}" class="rc-phone-link" onclick="event.stopPropagation()">📞 ${h(p.tenantPhone)}</a>
+       ${waHref ? `<a href="${waHref}" target="_blank" class="rc-wa-btn" onclick="event.stopPropagation()"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.533 5.858L.057 23.5l5.797-1.452A11.943 11.943 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.891 0-3.667-.498-5.2-1.37l-.373-.22-3.44.861.92-3.352-.242-.386A9.944 9.944 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg> WhatsApp</a>`
+             : ''}`
+    : '';
+  const emailBtn = p.tenantEmail
+    ? `<a href="mailto:${h(p.tenantEmail)}" class="rc-email-link" onclick="event.stopPropagation()">✉️ ${h(p.tenantEmail)}</a>
+       <a href="https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(p.tenantEmail)}" target="_blank" class="rc-gmail-btn" onclick="event.stopPropagation()">Gmail ↗</a>`
+    : '';
+
+  return `
+    <div class="reminder-card" onclick="openDetailModal('${p.id}'); showTab('dashboard');">
+      <div class="reminder-card-stripe ${stripeClass}"></div>
+      <div class="reminder-card-inner">
+        <div class="rc-left">
+          <div class="rc-property-row">
+            <span class="rc-property-name">${typeIcon} ${h(p.name)}</span>
+            <span class="rc-type-pill">${p.type}</span>
+            ${p.location ? `<span class="rc-location">📍 ${h(p.location)}</span>` : ''}
+          </div>
+
+          ${p.tenantName ? `
+          <div class="rc-tenant-row">
+            <div class="rc-tenant-name">
+              <div class="rc-avatar">${p.tenantName.charAt(0).toUpperCase()}</div>
+              ${h(p.tenantName)}
+            </div>
+            <div class="rc-contact-links">
+              ${phoneBtn}
+              ${emailBtn}
+            </div>
+          </div>` : '<div style="font-size:13px;color:var(--text-3);">No tenant info recorded</div>'}
+
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:12px;color:var(--text-3);">
+              Lease: ${fmtDate(p.leaseStart)} → ${fmtDate(p.leaseEnd)}
+            </span>
+            <span class="reminder-pill" style="font-size:11px;">🔔 Reminder set at ${p.reminderDays || 60}d</span>
+            ${p.annualRent ? `<span style="font-size:12px;font-weight:600;color:var(--success);">AED ${num(p.annualRent)}/yr</span>` : ''}
+          </div>
+        </div>
+
+        <div class="rc-right">
+          <div class="rc-countdown ${cdClass}">${days < 0 ? Math.abs(days) : days}</div>
+          <div class="rc-countdown-label">${countdownLabel}</div>
+          <div class="rc-lease-dates">${fmtDate(p.leaseEnd)}</div>
+          <div class="rc-actions">
+            <button class="rc-btn" onclick="event.stopPropagation();openEditModal('${p.id}')">Edit</button>
+            <button class="rc-btn primary" onclick="event.stopPropagation();openDetailModal('${p.id}');showTab('dashboard');">View</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── Lightbox ─────────────────────────────────────
+function openLightbox(items, index) {
+  lbItems = items; lbIndex = index;
+  $('lightboxOverlay').classList.add('active');
+  renderLightboxItem();
+}
+
+function renderLightboxItem() {
+  const item    = lbItems[lbIndex];
+  const content = $('lightboxContent');
+  const caption = $('lightboxCaption');
+  content.innerHTML = '';
+
+  if (isVideo(item.mime)) {
+    const vid = document.createElement('video');
+    vid.src = item.data; vid.controls = true; vid.autoplay = true;
+    vid.style.cssText = 'max-width:90vw;max-height:82vh;border-radius:8px;outline:none;';
+    content.appendChild(vid);
+  } else {
+    const img = document.createElement('img');
+    img.src = item.data; img.alt = item.name;
+    content.appendChild(img);
+  }
+
+  caption.textContent = `${item.name}  (${lbIndex + 1} / ${lbItems.length})`;
+  $('lightboxPrev').disabled = lbIndex === 0;
+  $('lightboxNext').disabled = lbIndex === lbItems.length - 1;
+}
+
+function lightboxNav(dir) {
+  if (!lbItems.length) return;
+  const next = lbIndex + dir;
+  if (next < 0 || next >= lbItems.length) return;
+  lbIndex = next;
+  renderLightboxItem();
+}
+
+function closeLightbox() {
+  $('lightboxOverlay').classList.remove('active');
+  $('lightboxContent').innerHTML = ''; // stop video
+  lbItems = []; lbIndex = 0;
+}
+
+// ─── Toast ────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type = 'success') {
+  const el = $('toast');
+  el.textContent = (type === 'success' ? '✓  ' : '✕  ') + msg;
+  el.className   = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+// ─── Helpers ──────────────────────────────────────
+function h(str) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(str || ''));
+  return d.innerHTML;
+}
+
+// WhatsApp link — strips non-digits, prepends country code if needed
+function waLink(phone, tenantName, propName) {
+  if (!phone) return null;
+  let digits = phone.replace(/\D/g, '');
+  // If starts with 0, assume UAE and replace with 971
+  if (digits.startsWith('0')) digits = '971' + digits.slice(1);
+  const msg = encodeURIComponent(
+    `Hello ${tenantName || 'there'},\n\nThis is a message regarding your tenancy for ${propName || 'the property'}.\n\nPlease feel free to reach out if you have any questions.\n\nThank you.`
+  );
+  return `https://wa.me/${digits}?text=${msg}`;
+}
+function num(val)  { return val ? Number(val).toLocaleString() : '—'; }
+function iso()     { return new Date().toISOString(); }
+function cap(str)  { return str.charAt(0).toUpperCase() + str.slice(1); }
+function isVideo(mime) { return (mime || '').startsWith('video/'); }
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function yieldPct(rent, price) {
+  if (!rent || !price) return '—';
+  return ((Number(rent) / Number(price)) * 100).toFixed(2) + '%';
+}
+function daysRemaining(leaseEnd) {
+  const days = Math.ceil((new Date(leaseEnd) - new Date()) / 86400000);
+  return days < 0 ? `Expired ${Math.abs(days)}d ago` : `${days} days`;
+}
+function daysClass(leaseEnd, reminderDays) {
+  const days      = Math.ceil((new Date(leaseEnd) - new Date()) / 86400000);
+  const threshold = Number(reminderDays) || 60;
+  if (days < 0) return 'red'; if (days <= threshold) return 'gold'; return 'green';
+}
+
+// ═══════════════════════════════════════════════════
+// DISPUTES
+// ═══════════════════════════════════════════════════
+function loadDisputes()        { return JSON.parse(localStorage.getItem('asg_disputes') || '[]'); }
+function persistDisputes(arr)  { localStorage.setItem('asg_disputes', JSON.stringify(arr)); }
+
+const DISPUTE_TYPES = {
+  'court':          '⚖️ Court Case',
+  'rental-dispute': '🏠 Rental Dispute',
+  'mediation':      '🤝 Mediation',
+  'arbitration':    '📋 Arbitration',
+  'other':          '📌 Other',
+};
+const DISPUTE_STATUS = {
+  'active':    { label: 'Active',     cls: 'badge-danger'  },
+  'pending':   { label: 'Pending',    cls: 'badge-warn'    },
+  'appealed':  { label: 'Appealed',   cls: 'badge-blue'    },
+  'resolved':  { label: 'Resolved',   cls: 'badge-success' },
+  'withdrawn': { label: 'Withdrawn',  cls: 'badge-gray'    },
+};
+
+// ─── Payment Structure ────────────────────────────
+function renderPayments() {
+  const statusF = $('pmtFilterStatus')?.value || '';
+  const typeF   = $('pmtFilterType')?.value   || '';
+  const props   = loadProps();
+
+  // Collect all cheques across all properties
+  const rows = [];
+  props.forEach(p => {
+    if (!p.cheques?.length) return;
+    p.cheques.forEach(c => {
+      rows.push({ prop: p, cheque: c });
+    });
+  });
+
+  // Filter
+  const filtered = rows.filter(r => {
+    if (statusF && r.cheque.status !== statusF) return false;
+    if (typeF   && r.prop.type     !== typeF)   return false;
+    return true;
+  });
+
+  // Stats
+  const total    = filtered.length;
+  const received = filtered.filter(r => r.cheque.status === 'received').length;
+  const pending  = filtered.filter(r => r.cheque.status === 'pending').length;
+  const bounced  = filtered.filter(r => r.cheque.status === 'bounced').length;
+  const totalAmt = filtered.reduce((s, r) => s + (Number(r.cheque.amount) || 0), 0);
+  const rcvdAmt  = filtered.filter(r => r.cheque.status === 'received').reduce((s, r) => s + (Number(r.cheque.amount) || 0), 0);
+
+  $('paymentStatsBar').innerHTML = `
+    <div class="ts-chip ts-chip-default">💳 ${total} Cheque${total !== 1 ? 's' : ''}</div>
+    <div class="ts-chip ts-chip-success">✅ ${received} Received</div>
+    <div class="ts-chip ts-chip-warn">⏳ ${pending} Pending</div>
+    <div class="ts-chip ts-chip-danger">❌ ${bounced} Bounced</div>
+    ${totalAmt ? `<div class="ts-chip ts-chip-default" style="margin-left:auto;">Total: AED ${totalAmt.toLocaleString()}</div>` : ''}
+    ${rcvdAmt  ? `<div class="ts-chip ts-chip-success">Collected: AED ${rcvdAmt.toLocaleString()}</div>` : ''}
+  `;
+
+  const table  = $('paymentTable');
+  const empty  = $('paymentEmpty');
+
+  if (!filtered.length) {
+    table.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Group by property
+  const byProp = {};
+  filtered.forEach(r => {
+    const id = r.prop.id;
+    if (!byProp[id]) byProp[id] = { prop: r.prop, cheques: [] };
+    byProp[id].cheques.push(r.cheque);
+  });
+
+  const typeIcon = t => t === 'warehouse' ? '🏭' : t === 'office' ? '🏢' : '🏠';
+
+  table.innerHTML = Object.values(byProp).map(g => `
+    <div class="pmt-group">
+      <div class="pmt-group-header">
+        <span class="pmt-prop-icon">${typeIcon(g.prop.type)}</span>
+        <span class="pmt-prop-name">${h(g.prop.name)}</span>
+        ${g.prop.tenantName ? `<span class="pmt-tenant">👤 ${h(g.prop.tenantName)}</span>` : ''}
+        ${g.prop.annualRent ? `<span class="pmt-rent">AED ${num(g.prop.annualRent)} / yr</span>` : ''}
+        <button class="pmt-edit-btn" onclick="openEditModal('${g.prop.id}')">Edit Cheques</button>
+      </div>
+      <div class="pmt-table">
+        <div class="pmt-thead">
+          <span>#</span><span>Cheque Date</span><span>Amount</span><span>Status</span>
+        </div>
+        ${g.cheques.map((c, i) => `
+        <div class="pmt-trow pmt-trow-${c.status || 'pending'}">
+          <span class="pmt-num">${c.n || i + 1}</span>
+          <span>${fmtDate(c.date) || '—'}</span>
+          <span class="pmt-amount">${c.amount ? 'AED ' + num(c.amount) : '—'}</span>
+          <span>
+            <span class="pmt-badge pmt-badge-${c.status || 'pending'}">${
+              c.status === 'received' ? '✅ Received'
+              : c.status === 'bounced' ? '❌ Bounced'
+              : '⏳ Pending'
+            }</span>
+          </span>
+        </div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── Proposal Modal ───────────────────────────────
+function openProposalModal() {
+  const today = new Date().toISOString().split('T')[0];
+  const validUntil = new Date(Date.now() + 30*86400000).toISOString().split('T')[0];
+  const ref = 'PSP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random()*900)+100);
+
+  $('pslRef').value        = ref;
+  $('pslDate').value       = today;
+  $('pslValidUntil').value = validUntil;
+  $('pslTitle').value      = 'Rental Payment Structure Proposal';
+  $('pslPreparedBy').value = 'ASG Commercial Properties';
+  $('pslPropName').value   = '';
+  $('pslPropLocation').value = '';
+  $('pslPropSize').value   = '';
+  $('pslPropType').value   = '';
+  $('pslClientName').value = '';
+  $('pslClientCompany').value = '';
+  $('pslClientPhone').value = '';
+  $('pslClientEmail').value = '';
+  $('pslAnnualRent').value  = '';
+  $('pslDeposit').value     = '';
+  $('pslAgencyFee').value   = '';
+  $('pslOtherCharges').value= '';
+  $('pslOtherDesc').value   = '';
+  $('pslNumCheques').value  = '';
+  $('pslTerms').value       = 'All post-dated cheques to be submitted upon signing of the tenancy contract\nSecurity deposit is fully refundable at end of tenancy, subject to property condition\nRent is inclusive of building maintenance charges\nThis proposal is subject to final approval and signing of a formal tenancy agreement';
+  $('pslNotes').value       = '';
+  $('proposalChequeFields').innerHTML = '';
+
+  const props = loadProps();
+  $('pslPropLink').innerHTML = '<option value="">— Select property to auto-fill —</option>' +
+    props.map(p => `<option value="${p.id}">${p.name} (${p.type||''})</option>`).join('');
+
+  $('proposalOverlay').classList.add('active');
+}
+
+function closeProposalModal() {
+  $('proposalOverlay').classList.remove('active');
+}
+
+function autofillProposalProperty() {
+  const id = $('pslPropLink').value;
+  if (!id) return;
+  const p = loadProps().find(x => x.id === id);
+  if (!p) return;
+  $('pslPropName').value     = p.name     || '';
+  $('pslPropLocation').value = p.location || '';
+  $('pslPropSize').value     = p.size     || '';
+  const typeMap = { warehouse: 'Warehouse', office: 'Office', residential: 'Residential' };
+  $('pslPropType').value = typeMap[p.type] || '';
+  if (p.annualRent) { $('pslAnnualRent').value = p.annualRent; }
+  if (p.tenantName)  $('pslClientName').value  = p.tenantName;
+  if (p.tenantPhone) $('pslClientPhone').value = p.tenantPhone;
+  if (p.tenantEmail) $('pslClientEmail').value = p.tenantEmail;
+  if (p.numCheques) {
+    $('pslNumCheques').value = p.numCheques;
+    renderProposalCheques();
+    if (p.cheques?.length) {
+      $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
+        const c = p.cheques[i]; if (!c) return;
+        row.querySelector('.psl-date').value   = c.date   || '';
+        row.querySelector('.psl-amount').value = c.amount || '';
+      });
+    }
+  }
+}
+
+function recalcProposalCheques() {
+  const n    = parseInt($('pslNumCheques').value) || 0;
+  const rent = Number($('pslAnnualRent').value)   || 0;
+  if (!n || !rent) return;
+  const per = Math.round(rent / n);
+  $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
+    if (!inp.value) inp.value = per;
+  });
+}
+
+function renderProposalCheques() {
+  const n    = parseInt($('pslNumCheques').value) || 0;
+  const cont = $('proposalChequeFields');
+  if (!n) { cont.innerHTML = ''; return; }
+  const rent = Number($('pslAnnualRent').value) || 0;
+  const per  = n && rent ? Math.round(rent / n) : '';
+  const existing = [];
+  cont.querySelectorAll('.psl-row').forEach((row, i) => {
+    existing[i] = {
+      date:   row.querySelector('.psl-date')?.value   || '',
+      amount: row.querySelector('.psl-amount')?.value || '',
+      note:   row.querySelector('.psl-note')?.value   || '',
+    };
+  });
+  let html = `<div class="cheque-table">
+    <div class="cheque-head" style="grid-template-columns:28px 1fr 1fr 1fr;">
+      <span>#</span><span>Cheque Date</span><span>Amount (AED)</span><span>Note / Description</span>
+    </div>`;
+  for (let i = 0; i < n; i++) {
+    const prev = existing[i] || {};
+    html += `<div class="cheque-row psl-row" style="grid-template-columns:28px 1fr 1fr 1fr;">
+      <span class="cheque-num">${i+1}</span>
+      <input type="date" class="psl-date" value="${prev.date || ''}">
+      <input type="number" class="psl-amount" placeholder="${per || 'e.g. 45,000'}" min="0" value="${prev.amount || (per||'')}">
+      <input type="text"   class="psl-note"   placeholder="Optional" value="${prev.note || ''}">
+    </div>`;
+  }
+  html += '</div>';
+  cont.innerHTML = html;
+}
+
+function downloadProposal() {
+  const g  = id => $(id)?.value?.trim() || '';
+  const gn = id => Number($(id)?.value) || 0;
+  const title      = g('pslTitle')      || 'Rental Payment Structure Proposal';
+  const ref        = g('pslRef');
+  const date       = g('pslDate');
+  const validUntil = g('pslValidUntil');
+  const prepBy     = g('pslPreparedBy') || 'ASG Commercial Properties';
+  const propName   = g('pslPropName');
+  const propType   = g('pslPropType');
+  const propLoc    = g('pslPropLocation');
+  const propSize   = gn('pslPropSize');
+  const client     = g('pslClientName');
+  const company    = g('pslClientCompany');
+  const phone      = g('pslClientPhone');
+  const email      = g('pslClientEmail');
+  const rent       = gn('pslAnnualRent');
+  const deposit    = gn('pslDeposit');
+  const agency     = gn('pslAgencyFee');
+  const other      = gn('pslOtherCharges');
+  const otherDesc  = g('pslOtherDesc');
+  const termsRaw   = g('pslTerms');
+  const notes      = g('pslNotes');
+  const terms      = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
+  const totalInit  = deposit + agency + other;
+
+  const cheques = [];
+  $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
+    cheques.push({
+      n:      i + 1,
+      date:   row.querySelector('.psl-date')?.value   || '',
+      amount: Number(row.querySelector('.psl-amount')?.value) || 0,
+      note:   row.querySelector('.psl-note')?.value   || '',
+    });
+  });
+
+  const fd = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const fa = n => n ? 'AED ' + Number(n).toLocaleString() : '—';
+  const he = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>${he(title)}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:13px;line-height:1.55}
+.page{max-width:800px;margin:0 auto;padding:44px 48px}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:22px;border-bottom:3px solid #111;margin-bottom:26px}
+.brand-mark{width:46px;height:46px;background:#c9a84c;color:#111;border-radius:10px;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;letter-spacing:1px;margin-bottom:5px}
+.brand-name{font-size:17px;font-weight:800}
+.brand-sub{font-size:10.5px;color:#888;text-transform:uppercase;letter-spacing:1.2px}
+.doc-right{text-align:right}
+.doc-title{font-size:21px;font-weight:900;text-transform:uppercase;letter-spacing:.4px}
+.doc-ref{font-size:11.5px;color:#888;margin-top:3px}
+.doc-dates{font-size:11.5px;color:#555;margin-top:5px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px}
+.blk{background:#fafbfc;border:1px solid #e8e8e8;border-radius:10px;padding:15px 17px}
+.blk-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:11px}
+.blk-row{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px}
+.blk-row:last-child{border-bottom:none}
+.blk-lbl{color:#666}.blk-val{font-weight:600;text-align:right}
+.fin{background:#fff;border:2px solid #c9a84c;border-radius:10px;padding:18px 20px;margin-bottom:22px}
+.fin-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:13px}
+.fin-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#444}
+.fin-row:last-child{border-bottom:none}
+.fin-row.tot{border-top:2px solid #c9a84c;margin-top:6px;padding-top:10px}
+.fin-row.tot .fl{color:#111;font-weight:700}.fin-row.tot .fv{color:#c9a84c;font-weight:800;font-size:14px}
+.fv{font-weight:600;color:#111}
+.sch-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:11px}
+table{width:100%;border-collapse:collapse;margin-bottom:22px}
+th{background:#111;color:#fff;padding:9px 13px;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;text-align:left;font-weight:700}
+th:first-child{border-radius:8px 0 0 0}th:last-child{border-radius:0 8px 0 0}
+td{padding:9px 13px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:nth-child(even) td{background:#fafbfc}
+.cnum{width:26px;height:26px;background:#c9a84c;color:#111;border-radius:50%;font-weight:800;font-size:11.5px;display:flex;align-items:center;justify-content:center}
+.amt{font-weight:700}
+.tot-row td{background:#f4f4f4!important;font-weight:700;border-top:2px solid #ddd}
+.terms-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:9px}
+ul.tlist{list-style:none;margin-bottom:22px}
+ul.tlist li{padding:5px 0 5px 16px;position:relative;font-size:12.5px;color:#444;border-bottom:1px solid #f5f5f5}
+ul.tlist li:last-child{border-bottom:none}
+ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-weight:700}
+.notes-box{background:#fffbf0;border:1px solid #e2c06a;border-radius:8px;padding:13px 15px;margin-bottom:22px;font-size:12.5px;color:#555}
+.valid-bar{background:#f0fdf4;border:1px solid #a7f3d0;border-radius:8px;padding:11px 15px;margin-bottom:26px;font-size:12.5px;color:#065f46;text-align:center;font-weight:500}
+.sigs{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:14px}
+.sig{border-top:2px solid #111;padding-top:8px}
+.sig-lbl{font-size:12px;color:#666}.sig-name{font-size:13px;font-weight:700;margin-top:2px}
+.sig-space{height:44px}.sig-date{font-size:11px;color:#aaa;margin-top:8px}
+.footer{margin-top:30px;padding-top:14px;border-top:1px solid #eee;text-align:center;font-size:10px;color:#ccc}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:22px 26px}}
+</style></head><body><div class="page">
+
+<div class="hdr">
+  <div>
+    <div class="brand-mark">ASG</div>
+    <div class="brand-name">${he(prepBy)}</div>
+    <div class="brand-sub">Commercial Properties</div>
+  </div>
+  <div class="doc-right">
+    <div class="doc-title">${he(title)}</div>
+    ${ref ? `<div class="doc-ref">Ref: ${he(ref)}</div>` : ''}
+    <div class="doc-dates">Date: ${fd(date)}${validUntil ? `&nbsp;&nbsp;|&nbsp;&nbsp;Valid Until: ${fd(validUntil)}` : ''}</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="blk">
+    <div class="blk-title">Prepared For</div>
+    ${client  ? `<div class="blk-row"><span class="blk-lbl">Name</span><span class="blk-val">${he(client)}</span></div>` : ''}
+    ${company ? `<div class="blk-row"><span class="blk-lbl">Company</span><span class="blk-val">${he(company)}</span></div>` : ''}
+    ${phone   ? `<div class="blk-row"><span class="blk-lbl">Phone</span><span class="blk-val">${he(phone)}</span></div>` : ''}
+    ${email   ? `<div class="blk-row"><span class="blk-lbl">Email</span><span class="blk-val">${he(email)}</span></div>` : ''}
+    ${!client && !company ? `<div style="font-size:12px;color:#bbb;">No client details</div>` : ''}
+  </div>
+  <div class="blk">
+    <div class="blk-title">Property Details</div>
+    ${propName ? `<div class="blk-row"><span class="blk-lbl">Property</span><span class="blk-val">${he(propName)}</span></div>` : ''}
+    ${propType ? `<div class="blk-row"><span class="blk-lbl">Type</span><span class="blk-val">${he(propType)}</span></div>` : ''}
+    ${propLoc  ? `<div class="blk-row"><span class="blk-lbl">Location</span><span class="blk-val">${he(propLoc)}</span></div>` : ''}
+    ${propSize ? `<div class="blk-row"><span class="blk-lbl">Size</span><span class="blk-val">${Number(propSize).toLocaleString()} sq ft</span></div>` : ''}
+    ${!propName && !propLoc ? `<div style="font-size:12px;color:#bbb;">No property details</div>` : ''}
+  </div>
+</div>
+
+<div class="fin">
+  <div class="fin-title">Financial Summary</div>
+  ${rent    ? `<div class="fin-row"><span class="fl">Annual Rent</span><span class="fv">${fa(rent)}</span></div>` : ''}
+  ${deposit ? `<div class="fin-row"><span class="fl">Security Deposit</span><span class="fv">${fa(deposit)}</span></div>` : ''}
+  ${agency  ? `<div class="fin-row"><span class="fl">Agency / Commission Fee</span><span class="fv">${fa(agency)}</span></div>` : ''}
+  ${other   ? `<div class="fin-row"><span class="fl">${he(otherDesc)||'Other Charges'}</span><span class="fv">${fa(other)}</span></div>` : ''}
+  ${totalInit ? `<div class="fin-row tot"><span class="fl">Total Initial Payment</span><span class="fv">${fa(totalInit)}</span></div>` : ''}
+</div>
+
+${cheques.length ? `
+<div class="sch-title">Payment Schedule — ${cheques.length} Cheque${cheques.length>1?'s':''}</div>
+<table>
+  <thead><tr><th>#</th><th>Cheque Date</th><th>Amount</th><th>Description / Note</th></tr></thead>
+  <tbody>
+    ${cheques.map(c=>`<tr>
+      <td><div class="cnum">${c.n}</div></td>
+      <td>${fd(c.date)}</td>
+      <td class="amt">${c.amount ? fa(c.amount) : '—'}</td>
+      <td style="color:#555">${he(c.note)||'—'}</td>
+    </tr>`).join('')}
+    ${cheques.length>1 ? `<tr class="tot-row">
+      <td colspan="2" style="text-align:right;font-size:11.5px;color:#888;">Total</td>
+      <td class="amt">${fa(cheques.reduce((s,c)=>s+(c.amount||0),0))}</td><td></td>
+    </tr>` : ''}
+  </tbody>
+</table>` : ''}
+
+${terms.length ? `
+<div class="terms-title">Terms &amp; Conditions</div>
+<ul class="tlist">${terms.map(t=>`<li>${he(t)}</li>`).join('')}</ul>` : ''}
+
+${notes ? `<div class="notes-box"><strong>Note:</strong> ${he(notes)}</div>` : ''}
+
+${validUntil ? `<div class="valid-bar">✅ This proposal is valid until <strong>${fd(validUntil)}</strong>. All figures are subject to change after this date.</div>` : ''}
+
+<div class="sigs">
+  <div class="sig">
+    <div class="sig-space"></div>
+    <div class="sig-lbl">Landlord / Agent Signature</div>
+    <div class="sig-name">${he(prepBy)}</div>
+    <div class="sig-date">Date: _______________________</div>
+  </div>
+  <div class="sig">
+    <div class="sig-space"></div>
+    <div class="sig-lbl">Tenant / Client Signature</div>
+    <div class="sig-name">${client ? he(client) : '_______________________'}</div>
+    <div class="sig-date">Date: _______________________</div>
+  </div>
+</div>
+
+<div class="footer">Generated by ASG Commercial Properties Dashboard &nbsp;·&nbsp; ${fd(date||new Date().toISOString().split('T')[0])}</div>
+
+</div></body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Allow pop-ups to download the PDF', 'error'); return; }
+  win.document.write(doc);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 700);
+}
+
+function renderDisputes() {
+  const items = loadDisputes();
+  const grid  = $('disputesGrid');
+  const empty = $('disputesEmpty');
+
+  // Stats bar
+  const active   = items.filter(d => d.status === 'active').length;
+  const pending  = items.filter(d => d.status === 'pending').length;
+  const resolved = items.filter(d => d.status === 'resolved').length;
+  const totalAmt = items.reduce((s, d) => s + (Number(d.amountDisputed) || 0), 0);
+  $('disputeStatsBar').innerHTML = items.length ? `
+    <div class="ts-chip ts-chip-danger">🔴 ${active} Active</div>
+    <div class="ts-chip ts-chip-warn">🟡 ${pending} Pending</div>
+    <div class="ts-chip ts-chip-success">🟢 ${resolved} Resolved</div>
+    ${totalAmt ? `<div class="ts-chip ts-chip-gold">💰 AED ${num(totalAmt)} total disputed</div>` : ''}
+  ` : '';
+
+  if (!items.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  grid.innerHTML = items.map(disputeCardHTML).join('');
+}
+
+function disputeCardHTML(d) {
+  const st       = DISPUTE_STATUS[d.status] || { label: d.status || '—', cls: 'badge-gray' };
+  const linked   = d.propertyId ? loadProps().find(p => p.id === d.propertyId) : null;
+  const today    = new Date();
+  let hearingTag = '';
+  if (d.nextHearingDate) {
+    const days = Math.ceil((new Date(d.nextHearingDate) - today) / 86400000);
+    if      (days < 0)   hearingTag = `<span class="mini-badge badge-danger">Hearing overdue ${Math.abs(days)}d</span>`;
+    else if (days <= 7)  hearingTag = `<span class="mini-badge badge-warn">Hearing in ${days}d</span>`;
+    else                 hearingTag = `<span class="mini-badge badge-gray">Hearing ${fmtDate(d.nextHearingDate)}</span>`;
+  }
+  const waHref = d.lawyerPhone ? waLink(d.lawyerPhone, d.lawyer, d.title) : null;
+  return `
+    <div class="item-card" onclick="openEditDisputeModal('${d.id}')">
+      <div class="ic-top">
+        <div class="ic-left">
+          <div class="ic-category">${DISPUTE_TYPES[d.type] || d.type || 'Dispute'}</div>
+          <div class="ic-title">${h(d.title)}</div>
+          ${linked ? `<div class="ic-sub">🏢 ${h(linked.name)}</div>` : ''}
+        </div>
+        <span class="ic-badge ${st.cls}">${st.label}</span>
+      </div>
+      <div class="ic-body">
+        ${d.caseNo   ? `<div class="ic-row"><span class="ic-lbl">Case No.</span><span class="ic-val">${h(d.caseNo)}</span></div>` : ''}
+        ${d.court    ? `<div class="ic-row"><span class="ic-lbl">Court</span><span class="ic-val">${h(d.court)}</span></div>` : ''}
+        ${d.opponent ? `<div class="ic-row"><span class="ic-lbl">Opposing Party</span><span class="ic-val">${h(d.opponent)}</span></div>` : ''}
+        ${d.filingDate ? `<div class="ic-row"><span class="ic-lbl">Filed</span><span class="ic-val">${fmtDate(d.filingDate)}</span></div>` : ''}
+        ${d.amountDisputed ? `<div class="ic-row"><span class="ic-lbl">Amount</span><span class="ic-val gold">AED ${num(d.amountDisputed)}</span></div>` : ''}
+        ${d.lawyer   ? `<div class="ic-row"><span class="ic-lbl">Lawyer</span><span class="ic-val">
+          ${h(d.lawyer)}
+          ${d.lawyerPhone ? `<a href="tel:${h(d.lawyerPhone)}" class="contact-link" onclick="event.stopPropagation()">📞 ${h(d.lawyerPhone)}</a>` : ''}
+          ${waHref ? `<a href="${waHref}" target="_blank" class="wa-btn" onclick="event.stopPropagation()" style="padding:2px 8px;font-size:11px;">WhatsApp</a>` : ''}
+        </span></div>` : ''}
+        ${hearingTag ? `<div class="ic-row"><span class="ic-lbl">Next Hearing</span><span class="ic-val">${hearingTag}</span></div>` : ''}
+        ${d.notes    ? `<div class="ic-notes">${h(d.notes)}</div>` : ''}
+      </div>
+      <div class="card-actions" onclick="event.stopPropagation()">
+        <button class="card-action-btn" onclick="openEditDisputeModal('${d.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </button>
+        <button class="card-action-btn del" onclick="event.stopPropagation();quickDeleteDispute('${d.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          Delete
+        </button>
+      </div>
+    </div>`;
+}
+
+let currentDisputeId = null;
+
+function openAddDisputeModal() {
+  currentDisputeId = null;
+  $('disputeModalTitle').textContent = 'Add Dispute / Case';
+  $('disputeForm').reset();
+  $('deleteDisputeBtn').style.display = 'none';
+  populateDisputePropSelect(null);
+  $('disputeModalOverlay').classList.add('active');
+}
+
+function openEditDisputeModal(id) {
+  const d = loadDisputes().find(x => x.id === id);
+  if (!d) return;
+  currentDisputeId = id;
+  $('disputeModalTitle').textContent = 'Edit Dispute / Case';
+  $('deleteDisputeBtn').style.display = 'inline-flex';
+  populateDisputePropSelect(d.propertyId);
+  $('d_title').value         = d.title             || '';
+  $('d_type').value          = d.type              || '';
+  $('d_status').value        = d.status            || '';
+  $('d_case_no').value       = d.caseNo            || '';
+  $('d_court').value         = d.court             || '';
+  $('d_opponent').value      = d.opponent          || '';
+  $('d_filing_date').value   = d.filingDate        || '';
+  $('d_hearing_date').value  = d.nextHearingDate   || '';
+  $('d_amount').value        = d.amountDisputed    || '';
+  $('d_lawyer').value        = d.lawyer            || '';
+  $('d_lawyer_phone').value  = d.lawyerPhone       || '';
+  $('d_notes').value         = d.notes             || '';
+  $('disputeModalOverlay').classList.add('active');
+}
+
+function populateDisputePropSelect(selectedId) {
+  $('d_property').innerHTML = '<option value="">— None —</option>' +
+    loadProps().map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${h(p.name)}</option>`).join('');
+}
+
+function closeDisputeModal() {
+  $('disputeModalOverlay').classList.remove('active');
+  currentDisputeId = null;
+}
+
+function handleSaveDispute() {
+  const title = $('d_title').value.trim();
+  if (!title) { showToast('Dispute title is required', 'error'); return; }
+  const items = loadDisputes();
+  const item = {
+    id:              currentDisputeId || uid(),
+    title,
+    propertyId:      $('d_property').value          || null,
+    type:            $('d_type').value               || null,
+    status:          $('d_status').value             || null,
+    caseNo:          $('d_case_no').value.trim()     || null,
+    court:           $('d_court').value.trim()       || null,
+    opponent:        $('d_opponent').value.trim()    || null,
+    filingDate:      $('d_filing_date').value        || null,
+    nextHearingDate: $('d_hearing_date').value       || null,
+    amountDisputed:  Number($('d_amount').value)     || null,
+    lawyer:          $('d_lawyer').value.trim()      || null,
+    lawyerPhone:     $('d_lawyer_phone').value.trim()|| null,
+    notes:           $('d_notes').value.trim()       || null,
+    createdAt: currentDisputeId ? (items.find(x => x.id === currentDisputeId)?.createdAt || iso()) : iso(),
+    updatedAt: iso(),
+  };
+  if (currentDisputeId) {
+    const idx = items.findIndex(x => x.id === currentDisputeId);
+    if (idx >= 0) items[idx] = item; else items.push(item);
+  } else {
+    items.push(item);
+  }
+  persistDisputes(items);
+  closeDisputeModal();
+  renderDisputes();
+  showToast(currentDisputeId ? 'Dispute updated' : 'Dispute added', 'success');
+}
+
+function deleteCurrentDispute() {
+  if (!currentDisputeId) return;
+  if (!confirm('Delete this dispute record? This cannot be undone.')) return;
+  persistDisputes(loadDisputes().filter(x => x.id !== currentDisputeId));
+  closeDisputeModal();
+  renderDisputes();
+  showToast('Dispute deleted', 'success');
+}
+
+function quickDeleteDispute(id) {
+  if (!confirm('Delete this dispute? This cannot be undone.')) return;
+  persistDisputes(loadDisputes().filter(x => x.id !== id));
+  renderDisputes();
+  showToast('Dispute deleted', 'success');
+}
+
+
+// ═══════════════════════════════════════════════════
+// CONSTRUCTION PROJECTS
+// ═══════════════════════════════════════════════════
+function loadProjects()        { return JSON.parse(localStorage.getItem('asg_projects') || '[]'); }
+function persistProjects(arr)  { localStorage.setItem('asg_projects', JSON.stringify(arr)); }
+
+const PROJECT_TYPES = {
+  'new-warehouse':  '🏗️ New Warehouse',
+  'extension':      '📐 Extension',
+  'renovation':     '🔧 Renovation',
+  'office-fitout':  '🏢 Office Fitout',
+  'infrastructure': '⚡ Infrastructure',
+  'other':          '📌 Other',
+};
+const PROJECT_STATUS = {
+  'planning':    { label: 'Planning',     cls: 'badge-gold',    fill: '#c9a84c' },
+  'in-progress': { label: 'In Progress',  cls: 'badge-blue',    fill: '#2563eb' },
+  'on-hold':     { label: 'On Hold',      cls: 'badge-warn',    fill: '#d97706' },
+  'completed':   { label: 'Completed',    cls: 'badge-success', fill: '#059669' },
+  'cancelled':   { label: 'Cancelled',    cls: 'badge-gray',    fill: '#9ca3af' },
+};
+
+function renderProjects() {
+  const items = loadProjects();
+  const grid  = $('constructionGrid');
+  const empty = $('constructionEmpty');
+
+  // Stats bar
+  const inProg    = items.filter(p => p.status === 'in-progress').length;
+  const planning  = items.filter(p => p.status === 'planning').length;
+  const completed = items.filter(p => p.status === 'completed').length;
+  const totalBudget = items.reduce((s, p) => s + (Number(p.budget) || 0), 0);
+  const totalSpent  = items.reduce((s, p) => s + (Number(p.spentToDate) || 0), 0);
+  $('constructionStatsBar').innerHTML = items.length ? `
+    <div class="ts-chip ts-chip-blue">🔨 ${inProg} In Progress</div>
+    <div class="ts-chip ts-chip-gold">📋 ${planning} Planning</div>
+    <div class="ts-chip ts-chip-success">✅ ${completed} Completed</div>
+    ${totalBudget ? `<div class="ts-chip ts-chip-gray">Budget: AED ${num(totalBudget)}</div>` : ''}
+    ${totalSpent  ? `<div class="ts-chip ts-chip-gray">Spent: AED ${num(totalSpent)}</div>` : ''}
+  ` : '';
+
+  if (!items.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  grid.innerHTML = items.map(projectCardHTML).join('');
+}
+
+function projectCardHTML(p) {
+  const st      = PROJECT_STATUS[p.status] || { label: p.status || '—', cls: 'badge-gray', fill: '#9ca3af' };
+  const linked  = p.propertyId ? loadProps().find(x => x.id === p.propertyId) : null;
+  const progress = Math.min(100, Math.max(0, Number(p.progress) || 0));
+  const today   = new Date();
+  let dueTag = '';
+  if (p.expectedCompletion && p.status !== 'completed' && p.status !== 'cancelled') {
+    const days = Math.ceil((new Date(p.expectedCompletion) - today) / 86400000);
+    if      (days < 0)   dueTag = `<span class="mini-badge badge-danger">Overdue ${Math.abs(days)}d</span>`;
+    else if (days <= 14) dueTag = `<span class="mini-badge badge-warn">${days}d to finish</span>`;
+  }
+  const budgetPct = (p.budget && p.spentToDate)
+    ? Math.min(100, ((p.spentToDate / p.budget) * 100)).toFixed(0) : null;
+
+  return `
+    <div class="item-card" onclick="openEditProjectModal('${p.id}')">
+      <div class="ic-top">
+        <div class="ic-left">
+          <div class="ic-category">${PROJECT_TYPES[p.type] || p.type || 'Project'}</div>
+          <div class="ic-title">${h(p.name)}</div>
+          ${linked    ? `<div class="ic-sub">🏢 ${h(linked.name)}</div>`
+          : p.location? `<div class="ic-sub">📍 ${h(p.location)}</div>` : ''}
+        </div>
+        <span class="ic-badge ${st.cls}">${st.label}</span>
+      </div>
+
+      ${p.status !== 'planning' && p.status !== 'cancelled' ? `
+      <div class="ic-progress">
+        <div class="ic-progress-row">
+          <span class="ic-progress-lbl">Progress</span>
+          <span class="ic-progress-pct">${progress}%</span>
+        </div>
+        <div class="ic-progress-track">
+          <div class="ic-progress-fill" style="width:${progress}%;background:${st.fill};"></div>
+        </div>
+      </div>` : ''}
+
+      <div class="ic-body">
+        ${p.contractor ? `<div class="ic-row"><span class="ic-lbl">Contractor</span><span class="ic-val">
+          ${h(p.contractor)}
+          ${p.contractorPhone ? `<a href="tel:${h(p.contractorPhone)}" class="contact-link" onclick="event.stopPropagation()">📞 ${h(p.contractorPhone)}</a>` : ''}
+        </span></div>` : ''}
+        ${p.startDate          ? `<div class="ic-row"><span class="ic-lbl">Start</span><span class="ic-val">${fmtDate(p.startDate)}</span></div>` : ''}
+        ${p.expectedCompletion ? `<div class="ic-row"><span class="ic-lbl">Expected Done</span><span class="ic-val">${fmtDate(p.expectedCompletion)} ${dueTag}</span></div>` : ''}
+        ${p.budget      ? `<div class="ic-row"><span class="ic-lbl">Budget</span><span class="ic-val gold">AED ${num(p.budget)}</span></div>` : ''}
+        ${p.spentToDate ? `<div class="ic-row"><span class="ic-lbl">Spent</span><span class="ic-val ${budgetPct >= 90 ? 'red' : ''}">AED ${num(p.spentToDate)}${budgetPct ? ` · ${budgetPct}%` : ''}</span></div>` : ''}
+        ${p.notes       ? `<div class="ic-notes">${h(p.notes)}</div>` : ''}
+      </div>
+      <div class="card-actions" onclick="event.stopPropagation()">
+        <button class="card-action-btn" onclick="openEditProjectModal('${p.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </button>
+        <button class="card-action-btn del" onclick="event.stopPropagation();quickDeleteProject('${p.id}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          Delete
+        </button>
+      </div>
+    </div>`;
+}
+
+let currentProjectId = null;
+
+function openAddProjectModal() {
+  currentProjectId = null;
+  $('projectModalTitle').textContent = 'Add Construction Project';
+  $('projectForm').reset();
+  $('p_progress_val').textContent = '0%';
+  $('deleteProjectBtn').style.display = 'none';
+  populateProjectPropSelect(null);
+  $('constructionModalOverlay').classList.add('active');
+}
+
+function openEditProjectModal(id) {
+  const p = loadProjects().find(x => x.id === id);
+  if (!p) return;
+  currentProjectId = id;
+  $('projectModalTitle').textContent = 'Edit Construction Project';
+  $('deleteProjectBtn').style.display = 'inline-flex';
+  populateProjectPropSelect(p.propertyId);
+  $('p_name').value             = p.name              || '';
+  $('p_location').value         = p.location          || '';
+  $('p_type').value             = p.type              || '';
+  $('p_status').value           = p.status            || '';
+  $('p_contractor').value       = p.contractor        || '';
+  $('p_contractor_phone').value = p.contractorPhone   || '';
+  $('p_start_date').value       = p.startDate         || '';
+  $('p_expected').value         = p.expectedCompletion|| '';
+  $('p_budget').value           = p.budget            || '';
+  $('p_spent').value            = p.spentToDate       || '';
+  $('p_progress').value         = p.progress          || 0;
+  $('p_progress_val').textContent = (p.progress || 0) + '%';
+  $('p_notes').value            = p.notes             || '';
+  $('constructionModalOverlay').classList.add('active');
+}
+
+function populateProjectPropSelect(selectedId) {
+  $('p_property').innerHTML = '<option value="">— None (standalone) —</option>' +
+    loadProps().map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${h(p.name)}</option>`).join('');
+}
+
+function closeProjectModal() {
+  $('constructionModalOverlay').classList.remove('active');
+  currentProjectId = null;
+}
+
+function handleSaveProject() {
+  const name = $('p_name').value.trim();
+  if (!name) { showToast('Project name is required', 'error'); return; }
+  const items = loadProjects();
+  const item = {
+    id:                  currentProjectId || uid(),
+    name,
+    propertyId:          $('p_property').value              || null,
+    location:            $('p_location').value.trim()       || null,
+    type:                $('p_type').value                  || null,
+    status:              $('p_status').value                || null,
+    contractor:          $('p_contractor').value.trim()     || null,
+    contractorPhone:     $('p_contractor_phone').value.trim()|| null,
+    startDate:           $('p_start_date').value            || null,
+    expectedCompletion:  $('p_expected').value              || null,
+    budget:              Number($('p_budget').value)        || null,
+    spentToDate:         Number($('p_spent').value)         || null,
+    progress:            Number($('p_progress').value)      || 0,
+    notes:               $('p_notes').value.trim()          || null,
+    createdAt: currentProjectId ? (items.find(x => x.id === currentProjectId)?.createdAt || iso()) : iso(),
+    updatedAt: iso(),
+  };
+  if (currentProjectId) {
+    const idx = items.findIndex(x => x.id === currentProjectId);
+    if (idx >= 0) items[idx] = item; else items.push(item);
+  } else {
+    items.push(item);
+  }
+  persistProjects(items);
+  closeProjectModal();
+  renderProjects();
+  showToast(currentProjectId ? 'Project updated' : 'Project added', 'success');
+}
+
+function deleteCurrentProject() {
+  if (!currentProjectId) return;
+  if (!confirm('Delete this project? This cannot be undone.')) return;
+  persistProjects(loadProjects().filter(x => x.id !== currentProjectId));
+  closeProjectModal();
+  renderProjects();
+  showToast('Project deleted', 'success');
+}
+
+function quickDeleteProject(id) {
+  if (!confirm('Delete this project? This cannot be undone.')) return;
+  persistProjects(loadProjects().filter(x => x.id !== id));
+  renderProjects();
+  showToast('Project deleted', 'success');
+}
+
+// ═══════════════════════════════════════════════════
+// MAP  (MapLibre GL JS + OpenFreeMap — always English)
+// ═══════════════════════════════════════════════════
+let mlMap     = null;
+let mlMarkers = [];
+
+function parseLatLng(p) {
+  if (p.coords) {
+    const parts = p.coords.split(',').map(s => parseFloat(s.trim()));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]))
+      return { lat: parts[0], lng: parts[1] };
+  }
+  if (p.mapLink) {
+    const url = p.mapLink;
+    let m = url.match(/@(-?\d+\.?\d+),(-?\d+\.?\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+    m = url.match(/[?&]q=(-?\d+\.?\d+),(-?\d+\.?\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+    m = url.match(/ll=(-?\d+\.?\d+),(-?\d+\.?\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+    m = url.match(/\/(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  }
+  return null;
+}
+
+function makePinEl(p) {
+  const isWH  = p.type === 'warehouse';
+  const isRes = p.type === 'residential';
+  const color = isWH ? '#c9a84c' : isRes ? '#059669' : '#111111';
+  const ring  = isWH ? '#8a6d20' : isRes ? '#036040' : '#555';
+  const emoji = isWH ? '🏭' : isRes ? '🏠' : '🏢';
+  const el = document.createElement('div');
+  el.style.cssText = 'cursor:pointer;width:36px;height:46px;position:relative;filter:drop-shadow(0 3px 8px rgba(0,0,0,.4));';
+  el.innerHTML = `
+    <svg width="36" height="46" viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+      <path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 18 28 18 28S36 30.255 36 18C36 8.059 27.941 0 18 0z" fill="${color}"/>
+      <circle cx="18" cy="18" r="10" fill="white" fill-opacity="0.93"/>
+      <circle cx="18" cy="18" r="10" fill="none" stroke="${ring}" stroke-width="1" stroke-opacity="0.3"/>
+    </svg>
+    <div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:13px;line-height:1;user-select:none;">${emoji}</div>`;
+  return el;
+}
+
+function initMapTab() {
+  if (mlMap) { mlMap.remove(); mlMap = null; mlMarkers = []; }
+
+  mlMap = new maplibregl.Map({
+    container: 'leafletMap',
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [55.2708, 25.2048],
+    zoom: 10,
+  });
+
+  mlMap.addControl(new maplibregl.NavigationControl(), 'top-right');
+  mlMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+
+  mlMap.on('load', () => {
+    renderMapMarkers();
+  });
+
+  renderMapSidebar();
+}
+
+function renderMapMarkers() {
+  mlMarkers.forEach(m => m.remove());
+  mlMarkers = [];
+  const props  = loadProps();
+  const bounds = [];
+
+  props.forEach(p => {
+    const ll = parseLatLng(p);
+    if (!ll) return;
+    bounds.push([ll.lng, ll.lat]);
+
+    const statusColor = p.status === 'rented' ? '#059669' : p.status === 'vacant' ? '#dc2626' : '#6b7280';
+    const statusBg    = p.status === 'rented' ? '#d1fae5' : p.status === 'vacant' ? '#fee2e2' : '#f3f4f6';
+
+    const popup = new maplibregl.Popup({ offset: [0, -46], closeButton: true, maxWidth: '250px' })
+      .setHTML(`
+        <div style="font-family:Inter,sans-serif;padding:4px 2px;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px;">${h(p.name)}</div>
+          ${p.location ? `<div style="font-size:12px;color:#777;margin-bottom:8px;">📍 ${h(p.location)}</div>` : ''}
+          ${p.status ? `<span style="background:${statusBg};color:${statusColor};padding:2px 9px;border-radius:8px;font-size:11px;font-weight:700;display:inline-block;margin-bottom:6px;">${p.status}</span>` : ''}
+          ${p.tenantName ? `<div style="font-size:12px;margin-top:4px;">👤 ${h(p.tenantName)}</div>` : ''}
+          ${p.annualRent ? `<div style="font-size:13px;font-weight:700;color:#c9a84c;margin-top:4px;">AED ${num(p.annualRent)}/yr</div>` : ''}
+          ${p.leaseEnd   ? `<div style="font-size:11px;color:#999;margin-top:4px;">Lease ends ${fmtDate(p.leaseEnd)}</div>` : ''}
+          <button onclick="showTab('${p.type==='warehouse'?'warehouses':p.type==='office'?'offices':'residential'}')" style="margin-top:10px;width:100%;background:#111;color:#fff;border:none;padding:7px 0;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">View Property →</button>
+        </div>`);
+
+    const marker = new maplibregl.Marker({ element: makePinEl(p), anchor: 'bottom' })
+      .setLngLat([ll.lng, ll.lat])
+      .setPopup(popup)
+      .addTo(mlMap);
+
+    mlMarkers.push(marker);
+  });
+
+  if (bounds.length > 1) {
+    mlMap.fitBounds(
+      [
+        [Math.min(...bounds.map(b=>b[0])), Math.min(...bounds.map(b=>b[1]))],
+        [Math.max(...bounds.map(b=>b[0])), Math.max(...bounds.map(b=>b[1]))],
+      ],
+      { padding: 60, maxZoom: 15 }
+    );
+  } else if (bounds.length === 1) {
+    mlMap.flyTo({ center: bounds[0], zoom: 15 });
+  }
+}
+
+function renderMapSidebar() {
+  const props   = loadProps();
+  const list    = $('mapPropertyList');
+  const hint    = $('mapNoPinsHint');
+  const hasPins = props.some(p => parseLatLng(p));
+
+  if (!props.length) {
+    list.innerHTML = '<div style="padding:20px 16px;color:var(--text-3);font-size:13px;text-align:center;">No properties added yet.</div>';
+    hint.style.display = 'none';
+    return;
+  }
+  hint.style.display = hasPins ? 'none' : 'block';
+
+  list.innerHTML = props.map(p => {
+    const ll    = parseLatLng(p);
+    const isWH  = p.type === 'warehouse';
+    const color = ll ? (isWH ? '#c9a84c' : '#111') : '#ddd';
+    const sub   = p.location ? h(p.location) : ll ? '📍 Pinned' : '⚠️ No coordinates — edit to add';
+    const statusDot = p.status === 'rented' ? '#059669' : p.status === 'vacant' ? '#dc2626' : 'transparent';
+    return `
+      <div class="map-prop-item${ll ? '' : ' map-prop-no-pin'}"
+           onclick="${ll ? `flyToPin(${ll.lat},${ll.lng})` : `openEditModal('${p.id}')`}">
+        <div style="position:relative;flex-shrink:0;">
+          <span class="legend-dot" style="background:${color};width:12px;height:12px;display:block;"></span>
+          ${p.status ? `<span style="position:absolute;bottom:-2px;right:-2px;width:6px;height:6px;border-radius:50%;background:${statusDot};border:1px solid #fff;"></span>` : ''}
+        </div>
+        <div class="map-prop-info">
+          <div class="map-prop-name">${h(p.name)}</div>
+          <div class="map-prop-loc">${sub}</div>
+        </div>
+        ${ll ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" style="flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function flyToPin(lat, lng) {
+  if (!mlMap) return;
+  mlMap.flyTo({ center: [lng, lat], zoom: 16, duration: 1200 });
+  setTimeout(() => {
+    mlMarkers.forEach(m => {
+      const c = m.getLngLat();
+      if (Math.abs(c.lat - lat) < 0.0002 && Math.abs(c.lng - lng) < 0.0002) m.togglePopup();
+    });
+  }, 1300);
+}
+
+// ─── Agents & Tasks ───────────────────────────────
+const AGENTS_KEY = 'asg_agents';
+const TASKS_KEY  = 'asg_tasks';
+
+function loadAgents() { try { return JSON.parse(localStorage.getItem(AGENTS_KEY)) || []; } catch { return []; } }
+function saveAgents(a) { localStorage.setItem(AGENTS_KEY, JSON.stringify(a)); }
+function loadTasks()   { try { return JSON.parse(localStorage.getItem(TASKS_KEY))  || []; } catch { return []; } }
+function saveTasks(t)  { localStorage.setItem(TASKS_KEY,  JSON.stringify(t)); }
+
+const TASK_TYPE_META = {
+  'find-tenant':  { icon: '🔍', label: 'Find Tenant' },
+  'follow-up':    { icon: '📞', label: 'Follow Up' },
+  'site-visit':   { icon: '🏗️', label: 'Site Visit' },
+  'maintenance':  { icon: '🔧', label: 'Maintenance' },
+  'documents':    { icon: '📄', label: 'Documents' },
+  'negotiation':  { icon: '🤝', label: 'Negotiation' },
+  'other':        { icon: '📌', label: 'Other' }
+};
+
+const TASK_STATUS_META = {
+  'pending':     { label: 'Pending',     cls: 'ts-pending' },
+  'in-progress': { label: 'In Progress', cls: 'ts-inprogress' },
+  'done':        { label: 'Done',        cls: 'ts-done' },
+  'cancelled':   { label: 'Cancelled',  cls: 'ts-cancelled' }
+};
+
+const PRIORITY_META = {
+  'high':   { label: 'High',   cls: 'tp-high' },
+  'medium': { label: 'Medium', cls: 'tp-medium' },
+  'low':    { label: 'Low',    cls: 'tp-low' }
+};
+
+// ── Agent Modal ────────────────────────────────────
+function openAgentModal(id) {
+  const agents = loadAgents();
+  const ag = id ? agents.find(a => a.id === id) : null;
+  $('agentModalTitle').textContent = ag ? 'Edit Agent' : 'Add Agent';
+  $('agentId').value       = ag ? ag.id : '';
+  $('agentName').value     = ag ? ag.name     : '';
+  $('agentRole').value     = ag ? (ag.role    || '') : '';
+  $('agentPhone').value    = ag ? (ag.phone   || '') : '';
+  $('agentEmail').value    = ag ? (ag.email   || '') : '';
+  $('agentUsername').value = ag ? ag.username : '';
+  $('agentPassword').value = ag ? ag.password : '';
+  const p = ag ? (ag.permissions || {}) : {};
+  $('permViewFinancials').checked = p.viewFinancials || false;
+  $('permViewTenant').checked     = p.viewTenant !== false;
+  $('permUpdateStatus').checked   = p.updateStatus !== false;
+  $('permAddNotes').checked       = p.addNotes !== false;
+  $('agentModalOverlay').classList.add('active');
+  setTimeout(() => $('agentName').focus(), 100);
+}
+function closeAgentModal() { $('agentModalOverlay').classList.remove('active'); }
+
+function saveAgent() {
+  const name     = $('agentName').value.trim();
+  const username = $('agentUsername').value.trim();
+  const password = $('agentPassword').value;
+  if (!name)                { showToast('Name is required', 'error'); return; }
+  if (!username)            { showToast('Username is required', 'error'); return; }
+  if (password.length < 6)  { showToast('Password must be at least 6 characters', 'error'); return; }
+
+  const agents = loadAgents();
+  const id = $('agentId').value;
+
+  // Check username uniqueness
+  const adminCreds = getCredentials();
+  if (username === adminCreds.user) { showToast('Username already taken by admin', 'error'); return; }
+  const conflict = agents.find(a => a.username === username && a.id !== id);
+  if (conflict) { showToast('Username already taken by another agent', 'error'); return; }
+
+  const agentObj = {
+    id:       id || ('agent_' + uid()),
+    name, username, password,
+    role:     $('agentRole').value.trim(),
+    phone:    $('agentPhone').value.trim(),
+    email:    $('agentEmail').value.trim(),
+    active:   true,
+    createdAt: id ? (agents.find(a=>a.id===id)||{}).createdAt : new Date().toISOString(),
+    permissions: {
+      viewFinancials: $('permViewFinancials').checked,
+      viewTenant:     $('permViewTenant').checked,
+      updateStatus:   $('permUpdateStatus').checked,
+      addNotes:       $('permAddNotes').checked
+    }
+  };
+
+  if (id) {
+    const idx = agents.findIndex(a => a.id === id);
+    if (idx > -1) agents[idx] = agentObj; else agents.push(agentObj);
+  } else {
+    agents.push(agentObj);
+  }
+  saveAgents(agents);
+  closeAgentModal();
+  showToast(id ? 'Agent updated' : 'Agent added', 'success');
+  renderTeamTab();
+}
+
+function toggleAgentActive(id) {
+  const agents = loadAgents();
+  const ag = agents.find(a => a.id === id);
+  if (!ag) return;
+  ag.active = !ag.active;
+  saveAgents(agents);
+  renderTeamTab();
+  showToast(ag.active ? 'Agent activated' : 'Agent deactivated', 'success');
+}
+
+function deleteAgent(id) {
+  if (!confirm('Delete this agent? Their tasks will remain but will be unassigned.')) return;
+  const agents = loadAgents().filter(a => a.id !== id);
+  saveAgents(agents);
+  // unassign tasks
+  const tasks = loadTasks().map(t => t.agentId === id ? { ...t, agentId: '' } : t);
+  saveTasks(tasks);
+  renderTeamTab();
+  showToast('Agent deleted', 'success');
+}
+
+// ── Task Modal ─────────────────────────────────────
+function openTaskModal(id) {
+  const agents = loadAgents().filter(a => a.active);
+  const props  = loadProps();
+  const tasks  = loadTasks();
+  const task   = id ? tasks.find(t => t.id === id) : null;
+
+  $('taskModalTitle').textContent = task ? 'Edit Task' : 'Assign Task';
+  $('taskId').value = task ? task.id : '';
+
+  // Populate agent dropdown
+  $('taskAgent').innerHTML = '<option value="">— Select agent —</option>' +
+    agents.map(a => `<option value="${a.id}"${task && task.agentId === a.id ? ' selected' : ''}>${h(a.name)}</option>`).join('');
+
+  // Populate property dropdown
+  $('taskProp').innerHTML = '<option value="">— No specific property —</option>' +
+    props.map(p => `<option value="${p.id}"${task && task.propId === p.id ? ' selected' : ''}>${h(p.name)}</option>`).join('');
+
+  if (task) {
+    $('taskType').value     = task.type     || 'find-tenant';
+    $('taskTitle').value    = task.title    || '';
+    $('taskPriority').value = task.priority || 'medium';
+    $('taskDeadline').value = task.deadline || '';
+    $('taskDesc').value     = task.description || '';
+    // Show read-only status (agent controls this)
+    const sm = TASK_STATUS_META[task.status] || TASK_STATUS_META['pending'];
+    $('taskStatusDisplay').innerHTML = `<span class="task-status-badge ${sm.cls}" style="display:inline-block;">${sm.label}</span><span style="font-size:11px;color:var(--text-3);display:block;margin-top:4px;">🔒 Only the agent can update this</span>`;
+  } else {
+    $('taskType').value     = 'find-tenant';
+    $('taskTitle').value    = '';
+    $('taskPriority').value = 'medium';
+    $('taskDeadline').value = '';
+    $('taskDesc').value     = '';
+    $('taskStatusDisplay').innerHTML = `<span class="task-status-badge ts-pending" style="display:inline-block;">Pending</span><span style="font-size:11px;color:var(--text-3);display:block;margin-top:4px;">🔒 Agent updates this when they start</span>`;
+  }
+
+  $('taskModalOverlay').classList.add('active');
+  setTimeout(() => $('taskTitle').focus(), 100);
+}
+function closeTaskModal() { $('taskModalOverlay').classList.remove('active'); }
+
+function saveTask() {
+  const agentId = $('taskAgent').value;
+  const title   = $('taskTitle').value.trim();
+  if (!agentId) { showToast('Please select an agent', 'error'); return; }
+  if (!title)   { showToast('Task title is required', 'error'); return; }
+
+  const tasks  = loadTasks();
+  const id     = $('taskId').value;
+  const existing = id ? tasks.find(t => t.id === id) : null;
+
+  const taskObj = {
+    id:          id || ('task_' + uid()),
+    agentId,
+    propId:      $('taskProp').value,
+    type:        $('taskType').value,
+    title,
+    priority:    $('taskPriority').value,
+    deadline:    $('taskDeadline').value,
+    // Status is ONLY changed by the agent — preserve existing status on edit
+    status:      existing ? existing.status : 'pending',
+    description: $('taskDesc').value.trim(),
+    notes:       existing ? existing.notes : [],
+    createdAt:   existing ? existing.createdAt : new Date().toISOString(),
+    updatedAt:   new Date().toISOString()
+  };
+
+  if (id) {
+    const idx = tasks.findIndex(t => t.id === id);
+    if (idx > -1) tasks[idx] = taskObj; else tasks.push(taskObj);
+  } else {
+    tasks.push(taskObj);
+  }
+  saveTasks(tasks);
+  closeTaskModal();
+  showToast(id ? 'Task updated' : 'Task assigned', 'success');
+  renderTeamTab();
+  updateTaskBadge();
+}
+
+function deleteTask(id) {
+  if (!confirm('Delete this task?')) return;
+  saveTasks(loadTasks().filter(t => t.id !== id));
+  renderTeamTab();
+  updateTaskBadge();
+  showToast('Task deleted', 'success');
+}
+
+function updateTaskStatus(id, status) {
+  const tasks = loadTasks();
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  t.status = status;
+  t.updatedAt = new Date().toISOString();
+  saveTasks(tasks);
+  // re-render whichever view is showing
+  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
+  else renderTeamTab();
+  updateTaskBadge();
+}
+
+function updateTaskBadge() {
+  const pending = loadTasks().filter(t => t.status === 'pending' || t.status === 'in-progress').length;
+  const el = $('navCountTasks');
+  if (el) { el.textContent = pending || ''; el.style.display = pending ? '' : 'none'; }
+}
+
+// ── Task Notes ─────────────────────────────────────
+let notesTaskId = null;
+function openTaskNotes(taskId) {
+  notesTaskId = taskId;
+  const task = loadTasks().find(t => t.id === taskId);
+  if (!task) return;
+  $('taskNotesPropName').textContent = task.title;
+  $('taskNotesTaskId').value = taskId;
+  $('taskNoteInput').value = '';
+  renderNotesList(task.notes || []);
+  $('taskNotesOverlay').classList.add('active');
+}
+function closeTaskNotes() { $('taskNotesOverlay').classList.remove('active'); notesTaskId = null; }
+
+function renderNotesList(notes) {
+  if (!notes.length) {
+    $('taskNotesList').innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:8px 0;">No notes yet.</p>`;
+    return;
+  }
+  $('taskNotesList').innerHTML = notes.slice().reverse().map(n => `
+    <div class="task-note-item">
+      <div class="task-note-text">${h(n.text)}</div>
+      <div class="task-note-date">${formatDate(n.date)}</div>
+    </div>`).join('');
+}
+
+function submitTaskNote() {
+  const text = $('taskNoteInput').value.trim();
+  if (!text) return;
+  const tasks = loadTasks();
+  const task = tasks.find(t => t.id === notesTaskId);
+  if (!task) return;
+  if (!task.notes) task.notes = [];
+  task.notes.push({ text, date: new Date().toISOString() });
+  task.updatedAt = new Date().toISOString();
+  saveTasks(tasks);
+  $('taskNoteInput').value = '';
+  renderNotesList(task.notes);
+  showToast('Note added', 'success');
+  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
+  else renderTeamTab();
+}
+
+// ── Team Tab Render (admin) ────────────────────────
+function renderTeamTab() {
+  const agents  = loadAgents();
+  const allTasks = loadTasks();
+  const props   = loadProps();
+
+  // Update filter dropdown
+  const agentFilter = $('taskFilterAgent');
+  if (agentFilter) {
+    const cur = agentFilter.value;
+    agentFilter.innerHTML = '<option value="">All Agents</option>' +
+      agents.map(a => `<option value="${a.id}"${cur===a.id?' selected':''}>${h(a.name)}</option>`).join('');
+  }
+
+  // ── Agents list ──
+  const agentsList = $('agentsList');
+  if (!agents.length) {
+    agentsList.innerHTML = `<div class="team-empty"><div class="empty-icon">👥</div><p>No agents yet. Add your first team member above.</p></div>`;
+  } else {
+    agentsList.innerHTML = agents.map(ag => {
+      const agTasks = allTasks.filter(t => t.agentId === ag.id);
+      const done    = agTasks.filter(t => t.status === 'done').length;
+      const active  = agTasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
+      return `
+        <div class="agent-card${ag.active ? '' : ' agent-inactive'}">
+          <div class="agent-card-avatar">${ag.name.charAt(0).toUpperCase()}</div>
+          <div class="agent-card-body">
+            <div class="agent-card-name">${h(ag.name)} ${ag.active ? '' : '<span class="chip" style="background:#fee2e2;color:#dc2626;font-size:10px;">Inactive</span>'}</div>
+            <div class="agent-card-role">${h(ag.role || 'Agent')} ${ag.phone ? '· '+h(ag.phone) : ''}</div>
+            <div class="agent-card-stats">
+              <span class="agent-stat"><strong>${active}</strong> active tasks</span>
+              <span class="agent-stat"><strong>${done}</strong> done</span>
+              <span class="agent-stat" style="color:var(--text-3);">@${h(ag.username)}</span>
+            </div>
+          </div>
+          <div class="agent-card-actions">
+            <button class="btn-icon-sm" onclick="openAgentModal('${ag.id}')" title="Edit">✏️</button>
+            <button class="btn-icon-sm" onclick="toggleAgentActive('${ag.id}')" title="${ag.active?'Deactivate':'Activate'}">${ag.active?'🔒':'🔓'}</button>
+            <button class="btn-icon-sm btn-danger-sm" onclick="deleteAgent('${ag.id}')" title="Delete">🗑️</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Tasks list ──
+  const agentF  = ($('taskFilterAgent')  || {}).value || '';
+  const statusF = ($('taskFilterStatus') || {}).value || '';
+  let tasks = allTasks;
+  if (agentF)  tasks = tasks.filter(t => t.agentId === agentF);
+  if (statusF) tasks = tasks.filter(t => t.status  === statusF);
+
+  const tasksList = $('tasksList');
+  if (!tasks.length) {
+    tasksList.innerHTML = `<div class="team-empty"><div class="empty-icon">📋</div><p>No tasks yet. Use "Assign Task" to create the first one.</p></div>`;
+  } else {
+    // Group by agent
+    const grouped = {};
+    tasks.forEach(t => {
+      const key = t.agentId || '__unassigned__';
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(t);
+    });
+
+    tasksList.innerHTML = Object.entries(grouped).map(([agId, agTasks]) => {
+      const ag = agents.find(a => a.id === agId);
+      const agName = ag ? ag.name : 'Unassigned';
+
+      const tasksHTML = agTasks.sort((a,b) => {
+        const ord = { 'in-progress':0, pending:1, done:2, cancelled:3 };
+        return (ord[a.status]||9) - (ord[b.status]||9);
+      }).map(t => {
+        const prop    = t.propId ? props.find(p => p.id === t.propId) : null;
+        const tm      = TASK_TYPE_META[t.type] || TASK_TYPE_META['other'];
+        const sm      = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
+        const pm      = PRIORITY_META[t.priority] || PRIORITY_META['medium'];
+        const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
+        const lastNote = t.notes && t.notes.length ? t.notes[t.notes.length - 1] : null;
+        const progressBar = t.status === 'done' ? 100
+                          : t.status === 'in-progress' ? 55
+                          : t.status === 'cancelled' ? 0 : 10;
+        return `
+          <div class="task-card${t.status === 'done' ? ' task-done' : ''}${overdue ? ' task-overdue' : ''}">
+            <div class="task-card-top">
+              <div class="task-type-badge">${tm.icon} ${tm.label}</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span class="task-priority ${pm.cls}">${pm.label}</span>
+                <span class="task-status-badge ${sm.cls}">${sm.label}</span>
+              </div>
+            </div>
+            <div class="task-card-title">${h(t.title)}</div>
+            ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}</div>` : ''}
+            ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
+
+            <!-- Progress bar (read-only for admin) -->
+            <div class="task-progress-wrap">
+              <div class="task-progress-bar">
+                <div class="task-progress-fill ${t.status === 'done' ? 'prog-done' : t.status === 'in-progress' ? 'prog-active' : t.status === 'cancelled' ? 'prog-cancelled' : 'prog-pending'}"
+                     style="width:${progressBar}%"></div>
+              </div>
+              <span class="task-progress-label">${progressBar}%</span>
+            </div>
+
+            ${lastNote ? `
+            <div class="task-last-note">
+              <span class="task-last-note-icon">💬</span>
+              <div>
+                <div class="task-last-note-text">${h(lastNote.text)}</div>
+                <div class="task-last-note-date">${formatDate(lastNote.date)} — ${h(ag ? ag.name : agName)}</div>
+              </div>
+            </div>` : ''}
+
+            <div class="task-card-meta">
+              ${t.deadline ? `<span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span>` : ''}
+              ${t.notes && t.notes.length ? `<span class="task-note-count">💬 ${t.notes.length} update${t.notes.length>1?'s':''}</span>` : '<span class="task-note-count" style="color:#bbb;">No updates yet</span>'}
+            </div>
+            <div class="task-card-actions">
+              <button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 View Updates</button>
+              <button class="btn-sm btn-ghost" onclick="openTaskModal('${t.id}')">✏️ Edit Task</button>
+              <div class="task-readonly-badge">🔒 Status set by agent</div>
+              <button class="btn-sm btn-danger" onclick="deleteTask('${t.id}')">🗑️</button>
+            </div>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="task-agent-group">
+          <div class="task-agent-label">
+            <div class="task-agent-avatar">${agName.charAt(0)}</div>
+            ${h(agName)}
+            <span style="font-size:12px;color:var(--text-3);font-weight:400;">${agTasks.length} task${agTasks.length>1?'s':''}</span>
+          </div>
+          ${tasksHTML}
+        </div>`;
+    }).join('');
+  }
+
+  updateTaskBadge();
+}
+
+// ── Agent Add Property ─────────────────────────────
+function openAgentPropModal() {
+  ['apName','apLocation','apClientName','apClientPhone','apNotes'].forEach(id => { const el=$(id); if(el) el.value=''; });
+  const sEl=$('apSize'); if(sEl) sEl.value='';
+  const rEl=$('apRent'); if(rEl) rEl.value='';
+  $('apType').value = 'warehouse';
+  $('agentPropModal').classList.add('active');
+  setTimeout(() => $('apName').focus(), 100);
+}
+function closeAgentPropModal() { $('agentPropModal').classList.remove('active'); }
+
+function saveAgentProperty() {
+  const session = getSession();
+  if (!session || session.type !== 'agent') return;
+  const name = $('apName').value.trim();
+  const clientName = $('apClientName').value.trim();
+  if (!name)       { showToast('Property name is required', 'error'); return; }
+  if (!clientName) { showToast('Client / owner name is required', 'error'); return; }
+
+  const props = loadProps();
+  const newProp = {
+    id:               'prop_' + uid(),
+    name,
+    type:             $('apType').value,
+    location:         $('apLocation').value.trim(),
+    size:             $('apSize').value ? Number($('apSize').value) : '',
+    annualRent:       $('apRent').value ? Number($('apRent').value) : '',
+    status:           'vacant',
+    ownership:        'sole',
+    tenantName:       '',
+    description:      $('apNotes').value.trim(),
+    // Agent sourcing metadata
+    addedByAgent:     session.agentId,
+    addedByAgentName: session.name,
+    clientName,
+    clientPhone:      $('apClientPhone').value.trim(),
+    addedAt:          new Date().toISOString(),
+    files:            {},
+    media:            []
+  };
+  props.push(newProp);
+  persistProps(props);
+  closeAgentPropModal();
+  showToast('Property submitted — visible to admin', 'success');
+  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
+}
+
+// ── Agent Dashboard Render ─────────────────────────
+function renderAgentDashboard() {
+  const session = getSession();
+  if (!session || session.type !== 'agent') return;
+  const { agentId, name, perms } = session;
+
+  const allProps  = loadProps();
+  const myTasks   = loadTasks().filter(t => t.agentId === agentId);
+  const ag        = loadAgents().find(a => a.id === agentId) || {};
+
+  const activeTasks = myTasks.filter(t => t.status === 'pending' || t.status === 'in-progress');
+  const doneTasks   = myTasks.filter(t => t.status === 'done');
+  const myAddedProps = allProps.filter(p => p.addedByAgent === agentId);
+
+  // Wins = done tasks of type find-tenant or negotiation
+  const wins = doneTasks.filter(t => t.type === 'find-tenant' || t.type === 'negotiation');
+
+  // ── Welcome ──
+  $('agentWelcome').innerHTML = `
+    <div class="agent-welcome-inner">
+      <div class="agent-welcome-avatar">${name.charAt(0).toUpperCase()}</div>
+      <div style="flex:1;">
+        <div class="agent-welcome-name">Welcome back, ${h(name)}</div>
+        <div class="agent-welcome-role">${h(ag.role || 'Property Agent')}</div>
+      </div>
+      ${wins.length ? `<div class="agent-wins-chip">🏆 ${wins.length} Client Win${wins.length>1?'s':''}</div>` : ''}
+    </div>`;
+
+  // ── Stats bar ──
+  $('agentStats').innerHTML = `
+    <div class="agent-stat-card">
+      <div class="agent-stat-num" style="color:#2563eb;">${activeTasks.length}</div>
+      <div class="agent-stat-label">Active Tasks</div>
+    </div>
+    <div class="agent-stat-card">
+      <div class="agent-stat-num" style="color:var(--success);">${doneTasks.length}</div>
+      <div class="agent-stat-label">Completed</div>
+    </div>
+    <div class="agent-stat-card">
+      <div class="agent-stat-num" style="color:var(--gold);">${wins.length}</div>
+      <div class="agent-stat-label">Clients Won</div>
+    </div>
+    <div class="agent-stat-card">
+      <div class="agent-stat-num" style="color:#8b5cf6;">${myAddedProps.length}</div>
+      <div class="agent-stat-label">Properties Sourced</div>
+    </div>`;
+
+  // ── Client Wins ──
+  const winsSection = $('agentWins');
+  const winsList    = $('agentWinsList');
+  if (wins.length) {
+    winsSection.style.display = '';
+    $('agentWinsCount').textContent = wins.length;
+    winsList.innerHTML = wins.map(t => {
+      const prop = t.propId ? allProps.find(p => p.id === t.propId) : null;
+      const lastNote = t.notes && t.notes.length ? t.notes[t.notes.length - 1] : null;
+      return `
+        <div class="agent-win-card">
+          <div class="agent-win-trophy">🏆</div>
+          <div class="agent-win-body">
+            <div class="agent-win-title">${h(t.title)}</div>
+            ${prop ? `<div class="agent-win-prop">📍 ${h(prop.name)}${prop.location?' — '+h(prop.location):''}</div>` : ''}
+            ${lastNote ? `<div class="agent-win-note">"${h(lastNote.text)}"</div>` : ''}
+            <div class="agent-win-date">✅ Completed ${t.updatedAt ? formatDate(t.updatedAt) : ''}</div>
+          </div>
+        </div>`;
+    }).join('');
+  } else {
+    winsSection.style.display = 'none';
+  }
+
+  // ── Tasks (legacy section — now also rendered by renderAgentTasksTab) ──
+  const container = $('agentTasksList');
+  if (!container) return;   // guard: tasks tab may not be in view
+  if (!myTasks.length) {
+    container.innerHTML = `<div class="team-empty"><div class="empty-icon">🎯</div><p>No tasks assigned yet. Check back soon.</p></div>`;
+    return;
+  }
+
+  const order = { 'in-progress':0, pending:1, done:2, cancelled:3 };
+  const sortedTasks = [...myTasks].sort((a,b) => (order[a.status]||9) - (order[b.status]||9));
+
+  container.innerHTML = sortedTasks.map(t => {
+    const prop = t.propId ? allProps.find(p => p.id === t.propId) : null;
+    const tm   = TASK_TYPE_META[t.type] || TASK_TYPE_META['other'];
+    const sm   = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
+    const pm   = PRIORITY_META[t.priority]  || PRIORITY_META['medium'];
+    const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
+    const notesCount = t.notes ? t.notes.length : 0;
+    const lastNote   = notesCount ? t.notes[notesCount - 1] : null;
+
+    return `
+      <div class="agent-task-card${t.status==='done'?' agent-task-done':''}${overdue?' task-overdue':''}">
+        <div class="task-card-top">
+          <div class="task-type-badge">${tm.icon} ${tm.label}</div>
+          <div style="display:flex;gap:6px;">
+            <span class="task-priority ${pm.cls}">${pm.label}</span>
+            <span class="task-status-badge ${sm.cls}">${sm.label}</span>
+          </div>
+        </div>
+        <div class="task-card-title">${h(t.title)}</div>
+        ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
+        ${prop ? `
+          <div class="agent-task-prop-pill">
+            🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}
+            ${prop.status==='vacant'?'<span style="color:var(--danger);font-size:11px;margin-left:6px;">● Vacant</span>':'<span style="color:var(--success);font-size:11px;margin-left:6px;">● Rented</span>'}
+          </div>` : ''}
+        <div class="task-card-meta">
+          ${t.deadline ? `<span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span>` : ''}
+          ${notesCount ? `<span class="task-note-count">💬 ${notesCount} update${notesCount>1?'s':''}</span>` : ''}
+        </div>
+        ${lastNote ? `<div class="task-last-note"><span class="task-last-note-icon">💬</span><div class="task-last-note-text">${h(lastNote.text)}</div></div>` : ''}
+        <div class="task-card-actions">
+          ${perms.addNotes !== false ? `<button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Add Update (${notesCount})</button>` : ''}
+          ${perms.updateStatus !== false && t.status !== 'done' && t.status !== 'cancelled' ? `
+            ${t.status !== 'in-progress' ? `<button class="btn-sm btn-primary" onclick="updateTaskStatus('${t.id}','in-progress')">▶ Start</button>` : `<button class="btn-sm btn-ghost" disabled>⏳ In Progress</button>`}
+            <button class="btn-sm btn-success" onclick="if(confirm('Mark this task as done?')) updateTaskStatus('${t.id}','done')">✓ Mark Done</button>
+          ` : t.status === 'done' ? `<span style="color:var(--success);font-size:13px;font-weight:600;">✅ Completed</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Helper: format date nicely
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) +
+         ' ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+
+// ─── Calendar ─────────────────────────────────────
+const CAL_KEY = 'asg_calendar';
+let calYear  = new Date().getFullYear();
+let calMonth = new Date().getMonth();   // 0-indexed
+let selectedCalDate = null;             // 'YYYY-MM-DD'
+
+function loadCalendarEvents() {
+  try { return JSON.parse(localStorage.getItem(CAL_KEY)) || []; }
+  catch { return []; }
+}
+function persistCalendarEvents(evs) {
+  localStorage.setItem(CAL_KEY, JSON.stringify(evs));
+}
+
+function isoDate(y, m, d) {
+  return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+function collectAllEvents() {
+  const props = loadProps();
+  const custom = loadCalendarEvents();
+  const map = {};   // 'YYYY-MM-DD' → [{type, label, color, sub}]
+
+  function add(dateStr, ev) {
+    if (!dateStr) return;
+    const d = dateStr.slice(0,10);
+    if (!map[d]) map[d] = [];
+    map[d].push(ev);
+  }
+
+  props.forEach(p => {
+    const name = p.name || 'Property';
+
+    // Cheques
+    if (p.cheques && p.cheques.length) {
+      p.cheques.forEach((c, i) => {
+        if (!c.date) return;
+        const st = (c.status || 'pending').toLowerCase();
+        const colors = { pending:'#f59e0b', received:'#059669', bounced:'#dc2626' };
+        add(c.date, {
+          type: `cheque-${st}`,
+          label: `Cheque ${i+1} – ${name}`,
+          sub: c.amount ? `AED ${Number(c.amount).toLocaleString()}` : '',
+          color: colors[st] || '#f59e0b',
+          propId: p.id
+        });
+      });
+    }
+
+    // Lease dates
+    if (p.leaseStart) add(p.leaseStart, { type:'lease-start', label:`Lease Start – ${name}`, sub:'', color:'#3b82f6', propId:p.id });
+    if (p.leaseEnd)   add(p.leaseEnd,   { type:'lease-end',   label:`Lease End – ${name}`,   sub:'', color:'#ef4444', propId:p.id });
+
+    // Reminders
+    if (p.reminder) add(p.reminder, { type:'reminder', label:`Reminder – ${name}`, sub:'', color:'#8b5cf6', propId:p.id });
+  });
+
+  // Custom events
+  custom.forEach(ev => {
+    add(ev.date, {
+      id: ev.id,
+      type: `custom-${ev.eventType || 'other'}`,
+      label: ev.title,
+      sub: ev.note || (ev.time ? ev.time : ''),
+      color: '#c9a84c',
+      deletable: true
+    });
+  });
+
+  return map;
+}
+
+function renderCalendar() {
+  const now    = new Date();
+  const today  = isoDate(now.getFullYear(), now.getMonth(), now.getDate());
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  document.getElementById('calMonthLabel').textContent = `${months[calMonth]} ${calYear}`;
+
+  const evMap = collectAllEvents();
+  const grid  = document.getElementById('calGrid');
+
+  // First weekday of the month (Mon=0 … Sun=6)
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const startOffset = (firstDay + 6) % 7;  // shift Sun(0)→6, Mon(1)→0
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+
+  let html = '';
+
+  // Empty leading cells
+  for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell cal-empty"></div>`;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = isoDate(calYear, calMonth, d);
+    const isToday = dateStr === today;
+    const evs     = evMap[dateStr] || [];
+    const MAX_SHOW = 3;
+
+    const pillsHTML = evs.slice(0, MAX_SHOW).map(ev =>
+      `<div class="cal-ev cal-ev-${ev.type.split('-')[0] === 'cheque' ? ev.type : ev.type.startsWith('custom') ? 'custom' : ev.type}"
+            title="${h(ev.label)}"
+            style="border-left-color:${ev.color};">
+        ${h(ev.label.length > 22 ? ev.label.slice(0,22)+'…' : ev.label)}
+      </div>`
+    ).join('');
+
+    const moreHTML = evs.length > MAX_SHOW
+      ? `<div class="cal-more">+${evs.length - MAX_SHOW} more</div>` : '';
+
+    html += `
+      <div class="cal-cell${isToday ? ' cal-today' : ''}" onclick="openCalDay('${dateStr}')">
+        <div class="cal-day-num${isToday ? ' cal-day-today' : ''}">${d}</div>
+        ${pillsHTML}${moreHTML}
+      </div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+function calShift(dir) {
+  calMonth += dir;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  if (calMonth < 0)  { calMonth = 11; calYear--; }
+  renderCalendar();
+}
+
+function calGoToday() {
+  const now = new Date();
+  calYear  = now.getFullYear();
+  calMonth = now.getMonth();
+  renderCalendar();
+}
+
+const CAL_TYPE_ICONS = {
+  transfer:   '💸',
+  inspection: '🔍',
+  meeting:    '🤝',
+  legal:      '⚖️',
+  deadline:   '⏰',
+  other:      '📌'
+};
+
+function openCalDay(dateStr) {
+  selectedCalDate = dateStr;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  document.getElementById('calDayTitle').textContent = `${months[m-1]} ${d}, ${y}`;
+
+  const evMap = collectAllEvents();
+  const evs   = evMap[dateStr] || [];
+  const container = document.getElementById('calDayEvents');
+
+  if (!evs.length) {
+    container.innerHTML = `<p style="color:var(--text-3);font-size:14px;text-align:center;padding:12px 0;">No events scheduled for this day.</p>`;
+  } else {
+    container.innerHTML = evs.map(ev => {
+      const icon = ev.type.startsWith('cheque') ? '💳'
+                 : ev.type === 'lease-start' ? '🟢'
+                 : ev.type === 'lease-end'   ? '🔴'
+                 : ev.type === 'reminder'    ? '🔔'
+                 : CAL_TYPE_ICONS[ev.type.replace('custom-','')] || '📌';
+      const delBtn = ev.deletable
+        ? `<button class="cal-ev-del" onclick="deleteCalendarEvent('${ev.id}','${dateStr}')" title="Delete">
+             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+           </button>` : '';
+      return `
+        <div class="cal-day-ev" style="border-left:3px solid ${ev.color};">
+          <span class="cal-day-ev-icon">${icon}</span>
+          <div class="cal-day-ev-body">
+            <div class="cal-day-ev-label">${h(ev.label)}</div>
+            ${ev.sub ? `<div class="cal-day-ev-sub">${h(ev.sub)}</div>` : ''}
+          </div>
+          ${delBtn}
+        </div>`;
+    }).join('');
+  }
+
+  // Reset add form
+  document.getElementById('calNewTitle').value = '';
+  document.getElementById('calNewType').value  = 'transfer';
+  document.getElementById('calNewTime').value  = '';
+  document.getElementById('calNewNote').value  = '';
+
+  document.getElementById('calDayModal').classList.add('active');
+}
+
+function closeCalDay() {
+  document.getElementById('calDayModal').classList.remove('active');
+  selectedCalDate = null;
+}
+
+function addCalendarEvent() {
+  if (!selectedCalDate) return;
+  const title = document.getElementById('calNewTitle').value.trim();
+  if (!title) { showToast('Please enter an event title', 'error'); return; }
+
+  const evs = loadCalendarEvents();
+  evs.push({
+    id: 'ev_' + Date.now(),
+    date: selectedCalDate,
+    title,
+    eventType: document.getElementById('calNewType').value,
+    time: document.getElementById('calNewTime').value,
+    note: document.getElementById('calNewNote').value.trim()
+  });
+  persistCalendarEvents(evs);
+  showToast('Event added', 'success');
+  openCalDay(selectedCalDate);  // re-render event list
+  renderCalendar();
+}
+
+function deleteCalendarEvent(id, dateStr) {
+  if (!confirm('Delete this event?')) return;
+  const evs = loadCalendarEvents().filter(e => e.id !== id);
+  persistCalendarEvents(evs);
+  showToast('Event deleted', 'success');
+  openCalDay(dateStr);
+  renderCalendar();
+}
+
+// ─── API Integrations ─────────────────────────────
+const API_SETTINGS_KEY = 'asg_api_settings';
+let metaSyncTimer = null;
+
+function loadApiSettings_data() {
+  try { return JSON.parse(localStorage.getItem(API_SETTINGS_KEY)) || {}; }
+  catch { return {}; }
+}
+function persistApiSettings(s) { localStorage.setItem(API_SETTINGS_KEY, JSON.stringify(s)); }
+
+function openApiSettings() {
+  const s      = loadApiSettings_data();
+  const meta   = s.meta    || {};
+  const google = s.google  || {};
+  const hs     = s.hubspot || {};
+
+  // Meta
+  $('metaToken').value           = meta.accessToken    || '';
+  $('metaFormIds').value         = (meta.formIds || []).join('\n');
+  $('metaDefaultPropType').value = meta.defaultPropType || 'warehouse';
+  $('metaSyncInterval').value    = meta.syncInterval    || '0';
+  const metaBadge = $('metaConnectedBadge');
+  if (metaBadge) metaBadge.style.display = meta.accessToken ? '' : 'none';
+  if (meta.lastSync) {
+    const el = $('metaLastSync');
+    if (el) el.textContent = `Last synced: ${formatDate(meta.lastSync)} · ${meta.lastImported||0} leads imported`;
+  }
+
+  // Google
+  $('googleSheetId').value = google.sheetId || '';
+  $('googleApiKey').value  = google.apiKey  || '';
+
+  // HubSpot
+  $('hubspotToken').value       = hs.accessToken   || '';
+  $('hubspotSyncDir').value     = hs.syncDirection || 'push';
+  $('hubspotPipelineId').value  = hs.pipelineId    || '';
+  const createDealsEl = $('hubspotCreateDeals');
+  if (createDealsEl) createDealsEl.checked = hs.createDeals !== false;
+  const syncStagesEl  = $('hubspotSyncStages');
+  if (syncStagesEl)  syncStagesEl.checked  = hs.syncStages  !== false;
+  const hsBadge = $('hubspotConnectedBadge');
+  if (hsBadge) hsBadge.style.display = hs.accessToken ? '' : 'none';
+  const hsLastSync = $('hubspotLastSync');
+  if (hsLastSync && hs.lastPush) {
+    const parts = [];
+    if (hs.lastPush) parts.push(`Last push: ${formatDate(hs.lastPush)} · ${hs.lastPushCount||0} sent`);
+    if (hs.lastPull) parts.push(`Last pull: ${formatDate(hs.lastPull)} · ${hs.lastPullCount||0} imported`);
+    hsLastSync.textContent = parts.join(' · ');
+  }
+
+  // Webhook
+  $('webhookVerifyToken').value = s.webhookVerifyToken || '';
+
+  clearTestResult();
+  switchApiTab('meta');
+  $('apiSettingsOverlay').classList.add('active');
+}
+function closeApiSettings() { $('apiSettingsOverlay').classList.remove('active'); }
+
+function switchApiTab(tab) {
+  ['meta','google','hubspot','webhook'].forEach(t => {
+    const content = $(`apiTab-${t}`);
+    const pill    = $(`apiPill-${t}`);
+    if (content) content.style.display = t === tab ? '' : 'none';
+    if (pill)    pill.classList.toggle('active', t === tab);
+  });
+}
+
+function clearTestResult() {
+  ['metaTestResult','googleTestResult','hubspotTestResult','hubspotSyncResult'].forEach(id => {
+    const el = $(id);
+    if (el) { el.textContent = ''; el.className = 'api-test-result'; }
+  });
+}
+
+function saveApiSettings_() {
+  const s = loadApiSettings_data();
+
+  const rawFormIds = $('metaFormIds').value;
+  const formIds = rawFormIds
+    .split(/[\n,]+/)
+    .map(f => f.trim())
+    .filter(Boolean);
+
+  s.meta = {
+    accessToken:     $('metaToken').value.trim(),
+    formIds,
+    defaultPropType: $('metaDefaultPropType').value,
+    syncInterval:    $('metaSyncInterval').value,
+    lastSync:        s.meta?.lastSync || '',
+    lastImported:    s.meta?.lastImported || 0
+  };
+  s.google = {
+    sheetId: $('googleSheetId').value.trim(),
+    apiKey:  $('googleApiKey').value.trim()
+  };
+
+  // HubSpot
+  const createDealsEl = $('hubspotCreateDeals');
+  const syncStagesEl  = $('hubspotSyncStages');
+  s.hubspot = {
+    accessToken:   $('hubspotToken').value.trim(),
+    syncDirection: $('hubspotSyncDir').value,
+    pipelineId:    $('hubspotPipelineId').value.trim(),
+    createDeals:   createDealsEl ? createDealsEl.checked : true,
+    syncStages:    syncStagesEl  ? syncStagesEl.checked  : true,
+    lastPush:      s.hubspot?.lastPush      || '',
+    lastPushCount: s.hubspot?.lastPushCount || 0,
+    lastPull:      s.hubspot?.lastPull      || '',
+    lastPullCount: s.hubspot?.lastPullCount || 0
+  };
+
+  s.webhookVerifyToken = $('webhookVerifyToken').value.trim();
+
+  persistApiSettings(s);
+  setupMetaAutoSync();
+  updateApiStatusUI();
+  closeApiSettings();
+  showToast('API settings saved', 'success');
+}
+
+function generateVerifyToken() {
+  const token = 'ASG_' + Math.random().toString(36).slice(2,10).toUpperCase();
+  $('webhookVerifyToken').value = token;
+}
+
+// ── Meta Ads Sync ──────────────────────────────────
+async function testMetaConnection() {
+  const token = $('metaToken').value.trim();
+  const rawIds = $('metaFormIds').value.trim();
+  const result = $('metaTestResult');
+  if (!token) { result.textContent = '❌ Please enter an access token first'; result.className='api-test-result api-test-error'; return; }
+
+  result.textContent = '⏳ Testing connection…';
+  result.className   = 'api-test-result api-test-loading';
+
+  try {
+    // Verify token by calling /me endpoint
+    const res  = await fetch(`https://graph.facebook.com/v19.0/me?access_token=${token}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+
+    // Test first form ID if provided
+    const formIds = rawIds.split(/[\n,]+/).map(f=>f.trim()).filter(Boolean);
+    let formTest = '';
+    if (formIds.length) {
+      const fRes  = await fetch(`https://graph.facebook.com/v19.0/${formIds[0]}?fields=name,status&access_token=${token}`);
+      const fData = await fRes.json();
+      if (fData.error) throw new Error(`Form ${formIds[0]}: ${fData.error.message}`);
+      formTest = ` · Form: "${fData.name || formIds[0]}"`;
+    }
+
+    result.textContent = `✅ Connected as ${data.name || data.id}${formTest}`;
+    result.className   = 'api-test-result api-test-success';
+    const badge = $('metaConnectedBadge');
+    if (badge) badge.style.display = '';
+  } catch (e) {
+    result.textContent = `❌ ${e.message}`;
+    result.className   = 'api-test-result api-test-error';
+  }
+}
+
+async function syncMetaLeads() {
+  const s     = loadApiSettings_data();
+  const meta  = s.meta || {};
+  const token = ($('metaToken') || {}).value?.trim() || meta.accessToken;
+  const rawIds = ($('metaFormIds') || {}).value || (meta.formIds||[]).join('\n');
+  const formIds = rawIds.split(/[\n,]+/).map(f=>f.trim()).filter(Boolean);
+  const defaultPropType = ($('metaDefaultPropType')||{}).value || meta.defaultPropType || 'warehouse';
+
+  if (!token)            { showToast('No access token configured', 'error'); return; }
+  if (!formIds.length)   { showToast('No form IDs configured', 'error'); return; }
+
+  const syncBtn = $('syncNowBtn');
+  if (syncBtn) { syncBtn.disabled = true; syncBtn.textContent = '⏳ Syncing…'; }
+  showToast('Syncing from Meta Ads…', 'success');
+
+  let totalImported = 0;
+  let totalSkipped  = 0;
+  const existingLeads = loadLeads();
+  // Build dedup set from phone + metaLeadId
+  const existingPhones  = new Set(existingLeads.map(l => normalisePhone(l.phone)));
+  const existingMetaIds = new Set(existingLeads.map(l => l.metaLeadId).filter(Boolean));
+  const newLeads = [];
+
+  for (const formId of formIds) {
+    try {
+      const url = `https://graph.facebook.com/v19.0/${formId}/leads?` +
+                  `access_token=${token}` +
+                  `&fields=created_time,field_data,ad_id,ad_name,adset_name,campaign_name` +
+                  `&limit=100`;
+      const res  = await fetch(url);
+      const data = await res.json();
+
+      if (data.error) { showToast(`Meta Error (form ${formId}): ${data.error.message}`, 'error'); continue; }
+
+      for (const ml of (data.data || [])) {
+        if (existingMetaIds.has(ml.id)) { totalSkipped++; continue; }
+
+        // Parse field_data into a flat map
+        const fields = {};
+        (ml.field_data || []).forEach(f => {
+          fields[f.name.toLowerCase().replace(/[^a-z0-9]/g,'_')] = (f.values||[])[0] || '';
+        });
+
+        const phone = fields.phone_number || fields.phone || fields.mobile || '';
+        const normPhone = normalisePhone(phone);
+        if (normPhone && existingPhones.has(normPhone)) { totalSkipped++; continue; }
+
+        const firstName = fields.first_name || '';
+        const lastName  = fields.last_name  || '';
+        const fullName  = fields.full_name  || (`${firstName} ${lastName}`).trim() || 'Unknown';
+        const budget    = fields.budget || fields.annual_rent || fields.rent_budget || '';
+
+        const leadObj = {
+          id:          'lead_' + uid(),
+          name:        fullName,
+          phone:       phone || '—',
+          email:       fields.email || fields.email_address || '',
+          company:     fields.company || fields.company_name || fields.business_name || '',
+          source:      'meta-ads',
+          propType:    defaultPropType,
+          budget,
+          requirements: [
+            ml.ad_name      ? `Ad: ${ml.ad_name}`           : '',
+            ml.campaign_name? `Campaign: ${ml.campaign_name}`: '',
+            ml.adset_name   ? `Ad Set: ${ml.adset_name}`    : '',
+            fields.message  ? `Message: ${fields.message}`  : '',
+            fields.notes    ? fields.notes                   : ''
+          ].filter(Boolean).join(' · '),
+          stage:       'new',
+          assignedTo:  '',
+          activities:  [],
+          metaLeadId:  ml.id,
+          metaFormId:  formId,
+          createdAt:   ml.created_time || new Date().toISOString(),
+          updatedAt:   new Date().toISOString()
+        };
+
+        newLeads.push(leadObj);
+        if (normPhone) existingPhones.add(normPhone);
+        existingMetaIds.add(ml.id);
+        totalImported++;
+      }
+    } catch (e) {
+      showToast(`Sync error (form ${formId}): ${e.message}`, 'error');
+    }
+  }
+
+  if (newLeads.length) {
+    saveLeads([...newLeads, ...existingLeads]);
+  }
+
+  // Update last sync metadata
+  s.meta = { ...meta, accessToken: token, formIds, defaultPropType,
+              lastSync: new Date().toISOString(), lastImported: (meta.lastImported||0) + totalImported };
+  persistApiSettings(s);
+
+  if (syncBtn) { syncBtn.disabled = false; syncBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Sync Now'; }
+
+  showToast(`✅ ${totalImported} new lead${totalImported!==1?'s':''} imported${totalSkipped?' · '+totalSkipped+' duplicates skipped':''}`, 'success');
+  updateApiStatusUI();
+  renderLeadsPipeline();
+
+  // Update result in modal if open
+  const res = $('metaTestResult');
+  if (res) {
+    res.textContent = `✅ Imported ${totalImported} new lead${totalImported!==1?'s':''}${totalSkipped?' · '+totalSkipped+' already existed':''}`;
+    res.className   = 'api-test-result api-test-success';
+  }
+}
+
+function normalisePhone(p) {
+  return (p||'').replace(/[\s\-\(\)\+]/g,'');
+}
+
+// ── Google Sheets Sync ─────────────────────────────
+async function syncGoogleLeads() {
+  const sheetId = $('googleSheetId').value.trim();
+  const apiKey  = $('googleApiKey').value.trim();
+  const result  = $('googleTestResult');
+
+  if (!sheetId || !apiKey) {
+    result.textContent = '❌ Please enter both Sheet ID and API Key';
+    result.className = 'api-test-result api-test-error';
+    return;
+  }
+
+  result.textContent = '⏳ Fetching from Google Sheets…';
+  result.className   = 'api-test-result api-test-loading';
+
+  try {
+    // Read sheet data using Sheets API v4
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1?key=${apiKey}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const rows  = data.values || [];
+    if (rows.length < 2) { result.textContent = '⚠️ Sheet is empty or has no data rows'; result.className='api-test-result api-test-error'; return; }
+
+    // First row = headers
+    const headers = rows[0].map(h => h.toLowerCase().trim());
+    const findCol = (...names) => {
+      for (const n of names) { const i = headers.findIndex(h => h.includes(n)); if (i > -1) return i; }
+      return -1;
+    };
+    const nameCol    = findCol('name','full name');
+    const phoneCol   = findCol('phone','mobile','number');
+    const emailCol   = findCol('email');
+    const companyCol = findCol('company','business');
+
+    if (nameCol === -1 && phoneCol === -1) throw new Error('Could not find Name or Phone column in sheet');
+
+    const existingLeads = loadLeads();
+    const existingPhones = new Set(existingLeads.map(l => normalisePhone(l.phone)));
+    const newLeads = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const row   = rows[i];
+      const phone = phoneCol > -1 ? (row[phoneCol]||'').trim() : '';
+      const normP = normalisePhone(phone);
+      if (normP && existingPhones.has(normP)) continue;
+
+      const name = nameCol > -1 ? (row[nameCol]||'').trim() : 'Unknown';
+      if (!name && !phone) continue;
+
+      newLeads.push({
+        id: 'lead_' + uid(),
+        name: name || 'Unknown',
+        phone, email: emailCol>-1?(row[emailCol]||''):'',
+        company: companyCol>-1?(row[companyCol]||''):'',
+        source: 'google', propType: 'warehouse', budget: '',
+        requirements: `Imported from Google Sheet row ${i+1}`,
+        stage: 'new', assignedTo: '', activities: [],
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      });
+      if (normP) existingPhones.add(normP);
+    }
+
+    if (newLeads.length) saveLeads([...newLeads, ...existingLeads]);
+    result.textContent = `✅ Imported ${newLeads.length} new lead${newLeads.length!==1?'s':''}`;
+    result.className   = 'api-test-result api-test-success';
+    renderLeadsPipeline();
+    showToast(`${newLeads.length} leads imported from Google Sheets`, 'success');
+  } catch(e) {
+    result.textContent = `❌ ${e.message}`;
+    result.className   = 'api-test-result api-test-error';
+  }
+}
+
+// ── Sync All APIs ──────────────────────────────────
+async function syncAllApis() {
+  const s = loadApiSettings_data();
+  if (s.meta?.accessToken && s.meta?.formIds?.length) await syncMetaLeads();
+  if (s.google?.sheetId && s.google?.apiKey) await syncGoogleLeads();
+}
+
+// ═══════════════════════════════════════════════════
+// ── HubSpot CRM Integration ─────────────────────────
+// ═══════════════════════════════════════════════════
+const HS_BASE = 'https://api.hubapi.com';
+
+// ASG lead stage → HubSpot deal stage
+const HS_STAGE_MAP = {
+  new:         'appointmentscheduled',
+  contacted:   'qualifiedtobuy',
+  meeting:     'presentationscheduled',
+  qualified:   'decisionmakerboughtin',
+  proposal:    'contractsent',
+  negotiation: 'contractsent',
+  won:         'closedwon',
+  lost:        'closedlost'
+};
+
+// ASG source → HubSpot lead source enum
+const HS_SOURCE_MAP = {
+  'meta-ads':  'SOCIAL_MEDIA',
+  'instagram': 'SOCIAL_MEDIA',
+  'google':    'PAID_SEARCH',
+  'referral':  'OTHER',
+  'walk-in':   'OTHER',
+  'website':   'ORGANIC_SEARCH',
+  'other':     'OTHER'
+};
+
+// Generic fetch wrapper for HubSpot API
+async function hsRequest(method, path, body) {
+  const s = loadApiSettings_data();
+  const token = (s.hubspot || {}).accessToken;
+  if (!token) throw new Error('No HubSpot token — please save your settings first');
+
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type':  'application/json'
+    }
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+
+  const res  = await fetch(HS_BASE + path, opts);
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg = data.message || (data.errors && data.errors[0] && data.errors[0].message) || `HubSpot API error ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// Map an ASG lead → HubSpot contact properties object
+function mapLeadToHSContact(lead) {
+  const parts     = (lead.name || '').trim().split(/\s+/);
+  const firstname = parts[0] || '';
+  const lastname  = parts.slice(1).join(' ') || '';
+
+  const props = { firstname, lastname };
+  if (lead.phone)        props.phone           = lead.phone;
+  if (lead.email)        props.email           = lead.email;
+  if (lead.company)      props.company         = lead.company;
+  if (lead.requirements) props.message         = lead.requirements;
+  if (lead.budget)       props.annualrevenue   = String(lead.budget);
+  if (lead.source && HS_SOURCE_MAP[lead.source])
+    props.hs_lead_source = HS_SOURCE_MAP[lead.source];
+  // Use the "website" field to store our internal ID for dedup (no custom property needed)
+  props.website = `asg-lead:${lead.id}`;
+  return props;
+}
+
+// Map a HubSpot contact → ASG lead object
+function mapHSContactToLead(contact) {
+  const p = contact.properties || {};
+  const name = [p.firstname, p.lastname].filter(Boolean).join(' ').trim()
+             || p.email || 'HubSpot Contact';
+  return {
+    id:                'lead_' + uid(),
+    name,
+    phone:             p.phone || p.mobilephone || '',
+    email:             p.email || '',
+    company:           p.company || '',
+    source:            'hubspot',
+    propType:          'warehouse',
+    budget:            p.annualrevenue || '',
+    requirements:      p.message || '',
+    stage:             'new',
+    assignedTo:        '',
+    activities:        [],
+    hubspotContactId:  contact.id,
+    createdAt:         new Date().toISOString(),
+    updatedAt:         new Date().toISOString()
+  };
+}
+
+// ── Test HubSpot Connection ────────────────────────
+async function testHubSpotConnection() {
+  const token  = $('hubspotToken').value.trim();
+  const result = $('hubspotTestResult');
+  if (!result) return;
+  if (!token) {
+    result.textContent = '❌ Please enter your Private App access token first';
+    result.className   = 'api-test-result api-test-error';
+    return;
+  }
+
+  result.textContent = '⏳ Testing connection…';
+  result.className   = 'api-test-result api-test-loading';
+
+  try {
+    const res  = await fetch(`${HS_BASE}/crm/v3/objects/contacts?limit=1&properties=email`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+    });
+    if (res.status === 401) throw new Error('Invalid token — check your Private App access token');
+    if (res.status === 403) throw new Error('Insufficient scopes — make sure you enabled contacts & deals scopes');
+    const data = await res.json();
+    if (data.status === 'error') throw new Error(data.message);
+
+    result.textContent = `✅ Connected! Found ${data.total || 0} contact${data.total !== 1 ? 's' : ''} in your HubSpot CRM`;
+    result.className   = 'api-test-result api-test-success';
+
+    const badge = $('hubspotConnectedBadge');
+    if (badge) badge.style.display = '';
+  } catch(e) {
+    if (e.message.includes('Failed to fetch') || e.name === 'TypeError') {
+      result.innerHTML = '⚠️ CORS blocked on local file — save settings &amp; host on Netlify/Vercel to use live. ' +
+        'The token is still saved and will work when deployed.';
+      result.className = 'api-test-result api-test-loading';
+    } else {
+      result.textContent = '❌ ' + e.message;
+      result.className   = 'api-test-result api-test-error';
+    }
+  }
+}
+
+// ── Push ASG Leads → HubSpot ───────────────────────
+async function pushLeadsToHubSpot() {
+  const s      = loadApiSettings_data();
+  const hs     = s.hubspot || {};
+  const result = $('hubspotSyncResult');
+  if (!result) return;
+
+  if (!hs.accessToken) {
+    result.textContent = '❌ No access token — save settings first';
+    result.className   = 'api-test-result api-test-error';
+    return;
+  }
+
+  result.textContent = '⏳ Pushing leads to HubSpot…';
+  result.className   = 'api-test-result api-test-loading';
+
+  const leads        = loadLeads();
+  const updatedLeads = leads.map(l => ({ ...l }));  // shallow clone each
+  let created = 0, updated = 0, errors = 0;
+
+  for (let i = 0; i < leads.length; i++) {
+    const lead = leads[i];
+    try {
+      const contactProps = mapLeadToHSContact(lead);
+      let contactId = lead.hubspotContactId || null;
+
+      if (contactId) {
+        // Update existing contact
+        await hsRequest('PATCH', `/crm/v3/objects/contacts/${contactId}`, { properties: contactProps });
+        updated++;
+      } else {
+        // Search by email first to avoid duplicate contacts
+        let found = null;
+        if (lead.email) {
+          try {
+            const srch = await hsRequest('POST', '/crm/v3/objects/contacts/search', {
+              filterGroups: [{ filters: [{ propertyName:'email', operator:'EQ', value:lead.email }] }],
+              limit: 1, properties: ['email']
+            });
+            if (srch.results && srch.results.length) found = srch.results[0];
+          } catch {}
+        }
+        // If not found by email, try phone
+        if (!found && lead.phone) {
+          try {
+            const srch = await hsRequest('POST', '/crm/v3/objects/contacts/search', {
+              filterGroups: [{ filters: [{ propertyName:'phone', operator:'EQ', value:lead.phone }] }],
+              limit: 1, properties: ['phone']
+            });
+            if (srch.results && srch.results.length) found = srch.results[0];
+          } catch {}
+        }
+
+        if (found) {
+          contactId = found.id;
+          await hsRequest('PATCH', `/crm/v3/objects/contacts/${contactId}`, { properties: contactProps });
+          updated++;
+        } else {
+          const newContact = await hsRequest('POST', '/crm/v3/objects/contacts', { properties: contactProps });
+          contactId = newContact.id;
+          created++;
+        }
+        updatedLeads[i].hubspotContactId = contactId;
+      }
+
+      // Optionally create / update a Deal linked to this contact
+      if (hs.createDeals !== false) {
+        const dealStage = (hs.syncStages !== false)
+          ? (HS_STAGE_MAP[lead.stage] || 'appointmentscheduled')
+          : 'appointmentscheduled';
+
+        const dealProps = {
+          dealname:  `${lead.name} — ${lead.propType || 'Property'}`,
+          pipeline:  hs.pipelineId || 'default',
+          dealstage: dealStage
+        };
+        if (lead.budget) dealProps.amount = String(lead.budget);
+
+        if (lead.hubspotDealId) {
+          // Update existing deal stage
+          try {
+            await hsRequest('PATCH', `/crm/v3/objects/deals/${lead.hubspotDealId}`, { properties: dealProps });
+          } catch {}
+        } else {
+          // Create new deal and associate with contact in one call
+          try {
+            const newDeal = await hsRequest('POST', '/crm/v3/objects/deals', {
+              properties:   dealProps,
+              associations: [{
+                to:    { id: contactId },
+                types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 3 }]
+              }]
+            });
+            updatedLeads[i].hubspotDealId = newDeal.id;
+          } catch {}
+        }
+      }
+    } catch(e) {
+      console.warn('[HubSpot] push error for lead', lead.id, e.message);
+      errors++;
+    }
+  }
+
+  // Persist the updated hubspotContactId / hubspotDealId back to localStorage
+  saveLeads(updatedLeads);
+
+  // Update settings with last push metadata
+  const fresh = loadApiSettings_data();
+  fresh.hubspot = fresh.hubspot || {};
+  fresh.hubspot.lastPush      = new Date().toISOString();
+  fresh.hubspot.lastPushCount = created + updated;
+  persistApiSettings(fresh);
+  updateApiStatusUI();
+
+  const summary = `✅ Pushed ${created + updated} lead${created + updated !== 1 ? 's' : ''} to HubSpot — `
+                + `${created} new contact${created !== 1 ? 's' : ''}, ${updated} updated`
+                + (errors ? ` · ⚠️ ${errors} error${errors > 1 ? 's' : ''}` : '');
+  result.textContent = summary;
+  result.className   = 'api-test-result api-test-success';
+  showToast(`HubSpot: ${created} created, ${updated} updated`, 'success');
+}
+
+// ── Pull HubSpot Contacts → ASG Leads ─────────────
+async function pullLeadsFromHubSpot() {
+  const s      = loadApiSettings_data();
+  const hs     = s.hubspot || {};
+  const result = $('hubspotSyncResult');
+  if (!result) return;
+
+  if (!hs.accessToken) {
+    result.textContent = '❌ No access token — save settings first';
+    result.className   = 'api-test-result api-test-error';
+    return;
+  }
+
+  result.textContent = '⏳ Pulling contacts from HubSpot…';
+  result.className   = 'api-test-result api-test-loading';
+
+  try {
+    const props = 'firstname,lastname,email,phone,mobilephone,company,message,annualrevenue,hs_lead_source,website';
+    const data  = await hsRequest('GET', `/crm/v3/objects/contacts?limit=100&properties=${props}`);
+    const contacts = data.results || [];
+
+    const existing      = loadLeads();
+    const existingHsIds = new Set(existing.map(l => l.hubspotContactId).filter(Boolean));
+    const existingEmails = new Set(existing.map(l => (l.email||'').toLowerCase()).filter(Boolean));
+    const existingPhones = new Set(existing.map(l => normalisePhone(l.phone)).filter(Boolean));
+
+    let imported = 0;
+    const newLeads = [];
+
+    for (const contact of contacts) {
+      // Skip contacts we already know about
+      if (existingHsIds.has(contact.id)) continue;
+
+      const p     = contact.properties || {};
+      const email = (p.email || '').toLowerCase();
+      const phone = normalisePhone(p.phone || p.mobilephone || '');
+
+      // Skip contacts that were exported from ASG (contain our ID tag)
+      if (p.website && p.website.startsWith('asg-lead:')) continue;
+
+      if (email && existingEmails.has(email)) continue;
+      if (phone && existingPhones.has(phone))  continue;
+
+      newLeads.push(mapHSContactToLead(contact));
+      imported++;
+    }
+
+    if (newLeads.length) {
+      saveLeads([...newLeads, ...existing]);
+      renderLeadsPipeline();
+    }
+
+    // Update settings
+    const fresh = loadApiSettings_data();
+    fresh.hubspot = fresh.hubspot || {};
+    fresh.hubspot.lastPull      = new Date().toISOString();
+    fresh.hubspot.lastPullCount = imported;
+    persistApiSettings(fresh);
+    updateApiStatusUI();
+
+    result.textContent = `✅ Pulled ${imported} new contact${imported !== 1 ? 's' : ''} from HubSpot`
+                       + (imported < contacts.length ? ` (${contacts.length - imported} already existed)` : '');
+    result.className   = 'api-test-result api-test-success';
+    if (imported) showToast(`Imported ${imported} HubSpot contact${imported !== 1 ? 's' : ''}`, 'success');
+  } catch(e) {
+    if (e.message.includes('Failed to fetch') || e.name === 'TypeError') {
+      result.innerHTML = '⚠️ CORS blocked on local file — this works once you host on Netlify/Vercel.';
+      result.className = 'api-test-result api-test-loading';
+    } else {
+      result.textContent = '❌ ' + e.message;
+      result.className   = 'api-test-result api-test-error';
+    }
+  }
+}
+
+// ── One-click two-way HubSpot sync ────────────────
+async function syncHubSpot() {
+  const s   = loadApiSettings_data();
+  const dir = (s.hubspot || {}).syncDirection || 'push';
+  if (dir === 'push' || dir === 'both') await pushLeadsToHubSpot();
+  if (dir === 'pull' || dir === 'both') await pullLeadsFromHubSpot();
+}
+
+// ── Auto Sync Timer ────────────────────────────────
+function setupMetaAutoSync() {
+  if (metaSyncTimer) { clearInterval(metaSyncTimer); metaSyncTimer = null; }
+  const s        = loadApiSettings_data();
+  const interval = parseInt((s.meta||{}).syncInterval || '0');
+  if (interval > 0 && s.meta?.accessToken && s.meta?.formIds?.length) {
+    metaSyncTimer = setInterval(syncAllApis, interval * 60 * 1000);
+  }
+}
+
+// ── API Status UI ──────────────────────────────────
+function updateApiStatusUI() {
+  const s       = loadApiSettings_data();
+  const hasMeta = !!(s.meta?.accessToken && s.meta?.formIds?.length);
+  const hasGoog = !!(s.google?.sheetId   && s.google?.apiKey);
+  const hasHS   = !!(s.hubspot?.accessToken);
+  const hasAny  = hasMeta || hasGoog || hasHS;
+
+  const dot     = $('apiStatusDot');
+  const syncBtn = $('syncNowBtn');
+  const bar     = $('apiSyncBar');
+
+  if (dot) {
+    dot.style.background = hasAny ? '#22c55e' : '#e5e7eb';
+    dot.title = hasAny
+      ? `Connected: ${[hasMeta&&'Meta',hasGoog&&'Google',hasHS&&'HubSpot'].filter(Boolean).join(', ')}`
+      : 'No API connected';
+  }
+  if (syncBtn) syncBtn.style.display = hasAny ? '' : 'none';
+
+  if (bar && hasAny) {
+    const parts = [];
+    if (hasMeta) {
+      const lastSync = s.meta.lastSync ? `Last sync: ${formatDate(s.meta.lastSync)}` : 'Not yet synced';
+      const intLabel = s.meta.syncInterval > 0 ? ` · Auto-sync every ${s.meta.syncInterval}m` : '';
+      parts.push(`📱 Meta Ads · ${lastSync}${intLabel} · ${s.meta.lastImported||0} imported`);
+    }
+    if (hasGoog) parts.push(`🔍 Google Sheets connected`);
+    if (hasHS) {
+      const hs = s.hubspot;
+      const pushInfo = hs.lastPush ? `Last push: ${formatDate(hs.lastPush)} · ${hs.lastPushCount||0} sent` : 'Not yet synced';
+      parts.push(`🟠 HubSpot CRM · ${pushInfo}`);
+    }
+    bar.style.display = '';
+    bar.innerHTML = parts.map(p => `<span class="api-sync-pill">${p}</span>`).join('');
+  } else if (bar) {
+    bar.style.display = 'none';
+  }
+
+  // Update HubSpot connected badge if modal is open
+  const hsBadge = $('hubspotConnectedBadge');
+  if (hsBadge) hsBadge.style.display = hasHS ? '' : 'none';
+}
+
+// ─── Leads Pipeline ───────────────────────────────
+const LEADS_KEY   = 'asg_leads';
+const PENDING_KEY = 'asg_pending_props';
+
+function loadLeads()        { try { return JSON.parse(localStorage.getItem(LEADS_KEY))   || []; } catch { return []; } }
+function saveLeads(l)       { localStorage.setItem(LEADS_KEY,   JSON.stringify(l)); }
+function loadPendingProps()  { try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch { return []; } }
+function savePendingProps(p) { localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }
+
+const LEAD_STAGES = {
+  new:         { label:'New',            icon:'🆕', cls:'ls-new' },
+  contacted:   { label:'Contacted',      icon:'📞', cls:'ls-contacted' },
+  meeting:     { label:'Meeting',        icon:'🤝', cls:'ls-meeting' },
+  qualified:   { label:'Qualified',      icon:'✅', cls:'ls-qualified' },
+  proposal:    { label:'Proposal Sent',  icon:'📄', cls:'ls-proposal' },
+  negotiation: { label:'Negotiation',    icon:'💬', cls:'ls-negotiation' },
+  won:         { label:'Won',            icon:'🏆', cls:'ls-won' },
+  lost:        { label:'Lost',           icon:'❌', cls:'ls-lost' }
+};
+
+const LEAD_SOURCES = {
+  'meta-ads':  '📱 Meta Ads',
+  'instagram': '📸 Instagram',
+  'google':    '🔍 Google',
+  'referral':  '🤝 Referral',
+  'walk-in':   '🚶 Walk-in',
+  'website':   '🌐 Website',
+  'other':     '📌 Other'
+};
+
+const ACT_TYPES = {
+  call:     { icon:'📞', label:'Called' },
+  meeting:  { icon:'🤝', label:'Meeting' },
+  email:    { icon:'📧', label:'Email' },
+  note:     { icon:'📝', label:'Note' },
+  proposal: { icon:'📄', label:'Proposal Sent' }
+};
+
+// ── Admin Lead Modal ───────────────────────────────
+function openLeadModal(id) {
+  const agents = loadAgents().filter(a => a.active);
+  const leads  = loadLeads();
+  const lead   = id ? leads.find(l => l.id === id) : null;
+
+  $('leadModalTitle').textContent = lead ? 'Edit Lead' : 'Add Lead';
+  $('leadId').value = lead ? lead.id : '';
+
+  $('leadAssignTo').innerHTML = '<option value="">— Unassigned —</option>' +
+    agents.map(a => `<option value="${a.id}"${lead && lead.assignedTo === a.id ? ' selected' : ''}>${h(a.name)}</option>`).join('');
+
+  if (lead) {
+    $('leadName').value         = lead.name       || '';
+    $('leadPhone').value        = lead.phone      || '';
+    $('leadEmail').value        = lead.email      || '';
+    $('leadCompany').value      = lead.company    || '';
+    $('leadSource').value       = lead.source     || 'meta-ads';
+    $('leadPropType').value     = lead.propType   || 'warehouse';
+    $('leadBudget').value       = lead.budget     || '';
+    $('leadRequirements').value = lead.requirements || '';
+  } else {
+    ['leadName','leadPhone','leadEmail','leadCompany','leadBudget','leadRequirements'].forEach(id => { const el=$(id); if(el) el.value=''; });
+    $('leadSource').value   = 'meta-ads';
+    $('leadPropType').value = 'warehouse';
+  }
+  $('leadModalOverlay').classList.add('active');
+  setTimeout(() => $('leadName').focus(), 100);
+}
+function closeLeadModal() { $('leadModalOverlay').classList.remove('active'); }
+
+function saveLead() {
+  const name  = $('leadName').value.trim();
+  const phone = $('leadPhone').value.trim();
+  if (!name)  { showToast('Name is required', 'error'); return; }
+  if (!phone) { showToast('Phone is required', 'error'); return; }
+
+  const leads = loadLeads();
+  const id    = $('leadId').value;
+  const existing = id ? leads.find(l => l.id === id) : null;
+  const assignedTo = $('leadAssignTo').value;
+
+  const leadObj = {
+    id:           id || ('lead_' + uid()),
+    name, phone,
+    email:        $('leadEmail').value.trim(),
+    company:      $('leadCompany').value.trim(),
+    source:       $('leadSource').value,
+    propType:     $('leadPropType').value,
+    budget:       $('leadBudget').value,
+    requirements: $('leadRequirements').value.trim(),
+    stage:        existing ? existing.stage : 'new',
+    assignedTo,
+    assignedAt:   assignedTo !== (existing?.assignedTo) ? new Date().toISOString() : (existing?.assignedAt || ''),
+    activities:   existing ? existing.activities : [],
+    createdAt:    existing ? existing.createdAt : new Date().toISOString(),
+    updatedAt:    new Date().toISOString()
+  };
+
+  if (id) { const idx = leads.findIndex(l => l.id === id); if (idx > -1) leads[idx] = leadObj; else leads.push(leadObj); }
+  else leads.unshift(leadObj);
+
+  saveLeads(leads);
+  closeLeadModal();
+  showToast(id ? 'Lead updated' : 'Lead added', 'success');
+  renderLeadsPipeline();
+}
+
+function deleteLead(id) {
+  if (!confirm('Delete this lead?')) return;
+  saveLeads(loadLeads().filter(l => l.id !== id));
+  renderLeadsPipeline();
+  showToast('Lead deleted', 'success');
+}
+
+function assignLeadToAgent(leadId, agentId) {
+  const leads = loadLeads();
+  const lead  = leads.find(l => l.id === leadId);
+  if (!lead) return;
+  lead.assignedTo = agentId;
+  lead.assignedAt = new Date().toISOString();
+  lead.updatedAt  = new Date().toISOString();
+  saveLeads(leads);
+  renderLeadsPipeline();
+  showToast('Lead assigned', 'success');
+}
+
+// ── Lead Detail Modal ──────────────────────────────
+let currentLeadId = null;
+function openLeadDetail(id) {
+  currentLeadId = id;
+  const lead   = loadLeads().find(l => l.id === id);
+  if (!lead) return;
+  const agents = loadAgents();
+  const ag     = lead.assignedTo ? agents.find(a => a.id === lead.assignedTo) : null;
+  const stage  = LEAD_STAGES[lead.stage] || LEAD_STAGES['new'];
+  const sess   = getSession();
+  const isAgentViewing = sess && sess.type === 'agent';
+
+  $('leadDetailId').value   = id;
+  $('leadDetailName').textContent = lead.name;
+  $('leadDetailSub').textContent  = `${LEAD_SOURCES[lead.source]||'Unknown'} · ${stage.icon} ${stage.label}${ag ? ' · Assigned to '+ag.name : ''}`;
+
+  // Lead info summary
+  $('leadDetailInfo').innerHTML = `
+    <div class="lead-detail-grid">
+      <div class="lead-detail-item"><span class="lead-detail-lbl">Phone</span><span class="lead-detail-val">${h(lead.phone)}</span></div>
+      ${lead.email   ? `<div class="lead-detail-item"><span class="lead-detail-lbl">Email</span><span class="lead-detail-val">${h(lead.email)}</span></div>` : ''}
+      ${lead.company ? `<div class="lead-detail-item"><span class="lead-detail-lbl">Company</span><span class="lead-detail-val">${h(lead.company)}</span></div>` : ''}
+      <div class="lead-detail-item"><span class="lead-detail-lbl">Interested In</span><span class="lead-detail-val">${lead.propType || '—'}</span></div>
+      ${lead.budget  ? `<div class="lead-detail-item"><span class="lead-detail-lbl">Budget</span><span class="lead-detail-val">AED ${Number(lead.budget).toLocaleString()}</span></div>` : ''}
+      <div class="lead-detail-item"><span class="lead-detail-lbl">Stage</span><span class="lead-detail-val"><span class="lead-stage-badge ${stage.cls}">${stage.icon} ${stage.label}</span></span></div>
+      ${ag ? `<div class="lead-detail-item"><span class="lead-detail-lbl">Assigned To</span><span class="lead-detail-val">${h(ag.name)}</span></div>` : ''}
+    </div>
+    ${lead.requirements ? `<div style="margin-top:10px;font-size:13px;color:var(--text-2);background:var(--bg);padding:10px 12px;border-radius:8px;border:1px solid var(--border);">${h(lead.requirements)}</div>` : ''}`;
+
+  // Activity log
+  renderActivityLog(lead.activities || []);
+
+  // Show add-activity form for agents
+  $('leadAddActivityForm').style.display = isAgentViewing ? '' : 'none';
+  $('leadAddActBtn').style.display       = isAgentViewing ? '' : 'none';
+
+  // Admin actions
+  const adminDiv = $('leadDetailAdminActions');
+  if (!isAgentViewing) {
+    adminDiv.innerHTML = `
+      <button class="btn-sm btn-ghost" onclick="openLeadModal('${id}');closeLeadDetail()">✏️ Edit</button>
+      <button class="btn-sm btn-danger" onclick="deleteLead('${id}');closeLeadDetail()">🗑️ Delete</button>`;
+  } else {
+    adminDiv.innerHTML = '';
+  }
+
+  $('leadDetailOverlay').classList.add('active');
+}
+function closeLeadDetail() { $('leadDetailOverlay').classList.remove('active'); currentLeadId = null; }
+
+function renderActivityLog(activities) {
+  const log = $('leadActivityLog');
+  if (!activities.length) {
+    log.innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:10px;">No activity logged yet.</p>`;
+    return;
+  }
+  log.innerHTML = [...activities].reverse().map(a => {
+    const at = ACT_TYPES[a.type] || { icon:'📝', label:'Note' };
+    const potential = a.potential
+      ? `<span class="act-potential act-pot-${a.potential}">${a.potential==='high'?'🔥':'⚡'} ${a.potential.charAt(0).toUpperCase()+a.potential.slice(1)} potential</span>` : '';
+    const stageChange = a.stageChanged
+      ? `<span class="act-stage-change">→ Stage: ${(LEAD_STAGES[a.stageChanged]||{icon:'',label:a.stageChanged}).icon} ${(LEAD_STAGES[a.stageChanged]||{label:a.stageChanged}).label}</span>` : '';
+    return `
+      <div class="act-item">
+        <div class="act-icon">${at.icon}</div>
+        <div class="act-body">
+          <div class="act-header">
+            <span class="act-type">${at.label}</span>
+            ${potential}${stageChange}
+            <span class="act-date">${formatDate(a.date)}</span>
+          </div>
+          <div class="act-by">by ${h(a.byAgentName || 'Unknown')}</div>
+          <div class="act-note">${h(a.note)}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function submitLeadActivity() {
+  const note = $('actNote').value.trim();
+  if (!note) { showToast('Please write a note about this activity', 'error'); return; }
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+
+  const leads    = loadLeads();
+  const lead     = leads.find(l => l.id === currentLeadId);
+  if (!lead) return;
+
+  const newStage = $('actStage').value;
+  const act = {
+    id:          'act_' + uid(),
+    type:        $('actType').value,
+    potential:   $('actPotential').value,
+    stageChanged: newStage || '',
+    note,
+    date:        new Date().toISOString(),
+    byAgentId:   sess.agentId,
+    byAgentName: sess.name
+  };
+
+  if (!lead.activities) lead.activities = [];
+  lead.activities.push(act);
+  if (newStage) lead.stage = newStage;
+  lead.updatedAt = new Date().toISOString();
+  saveLeads(leads);
+
+  $('actNote').value     = '';
+  $('actStage').value    = '';
+  $('actPotential').value = '';
+  renderActivityLog(lead.activities);
+  renderAgentLeads();
+  showToast('Activity logged', 'success');
+}
+
+// ── Admin Lead Pipeline Render ─────────────────────
+function renderLeadsPipeline() {
+  const agents  = loadAgents();
+  const allLeads = loadLeads();
+
+  // Update agent filter
+  const agF = $('leadFilterAgent');
+  if (agF) {
+    const cur = agF.value;
+    agF.innerHTML = '<option value="">All Agents</option>' +
+      agents.map(a => `<option value="${a.id}"${cur===a.id?' selected':''}>${h(a.name)}</option>`).join('') +
+      '<option value="__unassigned__">Unassigned</option>';
+  }
+
+  let leads = allLeads;
+  const agentF  = (agF || {}).value || '';
+  const stageF  = ($('leadFilterStage')  || {}).value || '';
+  const sourceF = ($('leadFilterSource') || {}).value || '';
+  if (agentF === '__unassigned__') leads = leads.filter(l => !l.assignedTo);
+  else if (agentF) leads = leads.filter(l => l.assignedTo === agentF);
+  if (stageF)  leads = leads.filter(l => l.stage  === stageF);
+  if (sourceF) leads = leads.filter(l => l.source === sourceF);
+
+  // Stage bar
+  const stageBar = $('pipelineStageBar');
+  if (stageBar) {
+    const stageOrder = ['new','contacted','meeting','qualified','proposal','negotiation','won','lost'];
+    stageBar.innerHTML = stageOrder.map(s => {
+      const cnt = allLeads.filter(l => l.stage === s).length;
+      const meta = LEAD_STAGES[s];
+      return cnt ? `<div class="pipeline-stage-pill ${meta.cls}" onclick="$('leadFilterStage').value='${s}';renderLeadsPipeline()">
+        ${meta.icon} ${meta.label} <strong>${cnt}</strong>
+      </div>` : '';
+    }).join('');
+  }
+
+  const table = $('leadsTable');
+  if (!leads.length) {
+    table.innerHTML = `<div class="team-empty"><div class="empty-icon">👥</div><p>No leads found. Add your first lead above.</p></div>`;
+    return;
+  }
+
+  // Sort: won/lost last, then by updatedAt
+  const sorted = [...leads].sort((a,b) => {
+    const aLast = (a.stage==='won'||a.stage==='lost') ? 1 : 0;
+    const bLast = (b.stage==='won'||b.stage==='lost') ? 1 : 0;
+    if (aLast !== bLast) return aLast - bLast;
+    return new Date(b.updatedAt||b.createdAt) - new Date(a.updatedAt||a.createdAt);
+  });
+
+  table.innerHTML = sorted.map(lead => {
+    const ag    = lead.assignedTo ? agents.find(a => a.id === lead.assignedTo) : null;
+    const stage = LEAD_STAGES[lead.stage] || LEAD_STAGES['new'];
+    const lastAct = lead.activities && lead.activities.length ? lead.activities[lead.activities.length-1] : null;
+    const actCount = lead.activities ? lead.activities.length : 0;
+
+    // Last potential from activities
+    const potentials = (lead.activities||[]).filter(a => a.potential).map(a => a.potential);
+    const lastPot = potentials.length ? potentials[potentials.length-1] : null;
+
+    return `
+      <div class="lead-card${lead.stage==='won'?' lead-won':lead.stage==='lost'?' lead-lost':''}" onclick="openLeadDetail('${lead.id}')">
+        <div class="lead-card-top">
+          <div class="lead-card-left">
+            <div class="lead-avatar">${lead.name.charAt(0).toUpperCase()}</div>
+            <div>
+              <div class="lead-name">${h(lead.name)} ${lead.company?'<span class="lead-co">'+h(lead.company)+'</span>':''}</div>
+              <div class="lead-meta">${LEAD_SOURCES[lead.source]||'Unknown'} · ${lead.propType||'Any'} · ${lead.phone}</div>
+            </div>
+          </div>
+          <div class="lead-card-right">
+            <span class="lead-stage-badge ${stage.cls}">${stage.icon} ${stage.label}</span>
+            ${lastPot ? `<span class="act-potential act-pot-${lastPot}">${lastPot==='high'?'🔥 High':lastPot==='medium'?'⚡ Med':'❄️ Low'}</span>` : ''}
+          </div>
+        </div>
+        ${lastAct ? `<div class="lead-last-act"><span>${(ACT_TYPES[lastAct.type]||{icon:'📝'}).icon}</span> <em>${h(lastAct.note.length>80?lastAct.note.slice(0,80)+'…':lastAct.note)}</em> <span class="lead-act-date">${formatDate(lastAct.date)}</span></div>` : '<div class="lead-last-act" style="color:var(--text-3);">No activity yet</div>'}
+        <div class="lead-card-footer">
+          <span>${ag ? '👤 '+h(ag.name) : '<span style="color:var(--text-3);">⚠️ Unassigned</span>'}</span>
+          <span>${actCount} update${actCount!==1?'s':''}</span>
+          ${lead.budget ? `<span>💰 AED ${Number(lead.budget).toLocaleString()}</span>` : ''}
+          <div class="lead-card-actions" onclick="event.stopPropagation()">
+            <select class="task-status-select" style="font-size:11px;" onchange="assignLeadToAgent('${lead.id}',this.value)">
+              <option value="">Assign to…</option>
+              ${agents.filter(a=>a.active).map(a=>`<option value="${a.id}"${lead.assignedTo===a.id?' selected':''}>${h(a.name)}</option>`).join('')}
+            </select>
+            <button class="btn-sm btn-ghost" onclick="openLeadModal('${lead.id}')">✏️</button>
+            <button class="btn-sm btn-danger" onclick="deleteLead('${lead.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Pending Property Submissions (admin) ───────────
+function renderPendingProps() {
+  const pending = loadPendingProps();
+  const el = $('pendingPropsList');
+  const badge = $('pendingBadge');
+  if (!el) return;
+
+  const waitingCount = pending.filter(p => p.status === 'pending').length;
+  if (badge) { badge.textContent = waitingCount ? `${waitingCount} awaiting`:''; badge.style.display = waitingCount ? '':'none'; }
+
+  if (!pending.length) {
+    el.innerHTML = `<div class="team-empty"><div class="empty-icon">📭</div><p>No submissions from agents yet.</p></div>`;
+    return;
+  }
+
+  const typeIcon = { warehouse:'🏭', office:'🏢', residential:'🏠' };
+  el.innerHTML = [...pending].reverse().map(p => {
+    const isP = p.status === 'pending';
+    return `
+      <div class="pending-prop-card${p.status==='approved'?' pend-approved':p.status==='rejected'?' pend-rejected':''}">
+        <div class="pending-prop-icon">${typeIcon[p.type]||'🏗️'}</div>
+        <div class="pending-prop-body">
+          <div class="pending-prop-name">${h(p.name)}</div>
+          <div class="pending-prop-meta">
+            ${h(p.addedByAgentName||'Agent')} · ${p.type} ${p.location?'· '+h(p.location):''}
+            ${p.annualRent?'· AED '+Number(p.annualRent).toLocaleString():''} / yr
+          </div>
+          ${p.clientName ? `<div class="pending-prop-client">🤝 Client: ${h(p.clientName)} ${p.clientPhone?'· '+h(p.clientPhone):''}</div>` : ''}
+          ${p.description ? `<div class="pending-prop-notes">${h(p.description)}</div>` : ''}
+          <div class="pending-prop-date">Submitted ${formatDate(p.submittedAt)}</div>
+          ${p.adminNote ? `<div class="pending-prop-admin-note">💬 ${h(p.adminNote)}</div>` : ''}
+        </div>
+        <div class="pending-prop-actions">
+          ${isP ? `
+            <button class="btn-sm btn-success" onclick="approvePendingProp('${p.id}')">✓ Approve</button>
+            <button class="btn-sm btn-danger"  onclick="rejectPendingProp('${p.id}')">✗ Reject</button>
+          ` : `<span class="pend-status-chip pend-${p.status}">${p.status==='approved'?'✓ Approved':'✗ Rejected'}</span>`}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function approvePendingProp(pendingId) {
+  const pending = loadPendingProps();
+  const item    = pending.find(p => p.id === pendingId);
+  if (!item) return;
+  item.status = 'approved';
+
+  // Move to main props
+  const props = loadProps();
+  const newProp = { ...item };
+  delete newProp.status;
+  delete newProp.submittedAt;
+  delete newProp.adminNote;
+  newProp.id = 'prop_' + uid();
+  props.push(newProp);
+  persistProps(props);
+  savePendingProps(pending);
+
+  renderPendingProps();
+  refresh();
+  showToast(`Property "${item.name}" approved and added to dashboard`, 'success');
+}
+
+function rejectPendingProp(pendingId) {
+  const note = prompt('Reason for rejection (optional):');
+  const pending = loadPendingProps();
+  const item    = pending.find(p => p.id === pendingId);
+  if (!item) return;
+  item.status    = 'rejected';
+  item.adminNote = note || '';
+  savePendingProps(pending);
+  renderPendingProps();
+  showToast('Submission rejected', 'success');
+}
+
+// ── Update renderTeamTab to include new sections ───
+const _origRenderTeamTab = renderTeamTab;
+renderTeamTab = function() {
+  _origRenderTeamTab();
+  renderLeadsPipeline();
+  renderPendingProps();
+};
+
+// ── Update saveAgentProperty to use pending queue ──
+saveAgentProperty = function() {
+  const session = getSession();
+  if (!session || session.type !== 'agent') return;
+  const name       = $('apName').value.trim();
+  const clientName = $('apClientName').value.trim();
+  if (!name)       { showToast('Property name is required', 'error'); return; }
+  if (!clientName) { showToast('Client / owner name is required', 'error'); return; }
+
+  const pending = loadPendingProps();
+  pending.push({
+    id:               'pending_' + uid(),
+    name,
+    type:             $('apType').value,
+    location:         $('apLocation').value.trim(),
+    size:             $('apSize').value ? Number($('apSize').value) : '',
+    annualRent:       $('apRent').value ? Number($('apRent').value) : '',
+    status:           'vacant',
+    ownership:        'sole',
+    description:      $('apNotes').value.trim(),
+    addedByAgent:     session.agentId,
+    addedByAgentName: session.name,
+    clientName,
+    clientPhone:      $('apClientPhone').value.trim(),
+    submittedAt:      new Date().toISOString(),
+    status:           'pending',   // pending | approved | rejected
+    files: {}, media: []
+  });
+  savePendingProps(pending);
+  closeAgentPropModal();
+  showToast('Property submitted — awaiting admin approval', 'success');
+  renderAgentSubmissions();
+  updateAgentBadges();
+};
+
+// ─── Agent Tab System ──────────────────────────────
+let currentAgentTab = 'overview';
+let agentMlMap = null;
+
+const AGENT_TABS = ['overview','inventory','leads','tasks','map','proposals','contracts','submissions'];
+
+function showAgentTab(tab) {
+  currentAgentTab = tab;
+  AGENT_TABS.forEach(t => {
+    const view = $(`agentTab${t.charAt(0).toUpperCase()+t.slice(1)}`);
+    if (view) view.style.display = t === tab ? '' : 'none';
+    const btn = $(`aTab-${t}`);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  if (tab === 'overview')     renderAgentOverview();
+  if (tab === 'inventory')    renderAgentInventory();
+  if (tab === 'leads')        renderAgentLeads();
+  if (tab === 'tasks')        renderAgentTasksTab();
+  if (tab === 'map')          initAgentMap();
+  if (tab === 'submissions')  renderAgentSubmissions();
+}
+
+function updateAgentBadges() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const { agentId } = sess;
+
+  const props   = loadProps();
+  const myTasks = loadTasks().filter(t => t.agentId === agentId && (t.status==='pending'||t.status==='in-progress'));
+  const myLeads = loadLeads().filter(l => l.assignedTo === agentId && l.stage !== 'won' && l.stage !== 'lost');
+  const mySubs  = loadPendingProps().filter(p => p.addedByAgent === agentId && p.status === 'pending');
+
+  const inv = $('agentInvCount');  if(inv)  { inv.textContent  = props.length || ''; }
+  const lc  = $('agentLeadCount'); if(lc)   { lc.textContent   = myLeads.length || ''; }
+  const tc  = $('agentTaskCount'); if(tc)   { tc.textContent   = myTasks.length || ''; }
+  const sc  = $('agentSubCount');  if(sc)   { sc.textContent   = mySubs.length  || ''; }
+}
+
+// ── Agent Overview ─────────────────────────────────
+function renderAgentOverview() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const { agentId, name, perms } = sess;
+  const ag      = loadAgents().find(a => a.id === agentId) || {};
+  const myTasks = loadTasks().filter(t => t.agentId === agentId);
+  const myLeads = loadLeads().filter(l => l.assignedTo === agentId);
+  const allProps = loadProps();
+  const wins    = myTasks.filter(t => t.status==='done' && (t.type==='find-tenant'||t.type==='negotiation'));
+  const wonLeads = myLeads.filter(l => l.stage==='won');
+
+  const activeT = myTasks.filter(t => t.status==='pending'||t.status==='in-progress').length;
+  const doneT   = myTasks.filter(t => t.status==='done').length;
+  const activeL = myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length;
+
+  $('agentNavAvatar').textContent = name.charAt(0).toUpperCase();
+  $('agentNavName').textContent   = name;
+  $('agentNavRole').textContent   = ag.role || 'Property Agent';
+
+  $('agentWelcome').innerHTML = `
+    <div class="agent-welcome-inner">
+      <div class="agent-welcome-avatar">${name.charAt(0).toUpperCase()}</div>
+      <div style="flex:1;">
+        <div class="agent-welcome-name">Welcome back, ${h(name)}</div>
+        <div class="agent-welcome-role">${h(ag.role || 'Property Agent')}</div>
+      </div>
+      ${(wins.length+wonLeads.length) ? `<div class="agent-wins-chip">🏆 ${wins.length+wonLeads.length} Win${wins.length+wonLeads.length>1?'s':''}</div>` : ''}
+    </div>`;
+
+  $('agentStats').innerHTML = `
+    <div class="agent-stat-card"><div class="agent-stat-num" style="color:#2563eb;">${activeT}</div><div class="agent-stat-label">Active Tasks</div></div>
+    <div class="agent-stat-card"><div class="agent-stat-num" style="color:var(--success);">${doneT}</div><div class="agent-stat-label">Tasks Done</div></div>
+    <div class="agent-stat-card"><div class="agent-stat-num" style="color:#8b5cf6;">${activeL}</div><div class="agent-stat-label">Active Leads</div></div>
+    <div class="agent-stat-card"><div class="agent-stat-num" style="color:var(--gold);">${wonLeads.length+wins.length}</div><div class="agent-stat-label">Total Wins</div></div>`;
+
+  // Wins
+  const allWins = [
+    ...wonLeads.map(l => ({ type:'lead', title:`Lead Won — ${l.name}`, sub: l.company||'', date: l.updatedAt })),
+    ...wins.map(t => ({ type:'task', title: t.title, sub: '', date: t.updatedAt }))
+  ].sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  const winsSection = $('agentWins');
+  const winsList    = $('agentWinsList');
+  if (allWins.length) {
+    winsSection.style.display = '';
+    $('agentWinsCount').textContent = allWins.length;
+    winsList.innerHTML = allWins.map(w => `
+      <div class="agent-win-card">
+        <div class="agent-win-trophy">🏆</div>
+        <div class="agent-win-body">
+          <div class="agent-win-title">${h(w.title)}</div>
+          ${w.sub ? `<div class="agent-win-prop">${h(w.sub)}</div>` : ''}
+          <div class="agent-win-date">✅ ${formatDate(w.date)}</div>
+        </div>
+      </div>`).join('');
+  } else {
+    winsSection.style.display = 'none';
+  }
+
+  // ── Quick Tasks preview (up to 3 active) ──
+  const activeTasks = myTasks.filter(t => t.status === 'pending' || t.status === 'in-progress').slice(0, 3);
+  const qtSection = $('agentOverviewQuickTasks');
+  const qtList    = $('agentOverviewTasksList');
+  if (qtSection && qtList) {
+    if (activeTasks.length) {
+      qtSection.style.display = '';
+      qtList.innerHTML = activeTasks.map(t => {
+        const tm = TASK_TYPE_META[t.type] || TASK_TYPE_META['other'];
+        const sm = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
+        const pm = PRIORITY_META[t.priority] || PRIORITY_META['medium'];
+        const overdue = t.deadline && new Date(t.deadline) < new Date();
+        return `
+          <div class="agent-task-card${overdue?' task-overdue':''}">
+            <div class="task-card-top">
+              <div class="task-type-badge">${tm.icon} ${tm.label}</div>
+              <div style="display:flex;gap:6px;">
+                <span class="task-priority ${pm.cls}">${pm.label}</span>
+                <span class="task-status-badge ${sm.cls}">${sm.label}</span>
+              </div>
+            </div>
+            <div class="task-card-title">${h(t.title)}</div>
+            ${t.deadline ? `<div class="task-card-meta"><span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span></div>` : ''}
+          </div>`;
+      }).join('');
+    } else {
+      qtSection.style.display = 'none';
+    }
+  }
+
+  // ── Quick Leads preview (up to 3 active) ──
+  const allLeadsLocal = loadLeads().filter(l => l.assignedTo === agentId && l.stage !== 'won' && l.stage !== 'lost').slice(0, 3);
+  const qlSection = $('agentOverviewQuickLeads');
+  const qlList    = $('agentOverviewLeadsList');
+  if (qlSection && qlList) {
+    if (allLeadsLocal.length) {
+      qlSection.style.display = '';
+      qlList.innerHTML = allLeadsLocal.map(lead => {
+        const stage = LEAD_STAGES[lead.stage] || LEAD_STAGES['new'];
+        const actCount = lead.activities ? lead.activities.length : 0;
+        const lastAct  = actCount ? lead.activities[actCount-1] : null;
+        return `
+          <div class="agent-lead-card" onclick="openLeadDetail('${lead.id}')" style="cursor:pointer;">
+            <div class="lead-card-top">
+              <div class="lead-card-left">
+                <div class="lead-avatar">${lead.name.charAt(0).toUpperCase()}</div>
+                <div>
+                  <div class="lead-name">${h(lead.name)} ${lead.company?'<span class="lead-co">'+h(lead.company)+'</span>':''}</div>
+                  <div class="lead-meta">${LEAD_SOURCES[lead.source]||''} · 📱 ${lead.phone}</div>
+                </div>
+              </div>
+              <span class="lead-stage-badge ${stage.cls}">${stage.icon} ${stage.label}</span>
+            </div>
+            ${lastAct ? `<div class="lead-last-act"><span>${(ACT_TYPES[lastAct.type]||{icon:'📝'}).icon}</span> <em>${h(lastAct.note.length>60?lastAct.note.slice(0,60)+'…':lastAct.note)}</em></div>` : '<div class="lead-last-act" style="color:var(--text-3);">No updates yet — tap to log first contact</div>'}
+          </div>`;
+      }).join('');
+    } else {
+      qlSection.style.display = 'none';
+    }
+  }
+}
+
+// ── Agent Inventory ────────────────────────────────
+function renderAgentInventory() {
+  const props = loadProps();
+  const sess  = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const perms = sess.perms || {};
+  const list  = $('agentInventoryList');
+  if (!list) return;
+
+  if (!props.length) {
+    list.innerHTML = `<div class="team-empty"><div class="empty-icon">🏗️</div><p>No properties in the portfolio yet.</p></div>`;
+    return;
+  }
+
+  const typeIcon = { warehouse:'🏭', office:'🏢', residential:'🏠' };
+  list.innerHTML = props.map(p => {
+    const statusColor = p.status==='vacant' ? 'var(--danger)' : 'var(--success)';
+    return `
+      <div class="inv-prop-card">
+        <div class="inv-prop-header">
+          <span class="inv-prop-type-icon">${typeIcon[p.type]||'🏗️'}</span>
+          <div style="flex:1;min-width:0;">
+            <div class="inv-prop-name">${h(p.name)}</div>
+            ${p.location?`<div class="inv-prop-loc">📍 ${h(p.location)}</div>`:''}
+          </div>
+          <span class="chip" style="background:${p.status==='vacant'?'var(--danger-bg)':'var(--success-bg)'};color:${statusColor};flex-shrink:0;">
+            ${p.status==='vacant'?'🔴 Vacant':'🟢 Rented'}
+          </span>
+        </div>
+        <div class="inv-prop-details">
+          ${p.size     ? `<span>📐 ${Number(p.size).toLocaleString()} sq ft</span>` : ''}
+          ${p.compound ==='yes' ? `<span>🏠 Compound</span>` : ''}
+          ${p.mezzanine==='yes' ? `<span>🏗️ Mezzanine</span>` : ''}
+          ${perms.viewFinancials!==false && p.annualRent ? `<span>💰 AED ${Number(p.annualRent).toLocaleString()}/yr</span>` : ''}
+          ${perms.viewTenant!==false && p.tenantName ? `<span>👤 ${h(p.tenantName)}</span>` : ''}
+          ${perms.viewTenant!==false && p.leaseStart ? `<span>📅 ${p.leaseStart} → ${p.leaseEnd||'?'}</span>` : ''}
+        </div>
+        ${p.description ? `<div class="inv-prop-desc">${h(p.description)}</div>` : ''}
+        ${p.status==='vacant'?`<div class="inv-prop-vacant-cta">🔍 This property is vacant — find a tenant!</div>`:''}
+        ${p.media && p.media.length ? `<div class="inv-prop-media-note">📷 ${p.media.length} media file${p.media.length>1?'s':''} available</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ── Agent Leads ────────────────────────────────────
+function renderAgentLeads() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const { agentId } = sess;
+  const myLeads = loadLeads().filter(l => l.assignedTo === agentId);
+  const container = $('agentLeadsContent');
+  if (!container) return;
+
+  const active = myLeads.filter(l => l.stage !== 'won' && l.stage !== 'lost').length;
+
+  let html = `<div class="agent-tab-header">
+    <h2 class="agent-tab-title">👥 My Leads</h2>
+    <p class="agent-tab-sub">Leads assigned to you — log every call, meeting &amp; note so the admin can track your progress</p>
+  </div>`;
+
+  if (!myLeads.length) {
+    html += `<div class="team-empty"><div class="empty-icon">👥</div><p>No leads assigned yet. Your manager will push leads to you.</p></div>`;
+    container.innerHTML = html;
+    return;
+  }
+
+  const order = { new:0,contacted:1,meeting:2,qualified:3,proposal:4,negotiation:5,won:6,lost:7 };
+  const sorted = [...myLeads].sort((a,b) => (order[a.stage]||0)-(order[b.stage]||0));
+
+  html += sorted.map(lead => {
+    const stage   = LEAD_STAGES[lead.stage] || LEAD_STAGES['new'];
+    const actCount = lead.activities ? lead.activities.length : 0;
+    const lastAct  = actCount ? lead.activities[actCount-1] : null;
+    const potentials = (lead.activities||[]).filter(a=>a.potential).map(a=>a.potential);
+    const lastPot = potentials.length ? potentials[potentials.length-1] : null;
+
+    return `
+      <div class="agent-lead-card${lead.stage==='won'?' lead-won':lead.stage==='lost'?' lead-lost':''}" onclick="openLeadDetail('${lead.id}')">
+        <div class="lead-card-top">
+          <div class="lead-card-left">
+            <div class="lead-avatar">${lead.name.charAt(0).toUpperCase()}</div>
+            <div>
+              <div class="lead-name">${h(lead.name)} ${lead.company?'<span class="lead-co">'+h(lead.company)+'</span>':''}</div>
+              <div class="lead-meta">${LEAD_SOURCES[lead.source]||''} · 📱 ${lead.phone}</div>
+            </div>
+          </div>
+          <div class="lead-card-right">
+            <span class="lead-stage-badge ${stage.cls}">${stage.icon} ${stage.label}</span>
+            ${lastPot ? `<span class="act-potential act-pot-${lastPot}">${lastPot==='high'?'🔥':'⚡'} ${lastPot}</span>` : ''}
+          </div>
+        </div>
+        ${lead.requirements ? `<div class="lead-req">"${h(lead.requirements.length>80?lead.requirements.slice(0,80)+'…':lead.requirements)}"</div>` : ''}
+        ${lastAct ? `<div class="lead-last-act"><span>${(ACT_TYPES[lastAct.type]||{icon:'📝'}).icon}</span> <em>${h(lastAct.note.length>70?lastAct.note.slice(0,70)+'…':lastAct.note)}</em></div>` : '<div class="lead-last-act" style="color:var(--text-3);">No updates yet — tap to log first contact</div>'}
+        <div class="lead-card-footer">
+          <span>${actCount} update${actCount!==1?'s':''}</span>
+          ${lead.budget ? `<span>💰 AED ${Number(lead.budget).toLocaleString()}</span>` : ''}
+          <span class="lead-tap-hint">Tap to update →</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.innerHTML = html;
+}
+
+// ── Agent Tasks Tab ────────────────────────────────
+function renderAgentTasksTab() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const { agentId, perms = {} } = sess;
+
+  const myTasks  = loadTasks().filter(t => t.agentId === agentId);
+  const allProps = loadProps();
+  const container = $('agentTasksList');
+  if (!container) return;
+
+  if (!myTasks.length) {
+    container.innerHTML = `<div class="team-empty"><div class="empty-icon">🎯</div><p>No tasks assigned yet. Check back soon.</p></div>`;
+    return;
+  }
+
+  const order = { 'in-progress':0, pending:1, done:2, cancelled:3 };
+  const sortedTasks = [...myTasks].sort((a,b) => (order[a.status]||9) - (order[b.status]||9));
+
+  container.innerHTML = sortedTasks.map(t => {
+    const prop = t.propId ? allProps.find(p => p.id === t.propId) : null;
+    const tm   = TASK_TYPE_META[t.type]   || TASK_TYPE_META['other'];
+    const sm   = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
+    const pm   = PRIORITY_META[t.priority]  || PRIORITY_META['medium'];
+    const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
+    const notesCount = t.notes ? t.notes.length : 0;
+    const lastNote   = notesCount ? t.notes[notesCount - 1] : null;
+
+    return `
+      <div class="agent-task-card${t.status==='done'?' agent-task-done':''}${overdue?' task-overdue':''}">
+        <div class="task-card-top">
+          <div class="task-type-badge">${tm.icon} ${tm.label}</div>
+          <div style="display:flex;gap:6px;">
+            <span class="task-priority ${pm.cls}">${pm.label}</span>
+            <span class="task-status-badge ${sm.cls}">${sm.label}</span>
+          </div>
+        </div>
+        <div class="task-card-title">${h(t.title)}</div>
+        ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
+        ${prop ? `
+          <div class="agent-task-prop-pill">
+            🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}
+            ${prop.status==='vacant'?'<span style="color:var(--danger);font-size:11px;margin-left:6px;">● Vacant</span>':'<span style="color:var(--success);font-size:11px;margin-left:6px;">● Rented</span>'}
+          </div>` : ''}
+        <div class="task-card-meta">
+          ${t.deadline ? `<span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span>` : ''}
+          ${notesCount ? `<span class="task-note-count">💬 ${notesCount} update${notesCount>1?'s':''}</span>` : ''}
+        </div>
+        ${lastNote ? `<div class="task-last-note"><span class="task-last-note-icon">💬</span><div class="task-last-note-text">${h(lastNote.text)}</div></div>` : ''}
+        <div class="task-card-actions">
+          ${perms.addNotes !== false ? `<button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Add Update (${notesCount})</button>` : ''}
+          ${perms.updateStatus !== false && t.status !== 'done' && t.status !== 'cancelled' ? `
+            ${t.status !== 'in-progress' ? `<button class="btn-sm btn-primary" onclick="updateTaskStatus('${t.id}','in-progress')">▶ Start</button>` : `<button class="btn-sm btn-ghost" disabled>⏳ In Progress</button>`}
+            <button class="btn-sm btn-success" onclick="if(confirm('Mark this task as done?')) updateTaskStatus('${t.id}','done')">✓ Mark Done</button>
+          ` : t.status === 'done' ? `<span style="color:var(--success);font-size:13px;font-weight:600;">✅ Completed</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Agent Submissions ──────────────────────────────
+function renderAgentSubmissions() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const { agentId } = sess;
+  const mySubs = loadPendingProps().filter(p => p.addedByAgent === agentId);
+  const container = $('agentSubmissionsContent');
+  if (!container) return;
+
+  if (!mySubs.length) {
+    container.innerHTML = `<div class="team-empty"><div class="empty-icon">📭</div><p>You haven't submitted any properties yet.</p></div>`;
+    return;
+  }
+  const typeIcon = { warehouse:'🏭', office:'🏢', residential:'🏠' };
+  container.innerHTML = [...mySubs].reverse().map(p => {
+    const status = p.status || 'pending';
+    return `
+      <div class="pending-prop-card${status==='approved'?' pend-approved':status==='rejected'?' pend-rejected':''}">
+        <div class="pending-prop-icon">${typeIcon[p.type]||'🏗️'}</div>
+        <div class="pending-prop-body">
+          <div class="pending-prop-name">${h(p.name)}</div>
+          <div class="pending-prop-meta">${p.type} ${p.location?'· '+h(p.location):''} ${p.annualRent?'· AED '+Number(p.annualRent).toLocaleString():''}</div>
+          ${p.clientName ? `<div class="pending-prop-client">🤝 ${h(p.clientName)} ${p.clientPhone?'· '+h(p.clientPhone):''}</div>` : ''}
+          <div class="pending-prop-date">Submitted ${formatDate(p.submittedAt)}</div>
+          ${p.adminNote ? `<div class="pending-prop-admin-note">💬 Admin: ${h(p.adminNote)}</div>` : ''}
+        </div>
+        <div class="pending-prop-actions">
+          <span class="pend-status-chip pend-${status}">${status==='pending'?'⏳ Awaiting':status==='approved'?'✓ Approved':'✗ Rejected'}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Agent Map ──────────────────────────────────────
+function initAgentMap() {
+  const container = $('agentMapContainer');
+  if (!container || !window.maplibregl) return;
+  if (agentMlMap) { agentMlMap.resize(); return; }
+
+  agentMlMap = new maplibregl.Map({
+    container: 'agentMapContainer',
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [54.37, 24.47],
+    zoom: 10
+  });
+  agentMlMap.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+  agentMlMap.on('load', () => {
+    const props = loadProps();
+    props.forEach(p => {
+      const ll = parseLatLng(p);
+      if (!ll) return;
+      const typeIcon = { warehouse:'🏭', office:'🏢', residential:'🏠' };
+      const el = document.createElement('div');
+      el.className = 'map-pin';
+      el.style.cssText = `background:${p.status==='vacant'?'#dc2626':'#059669'};`;
+      el.textContent = typeIcon[p.type] || '📍';
+      const popup = new maplibregl.Popup({ offset:25 }).setHTML(
+        `<strong>${h(p.name)}</strong><br>${p.location?h(p.location)+'<br>':''}${p.status==='vacant'?'🔴 Vacant':'🟢 Rented'}`
+      );
+      new maplibregl.Marker({ element: el }).setLngLat([ll.lng, ll.lat]).setPopup(popup).addTo(agentMlMap);
+    });
+  });
+}
+
+// ── Agent Contract Builder ─────────────────────────
+function openAgentContractBuilder() {
+  const props = loadProps();
+  $('acf_prop').innerHTML = '<option value="">— Select property —</option>' +
+    props.map(p => `<option value="${p.id}">${h(p.name)}</option>`).join('');
+  $('acf_date').value = new Date().toISOString().split('T')[0];
+  $('agentContractOverlay').classList.add('active');
+}
+
+function autofillAgentContract() {
+  const propId = $('acf_prop').value;
+  if (!propId) return;
+  const p = loadProps().find(x => x.id === propId);
+  if (!p) return;
+  if (p.location)    $('acf_location').value      = p.location;
+  if (p.type)        $('acf_property_type').value  = p.type.charAt(0).toUpperCase()+p.type.slice(1);
+  if (p.size)        $('acf_property_area').value  = (p.size/10.764).toFixed(1);
+  if (p.annualRent)  $('acf_annual_rent').value    = p.annualRent;
+  if (p.tenantName)  $('acf_tenant_name').value    = p.tenantName;
+  if (p.tenantPhone) $('acf_tenant_phone').value   = p.tenantPhone;
+  if (p.tenantEmail) $('acf_tenant_email').value   = p.tenantEmail;
+  if (p.leaseStart)  $('acf_from').value           = p.leaseStart;
+  if (p.leaseEnd)    $('acf_to').value             = p.leaseEnd;
+}
+
+function downloadAgentContract() {
+  const tenantName = $('acf_tenant_name').value.trim();
+  if (!tenantName) { showToast('Tenant name is required', 'error'); return; }
+  const v = id => { const el=$('acf_'+id); return el ? el.value : ''; };
+  const html = buildAgentContractHTML({
+    date: v('date'), location: v('location'), propType: v('property_type'),
+    area: v('property_area'), ownerName: v('owner_name'), lessorEid: v('lessor_eid'),
+    tenantName: v('tenant_name'), tenantPhone: v('tenant_phone'),
+    tenantEmail: v('tenant_email'), tenantEid: v('tenant_eid'),
+    from: v('from'), to: v('to'), annualRent: v('annual_rent'),
+    deposit: v('deposit'), cheques: v('cheques')
+  });
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 700);
+}
+
+function buildAgentContractHTML(d) {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tenancy Contract</title>
+  <style>body{font-family:'Times New Roman',serif;margin:40px;color:#111;line-height:1.6}
+  h1{text-align:center;font-size:22px;margin-bottom:4px}
+  .sub{text-align:center;color:#555;margin-bottom:30px}
+  .section{margin-bottom:22px}h3{font-size:15px;border-bottom:1px solid #ccc;padding-bottom:4px}
+  .row{display:flex;gap:40px;margin:6px 0}.label{font-weight:bold;min-width:160px}.val{flex:1}
+  .clause{margin:8px 0;font-size:13px}.sig{display:flex;justify-content:space-between;margin-top:60px}
+  .sig-box{text-align:center;width:200px}.sig-line{border-top:1px solid #111;margin-bottom:6px}
+  @media print{body{margin:20px}}</style></head><body>
+  <h1>TENANCY CONTRACT</h1>
+  <div class="sub">Regulated by Law No. 26 of 2007 &amp; its amendments</div>
+  <div class="section"><h3>Contract Details</h3>
+    <div class="row"><span class="label">Contract Date:</span><span class="val">${d.date}</span></div>
+    <div class="row"><span class="label">Property Location:</span><span class="val">${d.location||'—'}</span></div>
+    <div class="row"><span class="label">Property Type:</span><span class="val">${d.propType||'—'}</span></div>
+    <div class="row"><span class="label">Area:</span><span class="val">${d.area||'—'} sqm</span></div>
+  </div>
+  <div class="section"><h3>Lessor (Owner)</h3>
+    <div class="row"><span class="label">Name:</span><span class="val">${d.ownerName||'—'}</span></div>
+    <div class="row"><span class="label">Emirates ID:</span><span class="val">${d.lessorEid||'—'}</span></div>
+  </div>
+  <div class="section"><h3>Lessee (Tenant)</h3>
+    <div class="row"><span class="label">Name:</span><span class="val">${d.tenantName}</span></div>
+    <div class="row"><span class="label">Phone:</span><span class="val">${d.tenantPhone||'—'}</span></div>
+    <div class="row"><span class="label">Email:</span><span class="val">${d.tenantEmail||'—'}</span></div>
+    <div class="row"><span class="label">Emirates ID:</span><span class="val">${d.tenantEid||'—'}</span></div>
+  </div>
+  <div class="section"><h3>Lease Terms</h3>
+    <div class="row"><span class="label">From:</span><span class="val">${d.from||'—'}</span></div>
+    <div class="row"><span class="label">To:</span><span class="val">${d.to||'—'}</span></div>
+    <div class="row"><span class="label">Annual Rent:</span><span class="val">AED ${Number(d.annualRent||0).toLocaleString()}</span></div>
+    <div class="row"><span class="label">Security Deposit:</span><span class="val">AED ${Number(d.deposit||0).toLocaleString()}</span></div>
+    <div class="row"><span class="label">Payment Cheques:</span><span class="val">${d.cheques} cheque(s)</span></div>
+  </div>
+  <div class="section"><h3>Standard Clauses</h3>
+    <div class="clause">1. The Lessee shall use the property solely for the agreed purpose.</div>
+    <div class="clause">2. The Lessee shall maintain the property in good condition and return it in the same state.</div>
+    <div class="clause">3. The Lessee may not sub-let without written consent from the Lessor.</div>
+    <div class="clause">4. Any modifications require prior written approval from the Lessor.</div>
+    <div class="clause">5. This contract is governed by the Rental Law of the Emirate of Abu Dhabi.</div>
+  </div>
+  <div class="sig">
+    <div class="sig-box"><div class="sig-line"></div>Lessor Signature<br><small>${d.ownerName||''}</small></div>
+    <div class="sig-box"><div class="sig-line"></div>Lessee Signature<br><small>${d.tenantName}</small></div>
+  </div>
+  </body></html>`;
+}
+
+// ── Boot update for agent ──────────────────────────
+const _origBoot = boot;
+boot = async function() {
+  const session = getSession();
+  if (!session) { location.reload(); return; }
+  if (session.type === 'admin') {
+    document.getElementById('adminHeader').style.display    = '';
+    document.getElementById('appBody').style.display        = '';
+    document.getElementById('agentHeader').style.display    = 'none';
+    document.getElementById('agentDashboard').style.display = 'none';
+    await openIDB();
+    bindUI();
+    showTab('warehouses');
+    renderNavCounts(loadProps());
+    setInterval(checkLeaseAlerts, 60000);
+    checkLeaseAlerts();
+    updateApiStatusUI();
+    setupMetaAutoSync();
+  } else if (session.type === 'agent') {
+    document.getElementById('adminHeader').style.display    = 'none';
+    document.getElementById('appBody').style.display        = 'none';
+    document.getElementById('agentHeader').style.display    = 'none'; // sidebar has profile
+    document.getElementById('agentDashboard').style.display = '';
+    showAgentTab('overview');
+    updateAgentBadges();
+  }
+};
+
+// ─── Start ────────────────────────────────────────
+if (isLoggedIn()) {
+  document.getElementById('loginScreen').style.display = 'none';
+  boot();
+}
