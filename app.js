@@ -350,6 +350,43 @@ function previewContract() {
 }
 
 function generateContractHTML(d) {
+  // Normalise field names so this function matches buildAgentContractHTML
+  const nd = {
+    date:            d.date,
+    ownerName:       d.ownerName,
+    lessorName:      d.lessorName || d.ownerName,
+    lessorEid:       d.lessorEid,
+    lessorPhone:     d.lessorPhone,
+    lessorEmail:     d.lessorEmail,
+    lessorLicense:   d.lessorLicense,
+    lessorAuthority: d.lessorAuth,
+    tenantName:      d.tenantName,
+    tenantEid:       d.tenantEid,
+    tenantPhone:     d.tenantPhone,
+    tenantEmail:     d.tenantEmail,
+    tenantLicense:   d.tenantLicense,
+    tenantAuthority: d.tenantAuth,
+    usage:           d.propUsage || 'Commercial',
+    plotNo:          d.plotNo,
+    makaniNo:        d.makaniNo,
+    buildingName:    d.buildingName,
+    propertyNo:      d.propertyNo,
+    propType:        d.propertyType,
+    area:            d.propertyArea,
+    location:        d.location,
+    dewaNo:          d.dewaNo,
+    from:            d.contractFrom,
+    to:              d.contractTo,
+    contractValue:   d.contractValue,
+    annualRent:      d.annualRent,
+    deposit:         d.securityDeposit,
+    paymentMode:     d.paymentMode,
+    add1: d.term1, add2: d.term2, add3: d.term3, add4: d.term4, add5: d.term5
+  };
+  return buildAgentContractHTML(nd);
+}
+
+function generateContractHTML_old_unused(d) {
   const usageCheck = u => d.propUsage === u
     ? '<span style="display:inline-block;width:12px;height:12px;border:1.5px solid #333;border-radius:50%;background:#111;margin-right:4px;vertical-align:middle;"></span>'
     : '<span style="display:inline-block;width:12px;height:12px;border:1.5px solid #333;border-radius:50%;margin-right:4px;vertical-align:middle;"></span>';
