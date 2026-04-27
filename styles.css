@@ -2737,3 +2737,83 @@ body {
   .fin-ctl select { min-width:0; flex:1; }
   .fin-section-hdr { flex-direction:column; align-items:flex-start; gap:10px; }
 }
+
+/* ════════════════════════════════════════════════════
+   EXCEL SYNC PILL (header) + MODAL
+   ════════════════════════════════════════════════════ */
+.excel-sync-pill {
+  display:inline-flex; align-items:center; gap:7px;
+  padding:6px 12px; border-radius:18px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.18);
+  color:rgba(255,255,255,0.9); font-size:12px; font-weight:600;
+  cursor:pointer; transition:all 0.2s;
+  font-family:inherit; user-select:none;
+}
+.excel-sync-pill:hover { background:rgba(255,255,255,0.16); border-color:rgba(255,255,255,0.32); }
+.excel-sync-pill.active {
+  background:rgba(34,197,94,0.18);
+  border-color:rgba(34,197,94,0.50);
+  color:#bbf7d0;
+}
+.excel-sync-pill.active svg { color:#22c55e; }
+.excel-sync-pill .sync-dot {
+  width:6px; height:6px; border-radius:50%; background:#22c55e;
+  box-shadow:0 0 0 0 rgba(34,197,94,0.8);
+  animation: sync-pulse 2s infinite;
+}
+@keyframes sync-pulse {
+  0%   { box-shadow:0 0 0 0   rgba(34,197,94,0.7); }
+  70%  { box-shadow:0 0 0 8px rgba(34,197,94,0);   }
+  100% { box-shadow:0 0 0 0   rgba(34,197,94,0);   }
+}
+
+/* Modal body styling for sync */
+.xlsync-step {
+  padding:18px; border-radius:10px;
+  background:#fafafa; border:1px solid var(--border);
+  margin-bottom:14px;
+}
+.xlsync-step h4 { font-size:14px; font-weight:700; color:var(--text); margin:0 0 6px; display:flex; align-items:center; gap:8px; }
+.xlsync-step h4 .step-num {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:22px; height:22px; border-radius:50%;
+  background:var(--gold); color:#1a1f2e; font-size:12px; font-weight:800;
+}
+.xlsync-step p { font-size:13px; color:var(--text-2); margin:0 0 10px; line-height:1.5; }
+.xlsync-step code {
+  background:#fff; border:1px solid var(--border); padding:2px 6px;
+  border-radius:4px; font-size:12px; color:#7c3aed;
+}
+.xlsync-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.xlsync-btn {
+  padding:9px 16px; border-radius:8px; border:none;
+  font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;
+  display:inline-flex; align-items:center; gap:6px;
+  transition: all 0.15s;
+}
+.xlsync-btn-primary { background:var(--gold); color:#1a1f2e; }
+.xlsync-btn-primary:hover { background:var(--gold-light); transform:translateY(-1px); }
+.xlsync-btn-ghost { background:#fff; border:1px solid var(--border); color:var(--text); }
+.xlsync-btn-ghost:hover { border-color:var(--gold); }
+.xlsync-btn-danger { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+.xlsync-btn-danger:hover { background:#fecaca; }
+
+.xlsync-status {
+  display:flex; align-items:center; gap:10px;
+  padding:14px 18px; border-radius:10px;
+  background:#f0fdf4; border:1px solid #86efac;
+  margin-bottom:14px;
+}
+.xlsync-status-icon { font-size:22px; }
+.xlsync-status-info { flex:1; }
+.xlsync-status-title { font-size:13px; font-weight:700; color:#14532d; }
+.xlsync-status-detail { font-size:11.5px; color:#166534; margin-top:2px; }
+
+.xlsync-not-supported {
+  padding:14px; border-radius:8px;
+  background:#fef3c7; border:1px solid #fbbf24;
+  color:#78350f; font-size:13px; line-height:1.5;
+  margin-bottom:14px;
+}
+.xlsync-not-supported strong { color:#451a03; }

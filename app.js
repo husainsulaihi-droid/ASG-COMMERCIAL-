@@ -5753,6 +5753,394 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 }
 
 // ═══════════════════════════════════════════════════
+// EXCEL AUTO-SYNC (live file watcher)
+// Connect once → dashboard polls the file every few seconds
+// → any change in the file is reflected on the dashboard.
+// Uses File System Access API (Chrome/Edge). Falls back
+// to manual upload in browsers that don't support it.
+// ═══════════════════════════════════════════════════
+const XLSYNC_DB     = 'asg_xlsync_v1';
+const XLSYNC_STORE  = 'handles';
+const XLSYNC_KEY    = 'master_handle';
+const XLSYNC_POLL   = 4000;   // ms
+let _xlsyncTimer    = null;
+let _xlsyncLastMod  = 0;
+let _xlsyncFileName = '';
+
+// ── tiny IDB wrapper for storing FileSystemFileHandle ──
+function _xlIdb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(XLSYNC_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(XLSYNC_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+async function _xlIdbPut(key, val) {
+  const db = await _xlIdb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(XLSYNC_STORE, 'readwrite');
+    tx.objectStore(XLSYNC_STORE).put(val, key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function _xlIdbGet(key) {
+  const db = await _xlIdb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(XLSYNC_STORE, 'readonly');
+    const r = tx.objectStore(XLSYNC_STORE).get(key);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function _xlIdbDelete(key) {
+  const db = await _xlIdb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(XLSYNC_STORE, 'readwrite');
+    tx.objectStore(XLSYNC_STORE).delete(key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+const xlsyncSupported = () => typeof window.showOpenFilePicker === 'function';
+
+// ── UI: open the modal ──
+function openExcelSyncModal() {
+  document.getElementById('excelSyncOverlay').style.display = 'flex';
+  renderXlsyncModal();
+}
+function closeExcelSyncModal() {
+  document.getElementById('excelSyncOverlay').style.display = 'none';
+}
+
+async function renderXlsyncModal() {
+  const body = document.getElementById('excelSyncBody');
+  if (!body) return;
+
+  const supported = xlsyncSupported();
+  const handle = supported ? await _xlIdbGet(XLSYNC_KEY).catch(() => null) : null;
+  let perm = 'prompt';
+  if (handle) {
+    try { perm = await handle.queryPermission({ mode: 'read' }); } catch { perm = 'prompt'; }
+  }
+
+  if (!supported) {
+    body.innerHTML = `
+      <div class="xlsync-not-supported">
+        <strong>Live auto-sync requires Chrome or Edge.</strong> Safari & Firefox don't yet support the File System Access API.
+        You can still use one-click manual sync below — pick the Excel file each time you've made changes.
+      </div>
+      <div class="xlsync-step">
+        <h4><span class="step-num">1</span>Open the master Excel sheet</h4>
+        <p>The template lives at <code>~/Desktop/ASG Properties Master.xlsx</code>. Edit it, save, then come back here.</p>
+      </div>
+      <div class="xlsync-step">
+        <h4><span class="step-num">2</span>Sync now</h4>
+        <p>Pick the file — the dashboard will replace its contents with the rows from the spreadsheet.</p>
+        <div class="xlsync-actions">
+          <button class="xlsync-btn xlsync-btn-primary" onclick="xlsyncManualPick()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Choose Excel File &amp; Sync
+          </button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (!handle || perm === 'denied') {
+    body.innerHTML = `
+      <div class="xlsync-step">
+        <h4><span class="step-num">1</span>Open the master Excel sheet</h4>
+        <p>The template is on your Desktop: <code>ASG Properties Master.xlsx</code>. Edit rows, save the file (Cmd+S), and the dashboard updates within seconds.</p>
+      </div>
+      <div class="xlsync-step">
+        <h4><span class="step-num">2</span>Connect the file (one-time)</h4>
+        <p>Click below and pick <code>ASG Properties Master.xlsx</code>. After granting permission, the dashboard will watch the file and auto-sync any changes you save.</p>
+        <div class="xlsync-actions">
+          <button class="xlsync-btn xlsync-btn-primary" onclick="xlsyncConnect()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Connect Excel File
+          </button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Connected
+  const lastSync = localStorage.getItem('asg_xlsync_lastsync') || '';
+  const lastSyncRel = lastSync ? _xlsyncRelTime(lastSync) : 'not yet';
+  const propCount = loadProps().length;
+
+  body.innerHTML = `
+    <div class="xlsync-status">
+      <div class="xlsync-status-icon">✓</div>
+      <div class="xlsync-status-info">
+        <div class="xlsync-status-title">Connected: ${he(_xlsyncFileName || handle.name || 'Excel file')}</div>
+        <div class="xlsync-status-detail">${propCount} properties loaded · last sync ${lastSyncRel} · auto-checking every ${XLSYNC_POLL/1000}s</div>
+      </div>
+    </div>
+    <div class="xlsync-step">
+      <h4><span class="step-num">✱</span>How it works</h4>
+      <p>Edit <code>ASG Properties Master.xlsx</code> and save. The dashboard polls the file every ${XLSYNC_POLL/1000} seconds and refreshes the moment it sees changes.</p>
+      <p style="margin-top:8px;">Manually adding properties through the "Add Property" form still works — they're tracked separately and won't be overwritten by the Excel sync.</p>
+    </div>
+    <div class="xlsync-actions">
+      <button class="xlsync-btn xlsync-btn-primary" onclick="xlsyncForceSync()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        Sync Now
+      </button>
+      <button class="xlsync-btn xlsync-btn-ghost" onclick="xlsyncReconnect()">Reconnect different file</button>
+      <button class="xlsync-btn xlsync-btn-danger" onclick="xlsyncDisconnect()">Disconnect</button>
+    </div>`;
+}
+
+function _xlsyncRelTime(iso) {
+  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (d < 5) return 'just now';
+  if (d < 60) return `${Math.floor(d)}s ago`;
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  return `${Math.floor(d/3600)}h ago`;
+}
+
+// ── Connect: ask user to pick the file, store handle ──
+async function xlsyncConnect() {
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{ description: 'Excel Workbook', accept: {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+        'application/vnd.ms-excel': ['.xls'],
+      }}],
+      multiple: false,
+    });
+    await _xlIdbPut(XLSYNC_KEY, handle);
+    _xlsyncFileName = handle.name;
+    _xlsyncLastMod  = 0; // force first sync
+    showToast('Excel connected — syncing…', 'success');
+    await xlsyncForceSync();
+    xlsyncStartWatcher();
+    renderXlsyncModal();
+    updateXlsyncPill();
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      console.error(e);
+      showToast('Could not connect Excel file: ' + e.message, 'error');
+    }
+  }
+}
+
+async function xlsyncReconnect() { await xlsyncConnect(); }
+
+async function xlsyncDisconnect() {
+  if (!confirm('Disconnect Excel? Properties currently in the dashboard will remain — only the live sync stops.')) return;
+  if (_xlsyncTimer) { clearInterval(_xlsyncTimer); _xlsyncTimer = null; }
+  await _xlIdbDelete(XLSYNC_KEY);
+  _xlsyncFileName = '';
+  _xlsyncLastMod = 0;
+  localStorage.removeItem('asg_xlsync_lastsync');
+  renderXlsyncModal();
+  updateXlsyncPill();
+  showToast('Excel sync disconnected', 'success');
+}
+
+// ── Manual one-shot picker (fallback for browsers without persistent handles) ──
+async function xlsyncManualPick() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await xlsyncImportFromFile(file);
+    closeExcelSyncModal();
+  };
+  input.click();
+}
+
+// ── Force a sync (read file, parse, merge into props) ──
+async function xlsyncForceSync() {
+  try {
+    const handle = await _xlIdbGet(XLSYNC_KEY);
+    if (!handle) { showToast('No Excel file connected', 'error'); return; }
+    let perm = await handle.queryPermission({ mode: 'read' });
+    if (perm !== 'granted') {
+      perm = await handle.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') { showToast('Permission denied', 'error'); return; }
+    }
+    const file = await handle.getFile();
+    _xlsyncFileName = file.name;
+    await xlsyncImportFromFile(file);
+    _xlsyncLastMod = file.lastModified;
+  } catch (e) {
+    console.error('xlsyncForceSync', e);
+    showToast('Sync failed: ' + e.message, 'error');
+  }
+}
+
+// ── Read a File object, parse, merge ──
+async function xlsyncImportFromFile(file) {
+  if (typeof XLSX === 'undefined') {
+    showToast('Excel parser still loading — try again in a second', 'error'); return;
+  }
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+
+  // Find the Properties sheet (or the first non-README sheet)
+  let sheetName = wb.SheetNames.find(n => n.toLowerCase() === 'properties')
+                 || wb.SheetNames.find(n => n.toLowerCase() !== 'readme')
+                 || wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+
+  // Map each row to a property object
+  const fromExcel = rows
+    .map((r, i) => xlsyncRowToProp(r, i))
+    .filter(p => p && p.name);
+
+  // Merge: keep manually-added properties (no xlsync flag), replace all xlsync-managed ones
+  const existing = loadProps();
+  const manual = existing.filter(p => p._source !== 'xlsync');
+  const merged = [...manual, ...fromExcel];
+  persistProps(merged);
+
+  localStorage.setItem('asg_xlsync_lastsync', new Date().toISOString());
+
+  if (typeof refresh === 'function') refresh();
+  if (typeof renderNavCounts === 'function') renderNavCounts(loadProps());
+  showToast(`✓ Synced ${fromExcel.length} propert${fromExcel.length===1?'y':'ies'} from Excel`, 'success');
+  updateXlsyncPill();
+}
+
+// ── Row → Property object (column header → field name) ──
+function xlsyncRowToProp(r, idx) {
+  const get = (...keys) => {
+    for (const k of keys) {
+      for (const actualKey of Object.keys(r)) {
+        if (actualKey.replace(/\s|\*|\(.*?\)/g,'').toLowerCase() === k.replace(/\s|\*|\(.*?\)/g,'').toLowerCase()) {
+          const v = r[actualKey];
+          if (v !== '' && v != null) return v;
+        }
+      }
+    }
+    return '';
+  };
+  const num = v => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/[^\d.\-]/g,'')); return isNaN(n) ? null : n; };
+  const str = v => v == null ? '' : String(v).trim();
+  const yn  = v => { const s = str(v).toLowerCase(); return s === 'yes' || s === 'y' || s === 'true' ? 'yes' : (s === 'no' || s === 'n' || s === 'false' ? 'no' : ''); };
+  const dt  = v => {
+    if (!v) return '';
+    if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+    const s = str(v);
+    const d = new Date(s);
+    return isNaN(d) ? s : d.toISOString().slice(0,10);
+  };
+  const typeMap = t => {
+    const s = str(t).toLowerCase();
+    if (s.startsWith('w')) return 'warehouse';
+    if (s.startsWith('o')) return 'office';
+    if (s.startsWith('r')) return 'residential';
+    return s;
+  };
+
+  const name = str(get('Property Name','PropertyName','Name'));
+  if (!name) return null;
+
+  return {
+    id: 'xls_' + name.toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,40) + '_' + idx,
+    _source: 'xlsync',
+    name,
+    type:          typeMap(get('Type')),
+    status:        str(get('Status')).toLowerCase() || null,
+    location:      str(get('Location')) || null,
+    plotNo:        str(get('Plot No')),
+    size:          num(get('Size')),
+    area:          num(get('Area')),
+    compound:      yn(get('Compound')),
+    mezzanine:     yn(get('Mezzanine')),
+    ownership:     str(get('Ownership')).toLowerCase() || null,
+    partnerName:   str(get('Partner Name','Partner')) || null,
+    ourShare:      num(get('Our Share')),
+    ownerName:     str(get('Property Owner','Owner Name','Owner')) || null,
+    ownerPhone:    str(get('Owner Phone')) || null,
+    mgmtFee:       num(get('Management Fee','Mgmt Fee')),
+    purchasePrice: num(get('Purchase Price')),
+    purchaseDate:  dt(get('Purchase Date')),
+    marketValue:   num(get('Market Value')),
+    annualRent:    num(get('Annual Rent','Rent')),
+    tenantName:    str(get('Tenant Name')) || null,
+    tenantPhone:   str(get('Tenant Phone')) || null,
+    tenantEmail:   str(get('Tenant Email')) || null,
+    leaseStart:    dt(get('Lease Start','Contract From','From')),
+    leaseEnd:      dt(get('Lease End','Contract To','To')),
+    contractFrom:  dt(get('Lease Start','Contract From','From')),
+    contractTo:    dt(get('Lease End','Contract To','To')),
+    reminderDays:  num(get('Reminder Days')) || 60,
+    mapLink:       str(get('Map Link')) || null,
+    coords:        str(get('Coordinates','Coords')) || null,
+    notes:         str(get('Notes')) || null,
+    createdAt:     new Date().toISOString(),
+    updatedAt:     new Date().toISOString(),
+  };
+}
+
+// ── Watcher: poll the file every XLSYNC_POLL ms ──
+async function xlsyncStartWatcher() {
+  if (_xlsyncTimer) clearInterval(_xlsyncTimer);
+  if (!xlsyncSupported()) return;
+  _xlsyncTimer = setInterval(async () => {
+    try {
+      const handle = await _xlIdbGet(XLSYNC_KEY);
+      if (!handle) { clearInterval(_xlsyncTimer); _xlsyncTimer = null; return; }
+      const perm = await handle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') return;   // wait for user gesture
+      const file = await handle.getFile();
+      if (file.lastModified > _xlsyncLastMod) {
+        _xlsyncLastMod = file.lastModified;
+        _xlsyncFileName = file.name;
+        await xlsyncImportFromFile(file);
+      }
+    } catch (e) {
+      // silent — file might be locked while user is saving
+    }
+  }, XLSYNC_POLL);
+}
+
+// ── Update header pill state ──
+function updateXlsyncPill() {
+  const pill = document.getElementById('excelSyncPill');
+  const lbl  = document.getElementById('excelSyncLabel');
+  if (!pill) return;
+  _xlIdbGet(XLSYNC_KEY).then(h => {
+    if (h) {
+      pill.classList.add('active');
+      lbl.innerHTML = `<span class="sync-dot"></span> Excel synced`;
+    } else {
+      pill.classList.remove('active');
+      lbl.textContent = 'Connect Excel';
+    }
+  }).catch(() => {});
+}
+
+// ── Auto-start watcher on boot if a handle is already saved ──
+async function xlsyncBoot() {
+  updateXlsyncPill();
+  if (!xlsyncSupported()) return;
+  try {
+    const handle = await _xlIdbGet(XLSYNC_KEY);
+    if (!handle) return;
+    const perm = await handle.queryPermission({ mode: 'read' });
+    // Permission may need re-granting after browser restart; watcher will wait silently
+    if (perm === 'granted') {
+      const file = await handle.getFile();
+      _xlsyncLastMod = file.lastModified;
+      _xlsyncFileName = file.name;
+    }
+    xlsyncStartWatcher();
+  } catch {}
+}
+
+// ═══════════════════════════════════════════════════
 // ONE-TIME CLEANUP — remove Excel-imported properties
 // ═══════════════════════════════════════════════════
 function autoImportPropertiesFromExcel() {
@@ -6120,7 +6508,8 @@ boot = async function() {
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
     bindUI();
-    autoImportPropertiesFromExcel();   // ← one-time bulk load from Excel data
+    autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
+    xlsyncBoot();                      // resume Excel auto-sync if previously connected
     showTab('warehouses');
     renderNavCounts(loadProps());
     setInterval(checkLeaseAlerts, 60000);
