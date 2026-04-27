@@ -950,9 +950,24 @@ function openAddModal() {
   renderMediaPreviews();
   toggleOwnership();
   toggleRentalSection();
+  if (typeof togglePropUsageCustom === 'function') togglePropUsageCustom();
   $('propNumCheques').value = '';
   $('chequeFields').innerHTML = '';
   $('propertyModalOverlay').classList.add('active');
+}
+
+// Show/hide the "specify custom usage" text input based on the dropdown
+function togglePropUsageCustom() {
+  const sel = $('propUsage');
+  const custom = $('propUsageCustom');
+  if (!sel || !custom) return;
+  if (sel.value === '__other__') {
+    custom.style.display = '';
+    setTimeout(() => custom.focus(), 50);
+  } else {
+    custom.style.display = 'none';
+    custom.value = '';
+  }
 }
 
 async function openEditModal(id) {
@@ -970,6 +985,26 @@ async function openEditModal(id) {
 
   $('propName').value          = p.name          || '';
   $('propType').value          = p.type          || '';
+  if ($('propUnitNo'))       $('propUnitNo').value       = p.unitNo       || '';
+  if ($('propTradeLicense')) $('propTradeLicense').value = p.tradeLicense || '';
+  // Property usage: known options pre-fill the dropdown; anything else maps to "Other"
+  if ($('propUsage') && $('propUsageCustom')) {
+    const usageVal = (p.usage || '').toLowerCase();
+    const known = ['warehouse','garage','shed','factory','labour_camp','retail_shop','storage','office','workshop','showroom'];
+    if (!usageVal) {
+      $('propUsage').value = '';
+      $('propUsageCustom').value = '';
+      $('propUsageCustom').style.display = 'none';
+    } else if (known.includes(usageVal)) {
+      $('propUsage').value = usageVal;
+      $('propUsageCustom').value = '';
+      $('propUsageCustom').style.display = 'none';
+    } else {
+      $('propUsage').value = '__other__';
+      $('propUsageCustom').value = p.usage;
+      $('propUsageCustom').style.display = '';
+    }
+  }
   $('propLocation').value      = p.location      || '';
   $('propMapLink').value       = p.mapLink        || '';
   $('propCoords').value        = p.coords         || '';
@@ -1241,9 +1276,17 @@ async function handleSave() {
   const editId = $('editPropertyId').value;
   const props  = loadProps();
 
+  // Property Usage with "Other (specify)" support
+  const usageSel = ($('propUsage')?.value || '').trim();
+  const usageCustom = ($('propUsageCustom')?.value || '').trim();
+  const usage = usageSel === '__other__' ? usageCustom : usageSel;
+
   const property = {
     id:            editId || uid(),
     name, type,
+    unitNo:        $('propUnitNo')?.value.trim()        || null,
+    tradeLicense:  $('propTradeLicense')?.value.trim()  || null,
+    usage:         usage                                 || null,
     location:      $('propLocation').value.trim()      || null,
     mapLink:       $('propMapLink').value.trim()        || null,
     size:          Number($('propSize').value)          || null,
@@ -1403,10 +1446,13 @@ async function openDetailModal(id) {
         <div class="detail-block">
           <div class="detail-block-header">📍 Property Details</div>
           <div class="detail-rows">
-            ${p.location ? `<div class="detail-row"><span class="dr-label">Location</span><span class="dr-value">${h(p.location)}</span></div>` : ''}
-            ${p.mapLink  ? `<div class="detail-row"><span class="dr-label">Google Maps</span><span class="dr-value"><a href="${p.mapLink}" target="_blank">Open in Maps ↗</a></span></div>` : ''}
-            ${p.size     ? `<div class="detail-row"><span class="dr-label">Built-up Size</span><span class="dr-value">${num(p.size)} sq ft</span></div>` : ''}
-            ${p.area     ? `<div class="detail-row"><span class="dr-label">Plot Area</span><span class="dr-value">${num(p.area)} sq ft</span></div>` : ''}
+            ${p.unitNo       ? `<div class="detail-row"><span class="dr-label">Unit No.</span><span class="dr-value">${h(p.unitNo)}</span></div>` : ''}
+            ${p.usage        ? `<div class="detail-row"><span class="dr-label">Property Usage</span><span class="dr-value">${h(_fmtUsage(p.usage))}</span></div>` : ''}
+            ${p.tradeLicense ? `<div class="detail-row"><span class="dr-label">Trade License</span><span class="dr-value">${h(p.tradeLicense)}</span></div>` : ''}
+            ${p.location     ? `<div class="detail-row"><span class="dr-label">Location</span><span class="dr-value">${h(p.location)}</span></div>` : ''}
+            ${p.mapLink      ? `<div class="detail-row"><span class="dr-label">Google Maps</span><span class="dr-value"><a href="${p.mapLink}" target="_blank">Open in Maps ↗</a></span></div>` : ''}
+            ${p.size         ? `<div class="detail-row"><span class="dr-label">Built-up Size</span><span class="dr-value">${num(p.size)} sq ft</span></div>` : ''}
+            ${p.area         ? `<div class="detail-row"><span class="dr-label">Plot Area</span><span class="dr-value">${num(p.area)} sq ft</span></div>` : ''}
             <div class="detail-row"><span class="dr-label">Compound</span><span class="dr-value">${p.compound  === 'yes' ? '✅ Yes' : '❌ No'}</span></div>
             <div class="detail-row"><span class="dr-label">Mezzanine</span><span class="dr-value">${p.mezzanine === 'yes' ? '✅ Yes' : '❌ No'}</span></div>
           </div>
@@ -1825,6 +1871,12 @@ function waLink(phone, tenantName, propName) {
   return `https://wa.me/${digits}?text=${msg}`;
 }
 function num(val)  { return val ? Number(val).toLocaleString() : '—'; }
+
+// Format property usage value for display ('labour_camp' → 'Labour Camp')
+function _fmtUsage(u) {
+  if (!u) return '';
+  return String(u).split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
 function iso()     { return new Date().toISOString(); }
 function cap(str)  { return str.charAt(0).toUpperCase() + str.slice(1); }
 function isVideo(mime) { return (mime || '').startsWith('video/'); }
@@ -6134,6 +6186,9 @@ function xlsyncPropToRow(p) {
   return {
     'Property Name *':  p.name || '',
     'Type *':           p.type || '',
+    'Unit Number':      p.unitNo || '',
+    'Property Usage':   p.usage ? _fmtUsage(p.usage) : '',
+    'Trade License':    p.tradeLicense || '',
     'Status':           p.status || '',
     'Location':         p.location || '',
     'Plot No.':         p.plotNo || '',
@@ -6281,6 +6336,22 @@ function xlsyncRowToProp(r, idx) {
     status:        str(get('Status')).toLowerCase() || null,
     location:      str(get('Location')) || null,
     plotNo:        str(get('Plot No')),
+    unitNo:        str(get('Unit Number','Unit No','Unit')) || null,
+    tradeLicense:  str(get('Trade License','License No','License Number')) || null,
+    usage:         (() => {
+      const raw = str(get('Property Usage','Usage')).toLowerCase().trim();
+      if (!raw) return null;
+      // Normalise common spellings to the dropdown's internal values
+      const map = {
+        'labour camp':'labour_camp', 'labor camp':'labour_camp',
+        'retail shop':'retail_shop',
+        'storage use':'storage', 'storage':'storage',
+        'warehouse':'warehouse', 'garage':'garage', 'shed':'shed',
+        'factory':'factory', 'office':'office', 'workshop':'workshop',
+        'showroom':'showroom',
+      };
+      return map[raw] || raw.replace(/\s+/g,'_');
+    })(),
     size:          num(get('Size')),
     area:          num(get('Area')),
     compound:      yn(get('Compound')),

@@ -659,20 +659,47 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>Location / Address</label>
-                <input type="text" id="propLocation" placeholder="e.g. Al Quoz Industrial Area 3, Dubai">
+                <label>Unit Number</label>
+                <input type="text" id="propUnitNo" placeholder="e.g. WH-04, Unit 12B">
               </div>
               <div class="form-group">
-                <label>Google Maps Link</label>
-                <input type="url" id="propMapLink" placeholder="https://maps.google.com/...">
+                <label>Property Usage</label>
+                <select id="propUsage" onchange="togglePropUsageCustom()">
+                  <option value="">Select usage</option>
+                  <option value="warehouse">Warehouse</option>
+                  <option value="garage">Garage</option>
+                  <option value="shed">Shed</option>
+                  <option value="factory">Factory</option>
+                  <option value="labour_camp">Labour Camp</option>
+                  <option value="retail_shop">Retail Shop</option>
+                  <option value="storage">Storage Use</option>
+                  <option value="office">Office</option>
+                  <option value="workshop">Workshop</option>
+                  <option value="showroom">Showroom</option>
+                  <option value="__other__">+ Other (specify)</option>
+                </select>
+                <input type="text" id="propUsageCustom" placeholder="Type custom usage…" style="display:none;margin-top:8px;">
               </div>
             </div>
             <div class="form-row">
               <div class="form-group">
+                <label>Trade License Number</label>
+                <input type="text" id="propTradeLicense" placeholder="e.g. 1234567">
+              </div>
+              <div class="form-group">
+                <label>Location / Address</label>
+                <input type="text" id="propLocation" placeholder="e.g. Al Quoz Industrial Area 3, Dubai">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Google Maps Link</label>
+                <input type="url" id="propMapLink" placeholder="https://maps.google.com/...">
+              </div>
+              <div class="form-group">
                 <label>Coordinates <span class="cf-note">for Map tab — paste from Google Maps</span></label>
                 <input type="text" id="propCoords" placeholder="e.g. 25.2048, 55.2708">
               </div>
-              <div class="form-group"></div>
             </div>
             <div class="form-row">
               <div class="form-group">
