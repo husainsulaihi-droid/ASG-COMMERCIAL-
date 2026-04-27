@@ -5276,15 +5276,46 @@ function downloadAgentContract() {
 }
 
 function buildAgentContractHTML(d) {
-  const fmt = str => str || '—';
-  const fmtAED = n => n ? 'AED ' + Number(n).toLocaleString() : '—';
+  const he = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const v  = val => he(val || '');
+
   const fmtDate = str => {
-    if (!str) return '—';
-    try { return new Date(str).toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'}); }
+    if (!str) return '';
+    try { return new Date(str).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'}); }
     catch(e) { return str; }
   };
-  const he = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const usageAr = {'Residential':'سكني','Commercial':'تجاري','Industrial':'صناعي'};
+  const fmtAED = n => n ? 'AED ' + Number(n).toLocaleString() : '';
+
+  // ── Field cell helper ─────────────────────────
+  // fc(enLabel, arLabel, value, subEn?)
+  const fc = (en, ar, val, subEn) => `
+    <td class="fc">
+      <div class="fc-hdr">
+        <span class="fc-en">${en}${subEn ? `<span class="fc-sub"> ${subEn}</span>` : ''}</span>
+        <span class="fc-ar">${ar}</span>
+      </div>
+      <div class="fc-val">${v(val)}</div>
+    </td>`;
+
+  // Full-width field cell (spans 2 columns)
+  const fcFull = (en, ar, val) => `
+    <tr><td class="fc" colspan="2">
+      <div class="fc-hdr"><span class="fc-en">${en}</span><span class="fc-ar">${ar}</span></div>
+      <div class="fc-val">${v(val)}</div>
+    </td></tr>`;
+
+  // Paired row (2 cells)
+  const fcRow = (en1,ar1,val1, en2,ar2,val2, sub1='',sub2='') =>
+    `<tr>${fc(en1,ar1,val1,sub1)}${fc(en2,ar2,val2,sub2)}</tr>`;
+
+  // Section header
+  const secHdr = (en, ar) =>
+    `<div class="sec-hdr"><span class="sec-en">${en}</span><span class="sec-ar">${ar}</span></div>`;
+
+  // Checkbox (checked or empty square)
+  const chk = sel => sel
+    ? `<span class="chkbox filled">&#10003;</span>`
+    : `<span class="chkbox"></span>`;
 
   // ── Clauses (14 DLD standard) ─────────────────
   const clauses = [
@@ -5311,427 +5342,338 @@ function buildAgentContractHTML(d) {
       <td class="cl-ar">${he(c.ar)}</td>
     </tr>`).join('');
 
-  const addTerms = [d.add1, d.add2, d.add3, d.add4, d.add5]
-    .filter(Boolean)
-    .map((t, i) => `<p class="add-term"><span class="add-num">${i+1}.</span> ${he(t)}</p>`).join('');
+  const addTermsList = [d.add1, d.add2, d.add3, d.add4, d.add5].filter(Boolean);
+  const blankCount   = Math.max(0, 5 - addTermsList.length);
 
   // ── Signature block ───────────────────────────
   const sigBlock = `
     <table class="sig-table">
       <tr>
         <td class="sig-cell">
-          <div class="sig-title">Lessor / المؤجر</div>
-          <div class="sig-name">${he(d.lessorName || d.ownerName)}</div>
+          <div class="sig-title">المؤجر / Lessor</div>
+          <div class="sig-name">${v(d.lessorName || d.ownerName)}</div>
           <div class="sig-line-box"></div>
-          <div class="sig-caption">Signature & Stamp — التوقيع والختم</div>
-          <div class="sig-date">Date / التاريخ: _______________</div>
+          <div class="sig-caption">Signature &amp; Stamp — التوقيع والختم</div>
+          <div class="sig-date-row"><span>Date التاريخ</span><span class="sig-date-line"></span></div>
         </td>
         <td class="sig-cell">
-          <div class="sig-title">Lessee / المستأجر</div>
-          <div class="sig-name">${he(d.tenantName)}</div>
+          <div class="sig-title">المستأجر / Lessee</div>
+          <div class="sig-name">${v(d.tenantName)}</div>
           <div class="sig-line-box"></div>
-          <div class="sig-caption">Signature & Stamp — التوقيع والختم</div>
-          <div class="sig-date">Date / التاريخ: _______________</div>
+          <div class="sig-caption">Signature &amp; Stamp — التوقيع والختم</div>
+          <div class="sig-date-row"><span>Date التاريخ</span><span class="sig-date-line"></span></div>
         </td>
         <td class="sig-cell">
-          <div class="sig-title">Witness / الشاهد</div>
+          <div class="sig-title">الشاهد / Witness</div>
           <div class="sig-name">&nbsp;</div>
           <div class="sig-line-box"></div>
           <div class="sig-caption">Signature — التوقيع</div>
-          <div class="sig-date">Date / التاريخ: _______________</div>
+          <div class="sig-date-row"><span>Date التاريخ</span><span class="sig-date-line"></span></div>
         </td>
       </tr>
     </table>`;
 
   return `<!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Tenancy Contract — EJARI</title>
+<title>Tenancy Contract — EJARI${d.tenantName ? ' · '+d.tenantName : ''}</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; background: #fff; }
-
-  /* ── Page layout ── */
-  .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 16mm; page-break-after: always; }
-  .page:last-child { page-break-after: avoid; }
-  @media print {
-    body { margin: 0; }
-    .page { margin: 0; padding: 12mm 14mm; width: 100%; }
-  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff;}
+  .page{width:210mm;min-height:297mm;margin:0 auto;padding:11mm 13mm;page-break-after:always;}
+  .page:last-child{page-break-after:avoid;}
+  @media print{body{margin:0;}.page{margin:0;padding:9mm 11mm;width:100%;}@page{size:A4;margin:0;}}
 
   /* ── Header ── */
-  .doc-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #8b0000; padding-bottom: 8px; margin-bottom: 10px; }
-  .doc-header-logos { display: flex; gap: 10px; align-items: center; }
-  .logo-box { width: 52px; height: 52px; display:flex; align-items:center; justify-content:center; border: 1px solid #ccc; border-radius:4px; font-size:8px; font-weight:700; text-align:center; color:#8b0000; padding:3px; }
-  .doc-header-center { flex:1; text-align:center; padding: 0 10px; }
-  .gov-title-ar { font-size: 14px; font-weight: 900; color: #8b0000; letter-spacing: 1px; direction:rtl; }
-  .gov-title-en { font-size: 11px; font-weight: 700; color: #8b0000; letter-spacing: 0.5px; }
-  .contract-title-wrap { margin-top: 6px; border: 2px solid #8b0000; border-radius: 4px; padding: 5px 20px; display: inline-block; }
-  .contract-title-ar { font-size: 16px; font-weight: 900; color: #111; direction:rtl; }
-  .contract-title-en { font-size: 13px; font-weight: 800; color: #111; letter-spacing: 0.5px; }
-  .dld-ref { font-size: 9px; color: #666; margin-top: 4px; }
+  .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:2px solid #ccc;margin-bottom:8px;}
+  .hdr-logo-l{width:72px;text-align:center;font-size:7.5px;line-height:1.4;color:#333;font-weight:700;}
+  .hdr-logo-l .gov-emblem{font-size:28px;line-height:1;}
+  .hdr-logo-r{width:60px;height:52px;background:#8b1a1a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:11px;letter-spacing:1px;}
+  .hdr-logo-r span{font-size:7.5px;font-weight:400;letter-spacing:0.5px;}
+  .hdr-center{flex:1;text-align:center;padding:0 10px;}
+  .hdr-gov-ar{font-size:11px;font-weight:900;color:#8b1a1a;direction:rtl;letter-spacing:0.5px;}
+  .hdr-gov-en{font-size:9px;font-weight:700;color:#8b1a1a;letter-spacing:0.5px;}
+  .hdr-title-box{display:inline-block;border:1.5px solid #555;padding:4px 24px;margin:4px 0;}
+  .hdr-title-ar{font-size:18px;font-weight:900;letter-spacing:3px;color:#111;}
+  .hdr-title-en{font-size:11px;font-weight:700;letter-spacing:2px;color:#111;}
+  .hdr-sub{font-size:7.5px;color:#777;margin-top:3px;}
 
-  /* ── Info sections ── */
-  .info-section { border: 1px solid #ccc; border-radius: 4px; margin-bottom: 8px; overflow: hidden; }
-  .info-section-header { background: #8b0000; color: #fff; padding: 4px 10px; display:flex; justify-content:space-between; align-items:center; }
-  .info-section-hdr-en { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; }
-  .info-section-hdr-ar { font-size: 11px; font-weight: 700; direction:rtl; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
-  .info-cell { padding: 4px 8px; border-right: 1px solid #e5e5e5; border-bottom: 1px solid #e5e5e5; }
-  .info-cell:nth-child(2n) { border-right: none; }
-  .info-cell:last-child, .info-cell:nth-last-child(2):nth-child(odd) { border-bottom: none; }
-  .info-cell.full-width { grid-column: 1 / -1; border-right: none; }
-  .info-label { font-size: 9px; color: #8b0000; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
-  .info-label-ar { font-size: 9px; color: #555; direction:rtl; display:block; }
-  .info-value { font-size: 11px; font-weight: 600; color: #111; min-height: 14px; border-bottom: 1px dotted #bbb; }
-  .info-value.highlight { color: #8b0000; font-size: 12px; font-weight: 700; }
+  /* ── Date row ── */
+  .date-row{display:flex;align-items:flex-end;gap:6px;margin-bottom:7px;font-size:8.5px;color:#444;}
+  .date-val{font-weight:700;font-size:9.5px;border-bottom:1px solid #aaa;min-width:130px;padding-bottom:1px;}
+  .date-row-right{margin-left:auto;display:flex;align-items:flex-end;gap:6px;}
+  .ejari-line{border-bottom:1px dotted #aaa;min-width:100px;height:13px;}
 
-  /* ── Usage radio display ── */
-  .usage-boxes { display:flex; gap:16px; margin-top:2px; }
-  .usage-box { display:flex; align-items:center; gap:5px; font-size:11px; }
-  .usage-box .chk { width:12px; height:12px; border:1.5px solid #333; border-radius:2px; display:inline-block; text-align:center; line-height:11px; font-size:10px; font-weight:900; }
-  .usage-box .chk.on { background:#8b0000; color:#fff; border-color:#8b0000; }
+  /* ── Section ── */
+  .sec{border:1px solid #c8c8c8;margin-bottom:6px;overflow:hidden;}
+  .sec-hdr{background:#1c2b4a;color:#fff;padding:4px 9px;display:flex;justify-content:space-between;align-items:center;}
+  .sec-en{font-size:9.5px;font-weight:700;letter-spacing:0.2px;}
+  .sec-ar{font-size:9.5px;font-weight:700;direction:rtl;}
+
+  /* ── Field cells ── */
+  .fields-tbl{width:100%;border-collapse:collapse;}
+  .fc{padding:5px 9px 4px;vertical-align:top;border-right:1px solid #e0e0e0;border-bottom:1px solid #e8e8e8;width:50%;}
+  .fc:last-child{border-right:none;}
+  tr:last-child .fc{border-bottom:none;}
+  .fc-hdr{display:flex;justify-content:space-between;margin-bottom:3px;}
+  .fc-en{font-size:7.5px;font-weight:700;color:#1c2b4a;text-transform:uppercase;letter-spacing:0.3px;}
+  .fc-sub{font-size:6.5px;font-weight:400;color:#888;text-transform:none;font-style:italic;}
+  .fc-ar{font-size:7.5px;color:#888;direction:rtl;}
+  .fc-val{border-bottom:1px solid #aaa;font-size:10px;min-height:14px;color:#111;padding-bottom:1px;line-height:1.3;}
+  .fc-full{padding:5px 9px 4px;vertical-align:top;border-bottom:1px solid #e8e8e8;}
+  tr:last-child .fc-full{border-bottom:none;}
+
+  /* ── Property Usage ── */
+  .usage-row{padding:5px 9px 4px;border-bottom:1px solid #e8e8e8;}
+  .usage-lbl-row{display:flex;justify-content:space-between;margin-bottom:3px;}
+  .usage-opts{display:flex;gap:20px;padding:2px 0;}
+  .usage-opt{display:flex;align-items:center;gap:5px;font-size:9.5px;}
+  .chkbox{display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;border:1.5px solid #444;flex-shrink:0;font-size:9px;font-weight:900;line-height:1;}
+  .chkbox.filled{background:#1c2b4a;color:#fff;border-color:#1c2b4a;}
 
   /* ── Clauses ── */
-  .clauses-title { background:#8b0000; color:#fff; padding:5px 10px; font-size:11px; font-weight:700; display:flex; justify-content:space-between; margin-bottom:0; }
-  table.clauses { width:100%; border-collapse:collapse; font-size:10px; }
-  table.clauses td { vertical-align:top; padding:4px 6px; border:1px solid #ddd; line-height:1.45; }
-  td.cl-num { width:20px; text-align:center; font-weight:700; color:#8b0000; background:#fff8f8; }
-  td.cl-en { width:55%; }
-  td.cl-ar { direction:rtl; text-align:right; color:#333; }
-  table.clauses tr:nth-child(even) td { background:#fafafa; }
-  table.clauses tr:nth-child(even) td.cl-num { background:#fff4f4; }
+  .cls-hdr{background:#1c2b4a;color:#fff;padding:4px 9px;display:flex;justify-content:space-between;font-size:9.5px;font-weight:700;}
+  .cls-hdr span:last-child{font-weight:400;font-size:8px;}
+  table.clauses{width:100%;border-collapse:collapse;}
+  table.clauses td{vertical-align:top;padding:3.5px 6px;border:1px solid #ddd;line-height:1.4;font-size:8.5px;}
+  td.cl-num{width:18px;text-align:center;font-weight:700;color:#1c2b4a;background:#f2f5fa;}
+  td.cl-en{width:54%;}
+  td.cl-ar{direction:rtl;text-align:right;color:#444;}
+  table.clauses tr:nth-child(even) td{background:#f8f9fb;}
+  table.clauses tr:nth-child(even) td.cl-num{background:#edf1f8;}
 
-  /* ── Additional terms ── */
-  .add-section { border:1px solid #ccc; border-radius:4px; margin-top:8px; overflow:hidden; }
-  .add-section-hdr { background:#2d3449; color:#fff; padding:4px 10px; font-size:10px; font-weight:700; display:flex; justify-content:space-between; }
-  .add-body { padding:8px 10px; }
-  .add-term { font-size:11px; margin-bottom:5px; display:flex; gap:6px; }
-  .add-num { color:#8b0000; font-weight:700; min-width:16px; }
-  .add-blank { border-bottom:1px dotted #bbb; margin-bottom:5px; height:16px; }
-
-  /* ── Know your rights ── */
-  .rights-box { border:1px solid #8b0000; border-radius:4px; padding:8px 10px; margin-top:8px; }
-  .rights-title { font-size:10px; font-weight:700; color:#8b0000; margin-bottom:4px; text-align:center; letter-spacing:0.3px; }
-  .rights-text { font-size:9px; color:#444; line-height:1.5; }
-  .rights-contact { font-size:9px; color:#8b0000; font-weight:600; margin-top:4px; text-align:center; }
+  /* ── Add terms ── */
+  .add-hdr{background:#2d3449;color:#fff;padding:4px 9px;display:flex;justify-content:space-between;font-size:9px;font-weight:700;}
+  .add-hdr span:last-child{font-weight:400;font-size:7.5px;}
+  .add-body{padding:6px 9px;}
+  .add-line{display:flex;gap:6px;margin-bottom:5px;font-size:9px;}
+  .add-n{color:#1c2b4a;font-weight:700;min-width:14px;}
+  .add-blank{border-bottom:1px dotted #bbb;margin-bottom:5px;height:14px;}
 
   /* ── Attachments ── */
-  .attach-box { margin-top:8px; border:1px solid #ccc; border-radius:4px; overflow:hidden; }
-  .attach-hdr { background:#f5f5f5; padding:4px 10px; font-size:10px; font-weight:700; color:#333; display:flex; justify-content:space-between; }
-  .attach-grid { display:grid; grid-template-columns:1fr 1fr; gap:0; }
-  .attach-cell { padding:4px 8px; font-size:10px; border-right:1px solid #eee; border-bottom:1px solid #eee; display:flex; align-items:center; gap:5px; }
-  .attach-cell:nth-child(2n) { border-right:none; }
-  .chkbox { width:11px; height:11px; border:1.5px solid #666; border-radius:2px; display:inline-block; flex-shrink:0; }
+  .att-hdr{background:#f0f2f5;padding:4px 9px;font-size:8.5px;font-weight:700;color:#333;display:flex;justify-content:space-between;border-top:1px solid #ddd;}
+  .att-hdr span:last-child{font-weight:400;color:#777;}
+  .att-grid{display:grid;grid-template-columns:1fr 1fr;}
+  .att-cell{padding:3px 8px;font-size:8.5px;border-right:1px solid #eee;border-bottom:1px solid #eee;display:flex;align-items:center;gap:5px;}
+  .att-cell:nth-child(2n){border-right:none;}
+  .att-cell .chkbox{border-color:#777;}
+
+  /* ── Know your rights ── */
+  .rights{border:1px solid #b8860b;padding:6px 9px;margin-bottom:5px;}
+  .rights-t{font-size:8.5px;font-weight:700;display:flex;justify-content:space-between;margin-bottom:3px;color:#7a5c00;}
+  .rights-b{font-size:7.5px;color:#444;line-height:1.5;}
+  .rights-c{font-size:7.5px;color:#7a5c00;font-weight:600;margin-top:3px;text-align:center;}
 
   /* ── Signatures ── */
-  .sig-table { width:100%; border-collapse:collapse; margin-top:10px; }
-  .sig-cell { width:33%; padding:6px 8px; border:1px solid #ccc; vertical-align:top; text-align:center; }
-  .sig-title { font-size:11px; font-weight:700; color:#8b0000; margin-bottom:2px; }
-  .sig-name { font-size:10px; color:#333; min-height:13px; margin-bottom:4px; }
-  .sig-line-box { border-bottom:1.5px solid #333; height:36px; margin:0 10px 4px; }
-  .sig-caption { font-size:9px; color:#666; }
-  .sig-date { font-size:9px; color:#666; margin-top:3px; }
+  .sig-table{width:100%;border-collapse:collapse;margin-top:8px;}
+  .sig-cell{width:33.33%;padding:5px 8px;border:1px solid #ccc;vertical-align:top;text-align:center;}
+  .sig-title{font-size:10px;font-weight:700;color:#1c2b4a;margin-bottom:2px;}
+  .sig-name{font-size:8.5px;color:#555;min-height:12px;margin-bottom:3px;}
+  .sig-line-box{border-bottom:1.5px solid #555;height:32px;margin:2px 8px 4px;}
+  .sig-caption{font-size:7.5px;color:#777;}
+  .sig-date-row{display:flex;align-items:flex-end;justify-content:center;gap:4px;margin-top:3px;font-size:7.5px;color:#777;}
+  .sig-date-line{border-bottom:1px dotted #999;min-width:70px;height:11px;}
 
   /* ── Footer ── */
-  .doc-footer { margin-top:auto; border-top:1px solid #8b0000; padding-top:5px; display:flex; justify-content:space-between; align-items:center; }
-  .footer-text { font-size:8.5px; color:#666; }
-  .footer-ar { font-size:8.5px; color:#666; direction:rtl; }
+  .doc-footer{border-top:1px solid #bbb;padding-top:4px;margin-top:6px;display:flex;justify-content:space-between;font-size:7.5px;color:#888;}
+  .doc-footer span:last-child{direction:rtl;}
 
-  /* ── Page header (pages 2+) ── */
-  .page-mini-hdr { display:flex; justify-content:space-between; align-items:center; padding-bottom:5px; border-bottom:2px solid #8b0000; margin-bottom:8px; }
-  .pmh-title { font-size:11px; font-weight:700; color:#8b0000; }
-  .pmh-ref { font-size:9px; color:#666; }
+  /* ── Page 2+ mini header ── */
+  .mini-hdr{display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:2px solid #1c2b4a;margin-bottom:7px;}
+  .mini-hdr-l{font-size:9px;font-weight:700;color:#1c2b4a;}
+  .mini-hdr-r{font-size:8px;color:#888;}
 </style>
 </head>
 <body>
 
 <!-- ══════════════════════════════════════════════════ -->
-<!--  PAGE 1 — Parties, Property, Contract Details     -->
-<!-- ══════════════════════════════════════════════════ -->
+<!--  PAGE 1 ── Parties · Property · Contract              -->
+<!-- ════════════════════════════════════════════════════ -->
 <div class="page">
 
   <!-- Header -->
-  <div class="doc-header">
-    <div class="doc-header-logos">
-      <div class="logo-box">حكومة دبي<br>Government<br>of Dubai</div>
+  <div class="hdr">
+    <div class="hdr-logo-l">
+      <div class="gov-emblem">🏛</div>
+      <div>حكومة دبي</div>
+      <div>Government</div>
+      <div>of Dubai</div>
     </div>
-    <div class="doc-header-center">
-      <div class="gov-title-ar">حكومة دبي — دائرة الأراضي والأملاك</div>
-      <div class="gov-title-en">GOVERNMENT OF DUBAI — DUBAI LAND DEPARTMENT</div>
-      <div class="contract-title-wrap">
-        <div class="contract-title-ar">عقد إيجار</div>
-        <div class="contract-title-en">TENANCY CONTRACT</div>
+    <div class="hdr-center">
+      <div class="hdr-gov-ar">حكومة دبي — دائرة الأراضي والأملاك</div>
+      <div class="hdr-gov-en">GOVERNMENT OF DUBAI — DUBAI LAND DEPARTMENT</div>
+      <div class="hdr-title-box">
+        <div class="hdr-title-ar">عـقـد إيـجـار</div>
+        <div class="hdr-title-en">TENANCY CONTRACT</div>
       </div>
-      <div class="dld-ref">Registered under EJARI System · Regulated by Law No. 26 of 2007 &amp; its amendments</div>
+      <div class="hdr-sub">Registered under EJARI System &middot; Regulated by Law No. 26 of 2007 &amp; its amendments</div>
     </div>
-    <div class="doc-header-logos">
-      <div class="logo-box" style="background:#8b0000;color:#fff;border-color:#8b0000;">DLD<br>إيجاري<br>EJARI</div>
+    <div class="hdr-logo-r">DLD<span>إيجاري</span><span>EJARI</span></div>
+  </div>
+
+  <!-- Date row -->
+  <div class="date-row">
+    <span>Date / التاريخ</span>
+    <span class="date-val">${v(fmtDate(d.date))}</span>
+    <div class="date-row-right">
+      <span>EJARI No. / رقم إيجاري</span>
+      <span class="ejari-line"></span>
     </div>
   </div>
 
-  <!-- Contract Date row -->
-  <div style="display:flex;gap:12px;margin-bottom:8px;">
-    <div style="font-size:10px;color:#555;">Contract Date / تاريخ العقد:</div>
-    <div style="font-size:10px;font-weight:700;border-bottom:1px dotted #999;min-width:140px;">${he(fmtDate(d.date))}</div>
-    <div style="margin-left:auto;font-size:10px;color:#555;">EJARI No. / رقم إيجاري:</div>
-    <div style="font-size:10px;border-bottom:1px dotted #999;min-width:120px;">&nbsp;</div>
+  <!-- A — Owner / Lessor -->
+  <div class="sec">
+    ${secHdr('A — Owner / Lessor Information','معلومات المالك / المؤجر')}
+    <table class="fields-tbl">
+      ${fcRow('Owner\'s Name','اسم المالك',d.ownerName, 'Lessor\'s Name','اسم المؤجر',d.lessorName||d.ownerName)}
+      ${fcRow('Emirates ID','الهوية الإماراتية',d.lessorEid, 'Phone','رقم الهاتف',d.lessorPhone)}
+      ${fcRow('Email','البريد الإلكتروني',d.lessorEmail, 'Trade License No.','رقم الرخصة التجارية',d.lessorLicense,'','(If Company / في حال شركة)')}
+      ${fcRow('Licensing Authority','سلطة الترخيص',d.lessorAuthority,'','','')}
+    </table>
   </div>
 
-  <!-- Section A: Owner / Lessor -->
-  <div class="info-section">
-    <div class="info-section-header">
-      <span class="info-section-hdr-en">A — Owner / Lessor Information</span>
-      <span class="info-section-hdr-ar">معلومات المالك / المؤجر</span>
-    </div>
-    <div class="info-grid">
-      <div class="info-cell">
-        <div class="info-label">Owner's Name <span class="info-label-ar">اسم المالك</span></div>
-        <div class="info-value">${he(fmt(d.ownerName))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Lessor's Name <span class="info-label-ar">اسم المؤجر</span></div>
-        <div class="info-value">${he(fmt(d.lessorName || d.ownerName))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Emirates ID <span class="info-label-ar">رقم الهوية الإماراتية</span></div>
-        <div class="info-value">${he(fmt(d.lessorEid))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Phone <span class="info-label-ar">رقم الهاتف</span></div>
-        <div class="info-value">${he(fmt(d.lessorPhone))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Email <span class="info-label-ar">البريد الإلكتروني</span></div>
-        <div class="info-value">${he(fmt(d.lessorEmail))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Trade License No. <span class="info-label-ar">رقم الرخصة التجارية</span></div>
-        <div class="info-value">${he(fmt(d.lessorLicense))}</div>
-      </div>
-      ${d.lessorAuthority ? `<div class="info-cell full-width">
-        <div class="info-label">Licensing Authority <span class="info-label-ar">جهة الترخيص</span></div>
-        <div class="info-value">${he(d.lessorAuthority)}</div>
-      </div>` : ''}
-    </div>
+  <!-- B — Tenant -->
+  <div class="sec">
+    ${secHdr('B — Tenant / Lessee Information','معلومات المستأجر')}
+    <table class="fields-tbl">
+      ${fcRow('Tenant\'s Name','اسم المستأجر',d.tenantName, 'Emirates ID','الهوية الإماراتية',d.tenantEid)}
+      ${fcRow('Phone','رقم الهاتف',d.tenantPhone, 'Email','البريد الإلكتروني',d.tenantEmail)}
+      ${fcRow('Trade License No.','رقم الرخصة التجارية',d.tenantLicense,'(If Company)','', '', 'في حال شركة','','','')}
+      ${fcRow('Licensing Authority','سلطة الترخيص',d.tenantAuthority,'','','')}
+    </table>
   </div>
 
-  <!-- Section B: Tenant -->
-  <div class="info-section">
-    <div class="info-section-header">
-      <span class="info-section-hdr-en">B — Tenant / Lessee Information</span>
-      <span class="info-section-hdr-ar">معلومات المستأجر</span>
-    </div>
-    <div class="info-grid">
-      <div class="info-cell">
-        <div class="info-label">Tenant's Name <span class="info-label-ar">اسم المستأجر</span></div>
-        <div class="info-value">${he(fmt(d.tenantName))}</div>
+  <!-- C — Property -->
+  <div class="sec">
+    ${secHdr('C — Property Information','معلومات العقار')}
+    <div class="usage-row">
+      <div class="usage-lbl-row">
+        <span class="fc-en">Property Usage</span>
+        <span class="fc-ar">استخدام العقار</span>
       </div>
-      <div class="info-cell">
-        <div class="info-label">Emirates ID <span class="info-label-ar">رقم الهوية الإماراتية</span></div>
-        <div class="info-value">${he(fmt(d.tenantEid))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Phone <span class="info-label-ar">رقم الهاتف</span></div>
-        <div class="info-value">${he(fmt(d.tenantPhone))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Email <span class="info-label-ar">البريد الإلكتروني</span></div>
-        <div class="info-value">${he(fmt(d.tenantEmail))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Trade License No. <span class="info-label-ar">رقم الرخصة التجارية</span></div>
-        <div class="info-value">${he(fmt(d.tenantLicense))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Licensing Authority <span class="info-label-ar">جهة الترخيص</span></div>
-        <div class="info-value">${he(fmt(d.tenantAuthority))}</div>
+      <div class="usage-opts">
+        <div class="usage-opt">${chk(d.usage==='Residential')} Residential سكني</div>
+        <div class="usage-opt">${chk(d.usage==='Commercial')} Commercial تجاري</div>
+        <div class="usage-opt">${chk(d.usage==='Industrial')} Industrial صناعي</div>
       </div>
     </div>
+    <table class="fields-tbl">
+      ${fcRow('Building Name','اسم المبنى',d.buildingName, 'Property No.','رقم العقار',d.propertyNo)}
+      ${fcRow('Property Type','نوع الوحدة',d.propType, 'Area (M²)','المساحة',d.area?d.area+' m²':'')}
+      ${fcRow('Plot No.','رقم الأرض',d.plotNo, 'Makani No.','رقم مكاني',d.makaniNo)}
+      ${fcRow('Location / Address','الموقع / العنوان',d.location, 'DEWA Premises No.','رقم المبنى (ديوا)',d.dewaNo)}
+    </table>
   </div>
 
-  <!-- Section C: Property -->
-  <div class="info-section">
-    <div class="info-section-header">
-      <span class="info-section-hdr-en">C — Property Information</span>
-      <span class="info-section-hdr-ar">معلومات العقار</span>
-    </div>
-    <div class="info-grid">
-      <div class="info-cell full-width">
-        <div class="info-label">Property Usage <span class="info-label-ar">استخدام العقار</span></div>
-        <div class="usage-boxes">
-          <div class="usage-box"><span class="chk ${d.usage==='Residential'?'on':''}">✓</span> Residential سكني</div>
-          <div class="usage-box"><span class="chk ${d.usage==='Commercial'?'on':''}">✓</span> Commercial تجاري</div>
-          <div class="usage-box"><span class="chk ${d.usage==='Industrial'?'on':''}">✓</span> Industrial صناعي</div>
-        </div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Building Name <span class="info-label-ar">اسم المبنى</span></div>
-        <div class="info-value">${he(fmt(d.buildingName))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Property No. <span class="info-label-ar">رقم العقار</span></div>
-        <div class="info-value">${he(fmt(d.propertyNo))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Property Type <span class="info-label-ar">نوع الوحدة</span></div>
-        <div class="info-value">${he(fmt(d.propType))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Area (m²) <span class="info-label-ar">المساحة</span></div>
-        <div class="info-value">${he(fmt(d.area))}${d.area?' m²':''}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Plot No. <span class="info-label-ar">رقم الرقعة</span></div>
-        <div class="info-value">${he(fmt(d.plotNo))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Makani No. <span class="info-label-ar">رقم مكاني</span></div>
-        <div class="info-value">${he(fmt(d.makaniNo))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Location / Address <span class="info-label-ar">الموقع / العنوان</span></div>
-        <div class="info-value">${he(fmt(d.location))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">DEWA Premises No. <span class="info-label-ar">رقم المبنى (ديوا)</span></div>
-        <div class="info-value">${he(fmt(d.dewaNo))}</div>
-      </div>
-    </div>
+  <!-- D — Contract -->
+  <div class="sec">
+    ${secHdr('D — Contract Information','معلومات العقد')}
+    <table class="fields-tbl">
+      ${fcRow('Contract Period From','من تاريخ',fmtDate(d.from), 'Contract Period To','إلى تاريخ',fmtDate(d.to))}
+      ${fcRow('Annual Rent (AED)','الإيجار السنوي',fmtAED(d.annualRent), 'Contract Value (AED)','قيمة العقد',fmtAED(d.contractValue||d.annualRent))}
+      ${fcRow('Security Deposit (AED)','مبلغ التأمين',fmtAED(d.deposit), 'Mode of Payment','طريقة الدفع',d.paymentMode)}
+    </table>
   </div>
 
-  <!-- Section D: Contract Info -->
-  <div class="info-section">
-    <div class="info-section-header">
-      <span class="info-section-hdr-en">D — Contract Information</span>
-      <span class="info-section-hdr-ar">معلومات العقد</span>
-    </div>
-    <div class="info-grid">
-      <div class="info-cell">
-        <div class="info-label">Contract Period From <span class="info-label-ar">من تاريخ</span></div>
-        <div class="info-value highlight">${he(fmtDate(d.from))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Contract Period To <span class="info-label-ar">إلى تاريخ</span></div>
-        <div class="info-value highlight">${he(fmtDate(d.to))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Annual Rent (AED) <span class="info-label-ar">الإيجار السنوي</span></div>
-        <div class="info-value highlight">${he(fmtAED(d.annualRent))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Contract Value (AED) <span class="info-label-ar">قيمة العقد</span></div>
-        <div class="info-value highlight">${he(fmtAED(d.contractValue || d.annualRent))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Security Deposit (AED) <span class="info-label-ar">مبلغ التأمين</span></div>
-        <div class="info-value">${he(fmtAED(d.deposit))}</div>
-      </div>
-      <div class="info-cell">
-        <div class="info-label">Mode of Payment <span class="info-label-ar">طريقة السداد</span></div>
-        <div class="info-value">${he(fmt(d.paymentMode))}</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Page 1 Signatures -->
+  <!-- Signatures -->
   ${sigBlock}
 
-  <!-- Footer -->
-  <div class="doc-footer" style="margin-top:6px;">
-    <span class="footer-text">Dubai Land Department — Real Estate Regulatory Agency (RERA) · rera.gov.ae</span>
-    <span class="footer-ar">دائرة الأراضي والأملاك — مؤسسة التنظيم العقاري</span>
+  <div class="doc-footer">
+    <span>Dubai Land Department — Real Estate Regulatory Agency (RERA) &middot; rera.gov.ae</span>
+    <span>دائرة الأراضي والأملاك — مؤسسة التنظيم العقاري</span>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ -->
-<!--  PAGE 2 — 14 Standard Clauses                    -->
-<!-- ══════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════ -->
+<!--  PAGE 2 ── 14 Standard Clauses                      -->
+<!-- ════════════════════════════════════════════════════ -->
 <div class="page">
-  <div class="page-mini-hdr">
-    <span class="pmh-title">Standard Terms &amp; Conditions — الشروط والأحكام القياسية</span>
-    <span class="pmh-ref">عقد إيجار / EJARI Tenancy Contract · Page 2</span>
+  <div class="mini-hdr">
+    <span class="mini-hdr-l">Standard Terms &amp; Conditions — الشروط والأحكام القياسية</span>
+    <span class="mini-hdr-r">عقد إيجار / EJARI Tenancy Contract &middot; Page 2 of 3</span>
   </div>
-
-  <div class="clauses-title">
+  <div class="cls-hdr">
     <span>Standard Clauses — الشروط القياسية</span>
-    <span style="font-size:9px;font-weight:400;">As per Dubai Tenancy Law No. 26 of 2007 — وفقاً لقانون الإيجارات رقم 26 لسنة 2007</span>
+    <span>Per Dubai Tenancy Law No. 26 of 2007 — وفقاً لقانون الإيجارات رقم 26 لسنة 2007</span>
   </div>
   <table class="clauses">
-    <colgroup><col style="width:22px"><col style="width:55%"><col></colgroup>
+    <colgroup><col style="width:20px"><col style="width:54%"><col></colgroup>
     ${clauseRows}
   </table>
-
-  <!-- Page 2 Signatures -->
   ${sigBlock}
-
-  <div class="doc-footer" style="margin-top:6px;">
-    <span class="footer-text">Dubai Land Department — Real Estate Regulatory Agency (RERA) · rera.gov.ae</span>
-    <span class="footer-ar">دائرة الأراضي والأملاك — مؤسسة التنظيم العقاري</span>
+  <div class="doc-footer">
+    <span>Dubai Land Department — Real Estate Regulatory Agency (RERA) &middot; rera.gov.ae</span>
+    <span>دائرة الأراضي والأملاك — مؤسسة التنظيم العقاري</span>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ -->
-<!--  PAGE 3 — Rights, Additional Terms, Attachments  -->
-<!-- ══════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════ -->
+<!--  PAGE 3 ── Additional Terms · Rights · Attachments  -->
+<!-- ════════════════════════════════════════════════════ -->
 <div class="page">
-  <div class="page-mini-hdr">
-    <span class="pmh-title">Additional Terms &amp; Attachments — الشروط الإضافية والمرفقات</span>
-    <span class="pmh-ref">عقد إيجار / EJARI Tenancy Contract · Page 3</span>
+  <div class="mini-hdr">
+    <span class="mini-hdr-l">Additional Terms &amp; Attachments — الشروط الإضافية والمرفقات</span>
+    <span class="mini-hdr-r">عقد إيجار / EJARI Tenancy Contract &middot; Page 3 of 3</span>
   </div>
 
   <!-- Know Your Rights -->
-  <div class="rights-box">
-    <div class="rights-title">⚖️ Know Your Rights — اعرف حقوقك</div>
-    <div class="rights-text">
-      <strong>Tenants:</strong> You have the right to a written tenancy contract registered with EJARI. Your landlord must give you 90 days' notice before any rent increase. Disputes can be filed at the Rental Dispute Settlement Centre (RDSC).<br>
-      <strong>المستأجر:</strong> يحق لك الحصول على عقد إيجار مكتوب مسجل في نظام إيجاري. يجب على المؤجر إخطارك بـ 90 يوماً قبل أي زيادة في الإيجار. يمكنك تقديم شكوى لمركز تسوية النزاعات الإيجارية.
+  <div class="rights">
+    <div class="rights-t">
+      <span>Know Your Rights — اعرف حقوقك</span>
+      <span style="direction:rtl;font-weight:400;">لمعرفة حقوق الأطراف</span>
     </div>
-    <div class="rights-contact">📞 Rental Dispute Settlement Centre: 800-RENT (7368) · مركز تسوية النزاعات الإيجارية | RERA Hotline: 800-4488</div>
+    <div class="rights-b">
+      You may visit the Rental Dispute Centre at <strong>www.dubailand.gov.ae</strong> &middot;
+      Law No.26 of 2007 regulating relationship between Landlords and Tenants &middot;
+      Law No.33 of 2008 amending Law No.26 of 2007 &middot;
+      Law No.43 of 2013 determining rent increases.<br>
+      يمكنكم زيارة موقع مركز تسوية النزاعات الإيجارية على الرابط: www.dubailand.gov.ae
+    </div>
+    <div class="rights-c">Rental Dispute Settlement Centre: 800-RENT (7368) &nbsp;|&nbsp; RERA Hotline: 800-4488</div>
   </div>
 
   <!-- Additional Terms -->
-  <div class="add-section">
-    <div class="add-section-hdr">
+  <div class="sec" style="margin-top:6px;">
+    <div class="add-hdr">
       <span>Additional Terms &amp; Special Conditions — الشروط الإضافية والخاصة</span>
-      <span style="font-weight:400;font-size:9px;">As agreed by both parties — كما اتفق عليه الطرفان</span>
+      <span>As agreed by both parties — كما اتفق عليه الطرفان</span>
     </div>
     <div class="add-body">
-      ${addTerms || ''}
-      ${[...Array(Math.max(0, 5-(([d.add1,d.add2,d.add3,d.add4,d.add5]).filter(Boolean).length)))].map(()=>'<div class="add-blank"></div>').join('')}
+      ${addTermsList.map((t,i)=>`<div class="add-line"><span class="add-n">${i+1}.</span><span>${he(t)}</span></div>`).join('')}
+      ${Array(blankCount).fill('<div class="add-blank"></div>').join('')}
     </div>
   </div>
 
-  <!-- Attachments -->
-  <div class="attach-box">
-    <div class="attach-hdr">
-      <span>Attachments for EJARI Registration — مرفقات تسجيل إيجاري</span>
-      <span style="font-weight:400;font-size:9px;">Check applicable documents — ضع علامة على المستندات المرفقة</span>
+  <!-- Attachments for EJARI -->
+  <div class="sec" style="margin-top:6px;border-top:none;">
+    <div class="att-hdr">
+      <span>Attachments for EJARI Registration — مرفقات التسجيل في إيجاري</span>
+      <span>Tick applicable — ضع علامة على المرفقات</span>
     </div>
-    <div class="attach-grid">
-      <div class="attach-cell"><span class="chkbox"></span> Copy of Lessor's Emirates ID / نسخة هوية المؤجر</div>
-      <div class="attach-cell"><span class="chkbox"></span> Copy of Tenant's Emirates ID / نسخة هوية المستأجر</div>
-      <div class="attach-cell"><span class="chkbox"></span> Title Deed / سند الملكية</div>
-      <div class="attach-cell"><span class="chkbox"></span> Trade License (if company) / رخصة تجارية</div>
-      <div class="attach-cell"><span class="chkbox"></span> Power of Attorney (if applicable) / توكيل رسمي</div>
-      <div class="attach-cell"><span class="chkbox"></span> Previous Tenancy Contract (if renewal) / عقد الإيجار السابق</div>
-      <div class="attach-cell"><span class="chkbox"></span> DEWA Connection Form / نموذج اتصال ديوا</div>
-      <div class="attach-cell"><span class="chkbox"></span> Other / أخرى: ______________________</div>
+    <div class="att-grid">
+      <div class="att-cell"><span class="chkbox"></span> Copy of Lessor's Emirates ID — هوية المؤجر</div>
+      <div class="att-cell"><span class="chkbox"></span> Copy of Tenant's Emirates ID — هوية المستأجر</div>
+      <div class="att-cell"><span class="chkbox"></span> Title Deed — سند الملكية</div>
+      <div class="att-cell"><span class="chkbox"></span> Trade License (if company) — رخصة تجارية</div>
+      <div class="att-cell"><span class="chkbox"></span> Power of Attorney (if applicable) — توكيل رسمي</div>
+      <div class="att-cell"><span class="chkbox"></span> Previous Contract (if renewal) — عقد إيجار سابق</div>
+      <div class="att-cell"><span class="chkbox"></span> DEWA Connection Form — نموذج اتصال ديوا</div>
+      <div class="att-cell"><span class="chkbox"></span> Other / أخرى: __________________</div>
     </div>
   </div>
 
   <!-- Final Signatures -->
   ${sigBlock}
 
-  <div style="margin-top:8px;padding:6px 10px;background:#fff8f8;border:1px solid #e5c0c0;border-radius:4px;font-size:9px;color:#666;text-align:center;">
-    Both parties acknowledge that they have read, understood and agreed to all terms and conditions in this contract.<br>
-    يقر الطرفان بأنهما قد قرآ وفهما ووافقا على جميع الشروط والأحكام الواردة في هذا العقد.
+  <div style="margin-top:6px;padding:5px 9px;border:1px solid #ccc;font-size:7.5px;color:#666;text-align:center;">
+    Both parties acknowledge they have read, understood and agreed to all terms and conditions herein. &nbsp;|&nbsp;
+    يقر الطرفان بأنهما قرآ وفهما ووافقا على جميع الشروط والأحكام الواردة في هذا العقد.
   </div>
 
-  <div class="doc-footer" style="margin-top:6px;">
-    <span class="footer-text">Dubai Land Department — Real Estate Regulatory Agency (RERA) · rera.gov.ae</span>
-    <span class="footer-ar">دائرة الأراضي والأملاك — مؤسسة التنظيم العقاري</span>
+  <div class="doc-footer">
+    <span>Dubai Land Department — Real Estate Regulatory Agency (RERA) &middot; rera.gov.ae</span>
+    <span>دائرة الأراضي والأملاك — مؤسسة التنظيم العقاري</span>
   </div>
 </div>
 
