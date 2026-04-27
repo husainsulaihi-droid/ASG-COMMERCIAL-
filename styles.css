@@ -2817,3 +2817,28 @@ body {
   margin-bottom:14px;
 }
 .xlsync-not-supported strong { color:#451a03; }
+
+/* ── Two-way toggle row in Excel sync modal ── */
+.xlsync-toggle-row {
+  display:flex; align-items:center; justify-content:space-between; gap:18px;
+  padding:14px 16px; border-radius:10px;
+  background:#f0fdfa; border:1px solid #99f6e4;
+  margin-bottom:14px;
+}
+.xlsync-toggle-info { flex:1; }
+.xlsync-toggle-title { font-size:13px; font-weight:700; color:#134e4a; margin-bottom:3px; }
+.xlsync-toggle-sub { font-size:12px; color:#0f766e; line-height:1.45; }
+
+.xlsync-switch { position:relative; display:inline-block; width:44px; height:24px; flex-shrink:0; }
+.xlsync-switch input { opacity:0; width:0; height:0; }
+.xlsync-slider {
+  position:absolute; cursor:pointer; inset:0;
+  background:#cbd5e1; transition:.25s; border-radius:24px;
+}
+.xlsync-slider::before {
+  position:absolute; content:""; height:18px; width:18px;
+  left:3px; bottom:3px; background:#fff; transition:.25s;
+  border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,0.2);
+}
+.xlsync-switch input:checked + .xlsync-slider { background:#0d9488; }
+.xlsync-switch input:checked + .xlsync-slider::before { transform:translateX(20px); }

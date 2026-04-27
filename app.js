@@ -140,7 +140,15 @@ function idbDel(id) {
 
 // ─── LocalStorage (property data) ────────────────
 function loadProps()       { return JSON.parse(localStorage.getItem('asg_props') || '[]'); }
-function persistProps(arr) { localStorage.setItem('asg_props', JSON.stringify(arr)); }
+function persistProps(arr) {
+  localStorage.setItem('asg_props', JSON.stringify(arr));
+  // Two-way Excel sync: push back to the spreadsheet whenever the dashboard
+  // mutates properties — but never while we're ingesting an Excel-driven
+  // update (would cause a sync loop).
+  if (typeof xlsyncQueueWrite === 'function' && !window._xlsyncIngesting) {
+    xlsyncQueueWrite();
+  }
+}
 function uid()             { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ─── State ────────────────────────────────────────
@@ -5872,28 +5880,85 @@ async function renderXlsyncModal() {
   const lastSync = localStorage.getItem('asg_xlsync_lastsync') || '';
   const lastSyncRel = lastSync ? _xlsyncRelTime(lastSync) : 'not yet';
   const propCount = loadProps().length;
+  const twoWay = xlsyncIsTwoWay();
 
   body.innerHTML = `
     <div class="xlsync-status">
-      <div class="xlsync-status-icon">✓</div>
+      <div class="xlsync-status-icon">${twoWay ? '⇄' : '✓'}</div>
       <div class="xlsync-status-info">
         <div class="xlsync-status-title">Connected: ${he(_xlsyncFileName || handle.name || 'Excel file')}</div>
-        <div class="xlsync-status-detail">${propCount} properties loaded · last sync ${lastSyncRel} · auto-checking every ${XLSYNC_POLL/1000}s</div>
+        <div class="xlsync-status-detail">
+          ${propCount} properties · last sync ${lastSyncRel} ·
+          ${twoWay
+            ? `<strong style="color:#0d9488">Two-way sync ON</strong> (Excel ⇄ Dashboard)`
+            : `<span>One-way: Excel → Dashboard</span>`}
+        </div>
       </div>
     </div>
+
+    <div class="xlsync-toggle-row">
+      <div class="xlsync-toggle-info">
+        <div class="xlsync-toggle-title">Two-way sync (Excel ⇄ Dashboard)</div>
+        <div class="xlsync-toggle-sub">
+          When ON, anything you change in the dashboard is written back to Excel within 2 seconds.
+          Perfect for trial runs where the office still works off the spreadsheet.
+        </div>
+      </div>
+      <label class="xlsync-switch">
+        <input type="checkbox" id="xlsyncTwoWayChk" ${twoWay ? 'checked' : ''} onchange="xlsyncToggleTwoWay(this.checked)">
+        <span class="xlsync-slider"></span>
+      </label>
+    </div>
+
     <div class="xlsync-step">
       <h4><span class="step-num">✱</span>How it works</h4>
-      <p>Edit <code>ASG Properties Master.xlsx</code> and save. The dashboard polls the file every ${XLSYNC_POLL/1000} seconds and refreshes the moment it sees changes.</p>
-      <p style="margin-top:8px;">Manually adding properties through the "Add Property" form still works — they're tracked separately and won't be overwritten by the Excel sync.</p>
+      <p><strong>Excel → Dashboard:</strong> Edit <code>ASG Properties Master.xlsx</code>, save (Cmd+S). Dashboard refreshes within ${XLSYNC_POLL/1000}s.</p>
+      ${twoWay ? `
+        <p style="margin-top:8px;"><strong>Dashboard → Excel:</strong> Add or edit a property in the dashboard — the change is written back to the spreadsheet automatically (1.5s delay so rapid edits batch).</p>
+        <p style="margin-top:8px;font-size:12px;color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:6px;border:1px solid #fcd34d;">
+          <strong>⚠ Tip:</strong> Close the spreadsheet in Microsoft Excel before the dashboard writes — Excel may lock the file. The dashboard will retry until the file is free.
+        </p>
+      ` : `
+        <p style="margin-top:8px;">Dashboard changes stay in the dashboard only. Toggle two-way sync above to push them back to Excel as well.</p>
+      `}
     </div>
+
     <div class="xlsync-actions">
       <button class="xlsync-btn xlsync-btn-primary" onclick="xlsyncForceSync()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-        Sync Now
+        Pull from Excel
       </button>
+      ${twoWay ? `
+        <button class="xlsync-btn xlsync-btn-ghost" onclick="xlsyncWriteFile().then(()=>renderXlsyncModal())">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Push to Excel
+        </button>
+      ` : ''}
       <button class="xlsync-btn xlsync-btn-ghost" onclick="xlsyncReconnect()">Reconnect different file</button>
       <button class="xlsync-btn xlsync-btn-danger" onclick="xlsyncDisconnect()">Disconnect</button>
     </div>`;
+}
+
+async function xlsyncToggleTwoWay(on) {
+  if (on) {
+    // Need to escalate permission to readwrite
+    const handle = await _xlIdbGet(XLSYNC_KEY);
+    if (handle) {
+      let perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        perm = await handle.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+          showToast('Two-way sync needs write permission on the Excel file', 'error');
+          document.getElementById('xlsyncTwoWayChk').checked = false;
+          return;
+        }
+      }
+    }
+  }
+  xlsyncSetTwoWay(on);
+  showToast(on ? '✓ Two-way sync enabled' : 'Two-way sync disabled', 'success');
+  renderXlsyncModal();
+  updateXlsyncPill();
 }
 
 function _xlsyncRelTime(iso) {
@@ -5998,11 +6063,17 @@ async function xlsyncImportFromFile(file) {
     .map((r, i) => xlsyncRowToProp(r, i))
     .filter(p => p && p.name);
 
-  // Merge: keep manually-added properties (no xlsync flag), replace all xlsync-managed ones
-  const existing = loadProps();
-  const manual = existing.filter(p => p._source !== 'xlsync');
-  const merged = [...manual, ...fromExcel];
-  persistProps(merged);
+  // Set the ingest flag so persistProps doesn't trigger a write-back loop
+  window._xlsyncIngesting = true;
+  try {
+    // Merge: keep manually-added properties (no xlsync flag), replace all xlsync-managed ones
+    const existing = loadProps();
+    const manual = existing.filter(p => p._source !== 'xlsync');
+    const merged = [...manual, ...fromExcel];
+    persistProps(merged);
+  } finally {
+    window._xlsyncIngesting = false;
+  }
 
   localStorage.setItem('asg_xlsync_lastsync', new Date().toISOString());
 
@@ -6010,6 +6081,143 @@ async function xlsyncImportFromFile(file) {
   if (typeof renderNavCounts === 'function') renderNavCounts(loadProps());
   showToast(`✓ Synced ${fromExcel.length} propert${fromExcel.length===1?'y':'ies'} from Excel`, 'success');
   updateXlsyncPill();
+}
+
+// ═══════════════════════════════════════════════════
+// TWO-WAY WRITE-BACK (dashboard → Excel)
+// ═══════════════════════════════════════════════════
+let _xlsyncWriteTimer   = null;
+let _xlsyncWriting      = false;
+const XLSYNC_WRITE_KEY  = 'asg_xlsync_twoway';
+
+function xlsyncIsTwoWay()       { return localStorage.getItem(XLSYNC_WRITE_KEY) === '1'; }
+function xlsyncSetTwoWay(on)    { localStorage.setItem(XLSYNC_WRITE_KEY, on ? '1' : '0'); }
+
+// Debounced trigger — called every time dashboard mutates props.
+// Waits 1.5s of quiet before writing, batching rapid edits.
+function xlsyncQueueWrite() {
+  if (!xlsyncIsTwoWay()) return;          // off → skip
+  if (window._xlsyncIngesting) return;    // we're applying an Excel-driven change
+  if (_xlsyncWriteTimer) clearTimeout(_xlsyncWriteTimer);
+  _xlsyncWriteTimer = setTimeout(() => {
+    _xlsyncWriteTimer = null;
+    xlsyncWriteFile().catch(e => {
+      console.warn('xlsync write-back failed:', e);
+      showToast('Could not write to Excel: ' + (e.message||e), 'error');
+    });
+  }, 1500);
+}
+
+// Convert a property object → flat row dict matching Excel headers
+function xlsyncPropToRow(p) {
+  const yn = v => v === 'yes' ? 'yes' : v === 'no' ? 'no' : '';
+  const num = v => (v == null || v === '') ? '' : v;
+  return {
+    'Property Name *':  p.name || '',
+    'Type *':           p.type || '',
+    'Status':           p.status || '',
+    'Location':         p.location || '',
+    'Plot No.':         p.plotNo || '',
+    'Size (sq ft)':     num(p.size),
+    'Area (sq m)':      num(p.area),
+    'Compound':         yn(p.compound),
+    'Mezzanine':        yn(p.mezzanine),
+    'Ownership':        p.ownership || '',
+    'Partner Name':     p.partnerName || '',
+    'Our Share (%)':    num(p.ourShare),
+    'Property Owner':   p.ownerName || '',
+    'Owner Phone':      p.ownerPhone || '',
+    'Management Fee':   num(p.mgmtFee),
+    'Purchase Price':   num(p.purchasePrice),
+    'Purchase Date':    p.purchaseDate || '',
+    'Market Value':     num(p.marketValue),
+    'Annual Rent':      num(p.annualRent),
+    'Tenant Name':      p.tenantName || '',
+    'Tenant Phone':     p.tenantPhone || '',
+    'Tenant Email':     p.tenantEmail || '',
+    'Lease Start':      p.leaseStart || p.contractFrom || '',
+    'Lease End':        p.leaseEnd || p.contractTo || '',
+    'Reminder Days':    num(p.reminderDays),
+    'Map Link':         p.mapLink || '',
+    'Coordinates':      p.coords || '',
+    'Notes':            p.notes || '',
+  };
+}
+
+// Read existing Excel, replace data rows, write back. Preserves the
+// header styling, README sheet, and any non-Properties sheets.
+async function xlsyncWriteFile() {
+  if (typeof XLSX === 'undefined') return;
+  const handle = await _xlIdbGet(XLSYNC_KEY);
+  if (!handle) return;
+
+  // Need read+write permission
+  let perm = await handle.queryPermission({ mode: 'readwrite' });
+  if (perm !== 'granted') {
+    perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+      showToast('Two-way sync needs write permission on the Excel file', 'error');
+      return;
+    }
+  }
+
+  _xlsyncWriting = true;
+  updateXlsyncPill();
+  try {
+    const file = await handle.getFile();
+    const buf  = await file.arrayBuffer();
+    const wb   = XLSX.read(buf, { type: 'array', cellDates: true });
+
+    let sheetName = wb.SheetNames.find(n => n.toLowerCase() === 'properties')
+                   || wb.SheetNames.find(n => n.toLowerCase() !== 'readme')
+                   || wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+
+    // Build new rows from current dashboard properties
+    const props = loadProps().filter(p => p.name);    // skip empty rows
+    const rows  = props.map(p => xlsyncPropToRow(p));
+
+    // Read existing header order so we don't reshuffle columns
+    const headers = XLSX.utils.sheet_to_json(ws, { header: 1 })[0]
+                   || Object.keys(rows[0] || {});
+
+    // Wipe all data rows (everything below row 1)
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let R = 1; R <= range.e.r; R++) {
+      for (let C = 0; C <= range.e.c; C++) {
+        delete ws[XLSX.utils.encode_cell({ r: R, c: C })];
+      }
+    }
+
+    // Write fresh rows starting at A2
+    XLSX.utils.sheet_add_json(ws, rows, {
+      origin: 'A2',
+      skipHeader: true,
+      header: headers,
+    });
+
+    // Update sheet range
+    ws['!ref'] = XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: rows.length, c: headers.length - 1 },
+    });
+
+    // Serialise + write back to file
+    const out  = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const writable = await handle.createWritable();
+    await writable.write(out);
+    await writable.close();
+
+    // Skip the next watcher tick — the file-mtime change is from us.
+    const refreshed = await handle.getFile();
+    _xlsyncLastMod = refreshed.lastModified;
+
+    localStorage.setItem('asg_xlsync_lastsync', new Date().toISOString());
+    showToast(`⇄ Wrote ${rows.length} rows to Excel`, 'success');
+  } finally {
+    _xlsyncWriting = false;
+    updateXlsyncPill();
+  }
 }
 
 // ── Row → Property object (column header → field name) ──
@@ -6114,7 +6322,14 @@ function updateXlsyncPill() {
   _xlIdbGet(XLSYNC_KEY).then(h => {
     if (h) {
       pill.classList.add('active');
-      lbl.innerHTML = `<span class="sync-dot"></span> Excel synced`;
+      const twoWay = xlsyncIsTwoWay();
+      if (_xlsyncWriting) {
+        lbl.innerHTML = `<span class="sync-dot"></span> Writing to Excel…`;
+      } else if (twoWay) {
+        lbl.innerHTML = `<span class="sync-dot"></span> Excel ⇄ synced`;
+      } else {
+        lbl.innerHTML = `<span class="sync-dot"></span> Excel synced`;
+      }
     } else {
       pill.classList.remove('active');
       lbl.textContent = 'Connect Excel';
