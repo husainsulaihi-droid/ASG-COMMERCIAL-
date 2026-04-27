@@ -1721,6 +1721,19 @@ body {
 .cheque-section-header svg { stroke: var(--text-3); }
 
 /* ─── CHEQUE INPUT TABLE ─────────────────── */
+/* ─── PROPOSAL GRAND TOTAL PREVIEW ──────── */
+.proposal-total-preview {
+  display: flex; justify-content: space-between; align-items: center;
+  background: linear-gradient(135deg, #1a1f2e 0%, #2d3449 100%);
+  border-radius: 10px; padding: 14px 20px; margin-top: 8px;
+}
+.ptotal-label {
+  font-size: 13px; font-weight: 600; color: rgba(255,255,255,.75); letter-spacing: .3px;
+}
+.ptotal-value {
+  font-size: 20px; font-weight: 800; color: #c9a84c; letter-spacing: -.3px;
+}
+
 .cheque-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .cheque-head, .cheque-row {
   display: grid;

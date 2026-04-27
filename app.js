@@ -1880,15 +1880,23 @@ function openProposalModal() {
   $('pslClientCompany').value = '';
   $('pslClientPhone').value = '';
   $('pslClientEmail').value = '';
-  $('pslAnnualRent').value  = '';
-  $('pslDeposit').value     = '';
-  $('pslAgencyFee').value   = '';
-  $('pslOtherCharges').value= '';
-  $('pslOtherDesc').value   = '';
-  $('pslNumCheques').value  = '';
-  $('pslTerms').value       = 'All post-dated cheques to be submitted upon signing of the tenancy contract\nSecurity deposit is fully refundable at end of tenancy, subject to property condition\nRent is inclusive of building maintenance charges\nThis proposal is subject to final approval and signing of a formal tenancy agreement';
-  $('pslNotes').value       = '';
+  $('pslAnnualRent').value     = '';
+  $('pslDeposit').value        = '';
+  $('pslAgencyFee').value      = '';
+  $('pslOtherCharges').value   = '';
+  $('pslOtherDesc').value      = '';
+  $('pslServiceCharges').value = '';
+  $('pslServiceDesc').value    = '';
+  $('pslTaxPct').value         = '';
+  $('pslTaxAmount').value      = '';
+  $('pslCompanyFees').value    = '';
+  $('pslCompanyFeesDesc').value= '';
+  $('pslNumCheques').value     = '';
+  $('pslTerms').value          = 'All post-dated cheques to be submitted upon signing of the tenancy contract\nSecurity deposit is fully refundable at end of tenancy, subject to property condition\nService charges are payable separately as per RERA / DLD regulations\nThis proposal is subject to final approval and signing of a formal tenancy agreement';
+  $('pslNotes').value          = '';
   $('proposalChequeFields').innerHTML = '';
+  const prevEl = $('proposalTotalPreview');
+  if (prevEl) prevEl.style.display = 'none';
 
   const props = loadProps();
   $('pslPropLink').innerHTML = '<option value="">— Select property to auto-fill —</option>' +
@@ -1936,6 +1944,50 @@ function recalcProposalCheques() {
   $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
     if (!inp.value) inp.value = per;
   });
+  updateProposalGrandTotal();
+}
+
+// Recalculate VAT amount from % (or % from amount) and update grand total
+function recalcProposalTax(changedField) {
+  const rent = Number($('pslAnnualRent').value) || 0;
+  if (changedField === 'pct') {
+    const pct = Number($('pslTaxPct').value) || 0;
+    if (pct && rent) {
+      $('pslTaxAmount').value = Math.round(rent * pct / 100);
+    }
+  } else if (changedField === 'amount') {
+    const amt = Number($('pslTaxAmount').value) || 0;
+    if (amt && rent) {
+      $('pslTaxPct').value = (amt / rent * 100).toFixed(2);
+    } else if (!amt) {
+      $('pslTaxPct').value = '';
+    }
+  }
+  updateProposalGrandTotal();
+}
+
+// Live grand total preview in the form
+function updateProposalGrandTotal() {
+  const gn = id => Number($(id)?.value) || 0;
+  const rent     = gn('pslAnnualRent');
+  const deposit  = gn('pslDeposit');
+  const agency   = gn('pslAgencyFee');
+  const other    = gn('pslOtherCharges');
+  const service  = gn('pslServiceCharges');
+  const tax      = gn('pslTaxAmount');
+  const company  = gn('pslCompanyFees');
+  const grand    = rent + deposit + agency + other + service + tax + company;
+
+  const prevEl   = $('proposalTotalPreview');
+  const totalEl  = $('proposalGrandTotal');
+  if (!prevEl || !totalEl) return;
+
+  if (grand > 0) {
+    prevEl.style.display = '';
+    totalEl.textContent  = 'AED ' + grand.toLocaleString();
+  } else {
+    prevEl.style.display = 'none';
+  }
 }
 
 function renderProposalCheques() {
@@ -1985,15 +2037,21 @@ function downloadProposal() {
   const company    = g('pslClientCompany');
   const phone      = g('pslClientPhone');
   const email      = g('pslClientEmail');
-  const rent       = gn('pslAnnualRent');
-  const deposit    = gn('pslDeposit');
-  const agency     = gn('pslAgencyFee');
-  const other      = gn('pslOtherCharges');
-  const otherDesc  = g('pslOtherDesc');
-  const termsRaw   = g('pslTerms');
-  const notes      = g('pslNotes');
-  const terms      = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
-  const totalInit  = deposit + agency + other;
+  const rent           = gn('pslAnnualRent');
+  const deposit        = gn('pslDeposit');
+  const agency         = gn('pslAgencyFee');
+  const other          = gn('pslOtherCharges');
+  const otherDesc      = g('pslOtherDesc');
+  const serviceCharges = gn('pslServiceCharges');
+  const serviceDesc    = g('pslServiceDesc') || 'Service Charges';
+  const taxPct         = gn('pslTaxPct');
+  const taxAmount      = gn('pslTaxAmount') || (taxPct && rent ? Math.round(rent * taxPct / 100) : 0);
+  const companyFees    = gn('pslCompanyFees');
+  const companyDesc    = g('pslCompanyFeesDesc') || 'Company Fees';
+  const termsRaw       = g('pslTerms');
+  const notes          = g('pslNotes');
+  const terms          = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
+  const grandTotal     = rent + deposit + agency + other + serviceCharges + taxAmount + companyFees;
 
   const cheques = [];
   $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
@@ -2095,11 +2153,14 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 
 <div class="fin">
   <div class="fin-title">Financial Summary</div>
-  ${rent    ? `<div class="fin-row"><span class="fl">Annual Rent</span><span class="fv">${fa(rent)}</span></div>` : ''}
-  ${deposit ? `<div class="fin-row"><span class="fl">Security Deposit</span><span class="fv">${fa(deposit)}</span></div>` : ''}
-  ${agency  ? `<div class="fin-row"><span class="fl">Agency / Commission Fee</span><span class="fv">${fa(agency)}</span></div>` : ''}
-  ${other   ? `<div class="fin-row"><span class="fl">${he(otherDesc)||'Other Charges'}</span><span class="fv">${fa(other)}</span></div>` : ''}
-  ${totalInit ? `<div class="fin-row tot"><span class="fl">Total Initial Payment</span><span class="fv">${fa(totalInit)}</span></div>` : ''}
+  ${rent           ? `<div class="fin-row"><span class="fl">Annual Rent</span><span class="fv">${fa(rent)}</span></div>` : ''}
+  ${deposit        ? `<div class="fin-row"><span class="fl">Security Deposit</span><span class="fv">${fa(deposit)}</span></div>` : ''}
+  ${agency         ? `<div class="fin-row"><span class="fl">Agency / Commission Fee</span><span class="fv">${fa(agency)}</span></div>` : ''}
+  ${serviceCharges ? `<div class="fin-row"><span class="fl">${he(serviceDesc)}</span><span class="fv">${fa(serviceCharges)}</span></div>` : ''}
+  ${taxAmount      ? `<div class="fin-row"><span class="fl">VAT / Tax${taxPct ? ` (${taxPct}%)` : ''}</span><span class="fv">${fa(taxAmount)}</span></div>` : ''}
+  ${companyFees    ? `<div class="fin-row"><span class="fl">${he(companyDesc)}</span><span class="fv">${fa(companyFees)}</span></div>` : ''}
+  ${other          ? `<div class="fin-row"><span class="fl">${he(otherDesc)||'Other Charges'}</span><span class="fv">${fa(other)}</span></div>` : ''}
+  ${grandTotal     ? `<div class="fin-row tot"><span class="fl">Grand Total</span><span class="fv">${fa(grandTotal)}</span></div>` : ''}
 </div>
 
 ${cheques.length ? `

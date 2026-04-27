@@ -2042,21 +2042,21 @@
           <div class="form-row">
             <div class="form-group">
               <label>Annual Rent (AED)</label>
-              <input type="number" id="pslAnnualRent" placeholder="e.g. 180,000" min="0" oninput="recalcProposalCheques()">
+              <input type="number" id="pslAnnualRent" placeholder="e.g. 180,000" min="0" oninput="recalcProposalCheques();updateProposalGrandTotal()">
             </div>
             <div class="form-group">
               <label>Security Deposit (AED)</label>
-              <input type="number" id="pslDeposit" placeholder="e.g. 30,000" min="0">
+              <input type="number" id="pslDeposit" placeholder="e.g. 30,000" min="0" oninput="updateProposalGrandTotal()">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label>Agency / Commission Fee (AED)</label>
-              <input type="number" id="pslAgencyFee" placeholder="e.g. 9,000" min="0">
+              <input type="number" id="pslAgencyFee" placeholder="e.g. 9,000" min="0" oninput="updateProposalGrandTotal()">
             </div>
             <div class="form-group">
               <label>Other Charges (AED)</label>
-              <input type="number" id="pslOtherCharges" placeholder="e.g. DEWA deposit" min="0">
+              <input type="number" id="pslOtherCharges" placeholder="e.g. DEWA deposit" min="0" oninput="updateProposalGrandTotal()">
             </div>
           </div>
           <div class="form-group">
@@ -2088,10 +2088,66 @@
           <div id="proposalChequeFields"></div>
         </div>
 
-        <!-- Section 06: Terms & Conditions -->
+        <!-- Section 06: Additional Charges -->
         <div class="form-section">
           <div class="section-header">
             <span class="section-num">06</span>
+            <h3 class="section-title">Additional Charges</h3>
+          </div>
+
+          <!-- Service Charges -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>Service Charges (AED / year)
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — building maintenance, cooling, HVAC, etc.</span>
+              </label>
+              <input type="number" id="pslServiceCharges" placeholder="e.g. 15,000" min="0" oninput="updateProposalGrandTotal()">
+            </div>
+            <div class="form-group">
+              <label>Service Charges Description</label>
+              <input type="text" id="pslServiceDesc" placeholder="e.g. Building maintenance &amp; HVAC charges">
+            </div>
+          </div>
+
+          <!-- VAT / Tax -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>VAT / Tax Rate (%)
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — applied on annual rent · UAE standard is 5%</span>
+              </label>
+              <input type="number" id="pslTaxPct" placeholder="e.g. 5" min="0" max="100" step="0.1" oninput="recalcProposalTax('pct')">
+            </div>
+            <div class="form-group">
+              <label>VAT / Tax Amount (AED)
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — auto-calculated or enter manually</span>
+              </label>
+              <input type="number" id="pslTaxAmount" placeholder="Auto-calculated from %" min="0" oninput="recalcProposalTax('amount')">
+            </div>
+          </div>
+
+          <!-- Company Fees -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>Company Fees (AED)</label>
+              <input type="number" id="pslCompanyFees" placeholder="e.g. 5,000" min="0" oninput="updateProposalGrandTotal()">
+            </div>
+            <div class="form-group">
+              <label>Company Fees Description</label>
+              <input type="text" id="pslCompanyFeesDesc" placeholder="e.g. ASG Commercial management fee">
+            </div>
+          </div>
+
+          <!-- Live grand total preview -->
+          <div class="proposal-total-preview" id="proposalTotalPreview" style="display:none;">
+            <span class="ptotal-label">Estimated Grand Total</span>
+            <span class="ptotal-value" id="proposalGrandTotal">AED 0</span>
+          </div>
+        </div>
+
+        <!-- Section 07: Terms & Conditions -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">07</span>
             <h3 class="section-title">Terms &amp; Conditions</h3>
           </div>
           <div class="form-group">
@@ -2100,10 +2156,10 @@
           </div>
         </div>
 
-        <!-- Section 07: Notes -->
+        <!-- Section 08: Notes -->
         <div class="form-section" style="margin-bottom:0;">
           <div class="section-header">
-            <span class="section-num">07</span>
+            <span class="section-num">08</span>
             <h3 class="section-title">Additional Notes</h3>
           </div>
           <div class="form-group">
