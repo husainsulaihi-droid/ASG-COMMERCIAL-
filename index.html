@@ -2290,8 +2290,14 @@
               <input type="text" id="agentName" placeholder="e.g. Ahmed Al Mansoori">
             </div>
             <div class="form-group">
-              <label>Role / Title</label>
-              <input type="text" id="agentRole" placeholder="e.g. Property Agent">
+              <label>Role <span class="req">*</span></label>
+              <select id="agentRole">
+                <option value="sales">🏷️ Sales Agent — vacant inventory only</option>
+                <option value="leasing">📋 Leasing / Lease Manager — rented properties</option>
+                <option value="general">👤 General Agent — full access</option>
+                <option value="admin_assistant">📂 Admin Assistant — limited tools</option>
+              </select>
+              <div class="cf-note" id="agentRoleHint" style="margin-top:6px;font-size:11px;color:var(--text-3);"></div>
             </div>
           </div>
           <div class="form-row">

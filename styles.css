@@ -2990,3 +2990,26 @@ body {
   .home-tile-label { font-size:13px; }
   .home-tile-icon { width:44px; height:44px; }
 }
+
+/* ── Agent inventory intro banner (role-aware) ── */
+.agent-inv-intro {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 18px; border-radius:10px;
+  margin-bottom:16px;
+  border:1px solid;
+}
+.aii-icon { font-size:24px; flex-shrink:0; }
+.aii-title { font-size:14px; font-weight:700; }
+.aii-sub   { font-size:12px; margin-top:3px; line-height:1.45; }
+
+.agent-inv-intro-sales {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: #6ee7b7; color: #065f46;
+}
+.agent-inv-intro-sales .aii-sub { color: #047857; }
+
+.agent-inv-intro-leasing {
+  background: linear-gradient(135deg, #faf5ff 0%, #e9d5ff 100%);
+  border-color: #c4b5fd; color: #5b21b6;
+}
+.agent-inv-intro-leasing .aii-sub { color: #6d28d9; }

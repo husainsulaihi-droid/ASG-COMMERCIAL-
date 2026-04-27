@@ -2895,6 +2895,45 @@ function flyToPin(lat, lng) {
 const AGENTS_KEY = 'asg_agents';
 const TASKS_KEY  = 'asg_tasks';
 
+// ── Agent role definitions ──────────────────────────
+// Each role controls what the agent sees in their dashboard's Inventory
+// tab plus a hint shown when adding/editing the agent.
+const AGENT_ROLES = {
+  sales: {
+    label:    'Sales Agent',
+    icon:     '🏷️',
+    color:    '#0d9488',
+    inventoryFilter: p => p.status === 'vacant',
+    hint:     'Sees only vacant properties (the inventory available to lease/sell). Best for agents whose job is to find tenants/buyers.',
+    defaultPerms: { viewFinancials: false, viewTenant: false, updateStatus: true, addNotes: true },
+  },
+  leasing: {
+    label:    'Leasing Manager',
+    icon:     '📋',
+    color:    '#7c3aed',
+    inventoryFilter: p => p.status === 'rented',
+    hint:     'Sees rented properties for renewal, payment tracking, and tenant management. Hides vacant inventory.',
+    defaultPerms: { viewFinancials: true,  viewTenant: true,  updateStatus: true, addNotes: true },
+  },
+  general: {
+    label:    'General Agent',
+    icon:     '👤',
+    color:    '#1c2b4a',
+    inventoryFilter: () => true,
+    hint:     'Full access to all properties (vacant and rented). Use for senior staff or all-rounder agents.',
+    defaultPerms: { viewFinancials: false, viewTenant: true,  updateStatus: true, addNotes: true },
+  },
+  admin_assistant: {
+    label:    'Admin Assistant',
+    icon:     '📂',
+    color:    '#475569',
+    inventoryFilter: () => true,
+    hint:     'Read-only support staff with full visibility but no status-change rights.',
+    defaultPerms: { viewFinancials: false, viewTenant: true,  updateStatus: false, addNotes: true },
+  },
+};
+function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; }
+
 function loadAgents() { try { return JSON.parse(localStorage.getItem(AGENTS_KEY)) || []; } catch { return []; } }
 function saveAgents(a) { localStorage.setItem(AGENTS_KEY, JSON.stringify(a)); }
 function loadTasks()   { try { return JSON.parse(localStorage.getItem(TASKS_KEY))  || []; } catch { return []; } }
@@ -2930,18 +2969,43 @@ function openAgentModal(id) {
   $('agentModalTitle').textContent = ag ? 'Edit Agent' : 'Add Agent';
   $('agentId').value       = ag ? ag.id : '';
   $('agentName').value     = ag ? ag.name     : '';
-  $('agentRole').value     = ag ? (ag.role    || '') : '';
+  // Role: legacy free-text agents may have arbitrary strings; map them to 'general' so the dropdown still works
+  const roleVal = ag ? (ag.role || '') : 'sales';   // default new agents to "sales" since that's the most common case
+  $('agentRole').value     = AGENT_ROLES[roleVal] ? roleVal : 'general';
   $('agentPhone').value    = ag ? (ag.phone   || '') : '';
   $('agentEmail').value    = ag ? (ag.email   || '') : '';
   $('agentUsername').value = ag ? ag.username : '';
   $('agentPassword').value = ag ? ag.password : '';
-  const p = ag ? (ag.permissions || {}) : {};
+  const p = ag ? (ag.permissions || agentRoleMeta($('agentRole').value).defaultPerms) : agentRoleMeta($('agentRole').value).defaultPerms;
   $('permViewFinancials').checked = p.viewFinancials || false;
   $('permViewTenant').checked     = p.viewTenant !== false;
   $('permUpdateStatus').checked   = p.updateStatus !== false;
   $('permAddNotes').checked       = p.addNotes !== false;
+  updateAgentRoleHint();
+  // Re-bind role change to live-update hint and (for new agents) prefill perms
+  const sel = $('agentRole');
+  if (sel && !sel._asgBound) {
+    sel.addEventListener('change', () => {
+      updateAgentRoleHint();
+      // Only auto-update permissions when adding a new agent, never on edit (user might have customised)
+      if (!$('agentId').value) {
+        const dp = agentRoleMeta(sel.value).defaultPerms;
+        $('permViewFinancials').checked = dp.viewFinancials || false;
+        $('permViewTenant').checked     = dp.viewTenant !== false;
+        $('permUpdateStatus').checked   = dp.updateStatus !== false;
+        $('permAddNotes').checked       = dp.addNotes !== false;
+      }
+    });
+    sel._asgBound = true;
+  }
   $('agentModalOverlay').classList.add('active');
   setTimeout(() => $('agentName').focus(), 100);
+}
+
+function updateAgentRoleHint() {
+  const meta = agentRoleMeta($('agentRole').value);
+  const hint = $('agentRoleHint');
+  if (hint) hint.textContent = meta.hint || '';
 }
 function closeAgentModal() { $('agentModalOverlay').classList.remove('active'); }
 
@@ -3189,7 +3253,7 @@ function renderTeamTab() {
           <div class="agent-card-avatar">${ag.name.charAt(0).toUpperCase()}</div>
           <div class="agent-card-body">
             <div class="agent-card-name">${h(ag.name)} ${ag.active ? '' : '<span class="chip" style="background:#fee2e2;color:#dc2626;font-size:10px;">Inactive</span>'}</div>
-            <div class="agent-card-role">${h(ag.role || 'Agent')} ${ag.phone ? '· '+h(ag.phone) : ''}</div>
+            <div class="agent-card-role">${(()=>{const m=agentRoleMeta(ag.role); return m.icon+' '+h(m.label);})()} ${ag.phone ? '· '+h(ag.phone) : ''}</div>
             <div class="agent-card-stats">
               <span class="agent-stat"><strong>${active}</strong> active tasks</span>
               <span class="agent-stat"><strong>${done}</strong> done</span>
@@ -3370,7 +3434,7 @@ function renderAgentDashboard() {
       <div class="agent-welcome-avatar">${name.charAt(0).toUpperCase()}</div>
       <div style="flex:1;">
         <div class="agent-welcome-name">Welcome back, ${h(name)}</div>
-        <div class="agent-welcome-role">${h(ag.role || 'Property Agent')}</div>
+        <div class="agent-welcome-role">${(()=>{const m=agentRoleMeta(ag.role); return m.icon+' '+h(m.label);})()}</div>
       </div>
       ${wins.length ? `<div class="agent-wins-chip">🏆 ${wins.length} Client Win${wins.length>1?'s':''}</div>` : ''}
     </div>`;
@@ -4957,16 +5021,17 @@ function renderAgentOverview() {
   const doneT   = myTasks.filter(t => t.status==='done').length;
   const activeL = myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length;
 
+  const _roleMeta = agentRoleMeta(ag.role);
   $('agentNavAvatar').textContent = name.charAt(0).toUpperCase();
   $('agentNavName').textContent   = name;
-  $('agentNavRole').textContent   = ag.role || 'Property Agent';
+  $('agentNavRole').textContent   = _roleMeta.icon + ' ' + _roleMeta.label;
 
   $('agentWelcome').innerHTML = `
     <div class="agent-welcome-inner">
       <div class="agent-welcome-avatar">${name.charAt(0).toUpperCase()}</div>
       <div style="flex:1;">
         <div class="agent-welcome-name">Welcome back, ${h(name)}</div>
-        <div class="agent-welcome-role">${h(ag.role || 'Property Agent')}</div>
+        <div class="agent-welcome-role">${_roleMeta.icon} ${h(_roleMeta.label)}</div>
       </div>
       ${(wins.length+wonLeads.length) ? `<div class="agent-wins-chip">🏆 ${wins.length+wonLeads.length} Win${wins.length+wonLeads.length>1?'s':''}</div>` : ''}
     </div>`;
@@ -5065,20 +5130,57 @@ function renderAgentOverview() {
 
 // ── Agent Inventory ────────────────────────────────
 function renderAgentInventory() {
-  const props = loadProps();
+  const allProps = loadProps();
   const sess  = getSession();
   if (!sess || sess.type !== 'agent') return;
   const perms = sess.perms || {};
   const list  = $('agentInventoryList');
   if (!list) return;
 
-  if (!props.length) {
+  // Filter properties based on this agent's role
+  const role = sess.role || 'general';
+  const meta = agentRoleMeta(role);
+  const props = allProps.filter(meta.inventoryFilter);
+
+  // Banner explaining what the agent is seeing
+  const intro = (() => {
+    if (role === 'sales') {
+      return `<div class="agent-inv-intro agent-inv-intro-sales">
+        <div class="aii-icon">🏷️</div>
+        <div>
+          <div class="aii-title">Sales Inventory · ${props.length} vacant ${props.length === 1 ? 'property' : 'properties'}</div>
+          <div class="aii-sub">These are the properties available to lease or sell. Find a tenant or buyer and update the status.</div>
+        </div>
+      </div>`;
+    }
+    if (role === 'leasing') {
+      return `<div class="agent-inv-intro agent-inv-intro-leasing">
+        <div class="aii-icon">📋</div>
+        <div>
+          <div class="aii-title">Active Leases · ${props.length} rented ${props.length === 1 ? 'property' : 'properties'}</div>
+          <div class="aii-sub">Manage existing tenants, track lease renewals, and follow up on payments.</div>
+        </div>
+      </div>`;
+    }
+    return '';
+  })();
+
+  if (!allProps.length) {
     list.innerHTML = `<div class="team-empty"><div class="empty-icon">🏗️</div><p>No properties in the portfolio yet.</p></div>`;
+    return;
+  }
+  if (!props.length) {
+    const emptyMsg = role === 'sales'
+      ? 'No vacant properties right now — everything in the portfolio is currently rented. Great work!'
+      : role === 'leasing'
+        ? 'No properties are currently rented out.'
+        : 'No properties match your filter.';
+    list.innerHTML = `${intro}<div class="team-empty"><div class="empty-icon">${role==='sales'?'✅':'🏗️'}</div><p>${emptyMsg}</p></div>`;
     return;
   }
 
   const typeIcon = { warehouse:'🏭', office:'🏢', residential:'🏠' };
-  list.innerHTML = props.map(p => {
+  list.innerHTML = intro + props.map(p => {
     const statusColor = p.status==='vacant' ? 'var(--danger)' : 'var(--success)';
     return `
       <div class="inv-prop-card">
