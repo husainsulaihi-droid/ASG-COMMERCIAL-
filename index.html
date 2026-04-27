@@ -2590,82 +2590,243 @@
   <!-- ═══════════════════════════════════════ -->
   <!-- AGENT CONTRACT BUILDER MODAL           -->
   <!-- ═══════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════ -->
+  <!-- DLD EJARI CONTRACT BUILDER            -->
+  <!-- ═══════════════════════════════════════ -->
   <div class="modal-overlay" id="agentContractOverlay">
-    <div class="modal" style="max-width:700px;max-height:90vh;">
-      <div class="modal-header">
+    <div class="modal" style="max-width:780px;max-height:92vh;">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a1f2e,#2d3449);color:#fff;border-radius:12px 12px 0 0;">
         <div class="modal-header-left">
-          <div class="modal-header-icon">📝</div>
-          <div><h2>Tenancy Contract Builder</h2><p class="modal-subtitle">Fill in and generate a professional tenancy contract PDF</p></div>
+          <div class="modal-header-icon" style="background:rgba(201,168,76,.2);color:#c9a84c;">📋</div>
+          <div>
+            <h2 style="color:#fff;">عقد إيجار / Tenancy Contract</h2>
+            <p class="modal-subtitle" style="color:rgba(255,255,255,.6);">Dubai Land Department — Official EJARI Format</p>
+          </div>
         </div>
-        <button class="modal-close" onclick="$('agentContractOverlay').classList.remove('active')">
+        <button class="modal-close" style="color:#fff;" onclick="$('agentContractOverlay').classList.remove('active')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="modal-body" style="max-height:68vh;overflow-y:auto;">
+      <div class="modal-body" style="max-height:72vh;overflow-y:auto;padding:20px 24px;">
+
+        <!-- Auto-fill + Date -->
         <div class="form-section">
-          <div class="section-header"><span class="section-num">01</span><h3 class="section-title">Property Details</h3></div>
+          <div class="section-header"><span class="section-num">00</span><h3 class="section-title">Quick Setup</h3></div>
           <div class="form-row">
             <div class="form-group">
-              <label>Select Property (Auto-fill)</label>
+              <label>Select Property to Auto-fill</label>
               <select id="acf_prop" onchange="autofillAgentContract()">
-                <option value="">— Select property —</option>
+                <option value="">— Select a property —</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Contract Date</label>
+              <label>Contract Date <span class="req">*</span></label>
               <input type="date" id="acf_date">
             </div>
           </div>
+        </div>
+
+        <!-- Section 01: Owner / Lessor -->
+        <div class="form-section">
+          <div class="dld-section-hdr">
+            <span>Owner / Lessor Information</span>
+            <span class="dld-section-ar">معلومات المالك / المؤجر</span>
+          </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Property Location</label>
-              <input type="text" id="acf_location" placeholder="Full address">
+              <label>Owner's Name — اسم المالك</label>
+              <input type="text" id="acf_owner_name" placeholder="Full legal name of property owner">
             </div>
             <div class="form-group">
-              <label>Property Type</label>
-              <input type="text" id="acf_property_type" placeholder="e.g. Warehouse, Office">
+              <label>Lessor's Name — اسم المؤجر</label>
+              <input type="text" id="acf_lessor_name" placeholder="If different from owner (e.g. agent)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lessor's Emirates ID — الهوية الإماراتية للمؤجر</label>
+              <input type="text" id="acf_lessor_eid" placeholder="784-xxxx-xxxxxxx-x">
+            </div>
+            <div class="form-group">
+              <label>Lessor's Phone — رقم هاتف المؤجر</label>
+              <input type="tel" id="acf_lessor_phone" placeholder="+971 xx xxx xxxx">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lessor's Email — البريد الإلكتروني للمؤجر</label>
+              <input type="email" id="acf_lessor_email" placeholder="lessor@email.com">
+            </div>
+          </div>
+          <div class="dld-company-row">
+            <span class="dld-company-label">Incase of a Company — في حال كانت شركة</span>
+            <div class="form-row" style="margin-top:8px;">
+              <div class="form-group">
+                <label>License No. — رقم الرخصة</label>
+                <input type="text" id="acf_lessor_license" placeholder="Trade license number">
+              </div>
+              <div class="form-group">
+                <label>Licensing Authority — سلطة الترخيص</label>
+                <input type="text" id="acf_lessor_authority" placeholder="e.g. DED, DMCC, DAFZA">
+              </div>
             </div>
           </div>
         </div>
+
+        <!-- Section 02: Tenant -->
         <div class="form-section">
-          <div class="section-header"><span class="section-num">02</span><h3 class="section-title">Lessor (Owner)</h3></div>
+          <div class="dld-section-hdr">
+            <span>Tenant Information</span>
+            <span class="dld-section-ar">معلومات المستأجر</span>
+          </div>
           <div class="form-row">
-            <div class="form-group"><label>Owner Name</label><input type="text" id="acf_owner_name" placeholder="Full legal name"></div>
-            <div class="form-group"><label>Emirates ID</label><input type="text" id="acf_lessor_eid" placeholder="784-xxxx-xxxxxxx-x"></div>
+            <div class="form-group">
+              <label>Tenant's Name <span class="req">*</span> — اسم المستأجر</label>
+              <input type="text" id="acf_tenant_name" placeholder="Full legal name">
+            </div>
+            <div class="form-group">
+              <label>Tenant's Emirates ID — الهوية الإماراتية للمستأجر</label>
+              <input type="text" id="acf_tenant_eid" placeholder="784-xxxx-xxxxxxx-x">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenant's Phone — رقم هاتف المستأجر</label>
+              <input type="tel" id="acf_tenant_phone" placeholder="+971 xx xxx xxxx">
+            </div>
+            <div class="form-group">
+              <label>Tenant's Email — البريد الإلكتروني للمستأجر</label>
+              <input type="email" id="acf_tenant_email" placeholder="tenant@email.com">
+            </div>
+          </div>
+          <div class="dld-company-row">
+            <span class="dld-company-label">Incase of a Company — في حال كانت شركة</span>
+            <div class="form-row" style="margin-top:8px;">
+              <div class="form-group">
+                <label>License No. — رقم الرخصة</label>
+                <input type="text" id="acf_tenant_license" placeholder="Trade license number">
+              </div>
+              <div class="form-group">
+                <label>Licensing Authority — سلطة الترخيص</label>
+                <input type="text" id="acf_tenant_authority" placeholder="e.g. DED, DMCC, DAFZA">
+              </div>
+            </div>
           </div>
         </div>
+
+        <!-- Section 03: Property -->
         <div class="form-section">
-          <div class="section-header"><span class="section-num">03</span><h3 class="section-title">Lessee (Tenant)</h3></div>
-          <div class="form-row">
-            <div class="form-group"><label>Tenant Name <span class="req">*</span></label><input type="text" id="acf_tenant_name" placeholder="Full legal name"></div>
-            <div class="form-group"><label>Phone</label><input type="tel" id="acf_tenant_phone"></div>
+          <div class="dld-section-hdr">
+            <span>Property Information</span>
+            <span class="dld-section-ar">معلومات العقار</span>
+          </div>
+          <div class="form-group">
+            <label>Property Usage — استخدام العقار</label>
+            <div class="dld-usage-row">
+              <label class="dld-radio-lbl"><input type="radio" name="acf_usage" id="acf_usage_residential" value="Residential"> Residential سكني</label>
+              <label class="dld-radio-lbl"><input type="radio" name="acf_usage" id="acf_usage_commercial" value="Commercial" checked> Commercial تجاري</label>
+              <label class="dld-radio-lbl"><input type="radio" name="acf_usage" id="acf_usage_industrial" value="Industrial"> Industrial صناعي</label>
+            </div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>Emirates ID</label><input type="text" id="acf_tenant_eid"></div>
-            <div class="form-group"><label>Email</label><input type="email" id="acf_tenant_email"></div>
+            <div class="form-group">
+              <label>Plot No. — رقم الرخصة</label>
+              <input type="text" id="acf_plot_no" placeholder="Plot number">
+            </div>
+            <div class="form-group">
+              <label>Makani No. — رقم الرخصة Makani</label>
+              <input type="text" id="acf_makani_no" placeholder="10-digit Makani number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Building Name — اسم المبنى</label>
+              <input type="text" id="acf_building_name" placeholder="Building or complex name">
+            </div>
+            <div class="form-group">
+              <label>Property No. — رقم العقار</label>
+              <input type="text" id="acf_property_no" placeholder="Unit / property number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Property Type — نوع الوحدة</label>
+              <input type="text" id="acf_property_type" placeholder="e.g. Warehouse, Office, Apartment">
+            </div>
+            <div class="form-group">
+              <label>Property Area (m²) — مساحة العقار</label>
+              <input type="number" id="acf_property_area" placeholder="Area in square metres" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Location — الموقع</label>
+              <input type="text" id="acf_location" placeholder="Full address / area name">
+            </div>
+            <div class="form-group">
+              <label>Premises No. (DEWA) — رقم المبنى (ديوا)</label>
+              <input type="text" id="acf_dewa_no" placeholder="DEWA premises number">
+            </div>
           </div>
         </div>
+
+        <!-- Section 04: Contract -->
         <div class="form-section">
-          <div class="section-header"><span class="section-num">04</span><h3 class="section-title">Lease Terms</h3></div>
-          <div class="form-row">
-            <div class="form-group"><label>From Date</label><input type="date" id="acf_from"></div>
-            <div class="form-group"><label>To Date</label><input type="date" id="acf_to"></div>
+          <div class="dld-section-hdr">
+            <span>Contract Information</span>
+            <span class="dld-section-ar">معلومات العقد</span>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>Annual Rent (AED)</label><input type="number" id="acf_annual_rent" placeholder="e.g. 150000"></div>
-            <div class="form-group"><label>Security Deposit (AED)</label><input type="number" id="acf_deposit" placeholder="e.g. 10000"></div>
+            <div class="form-group">
+              <label>Contract Period From — من</label>
+              <input type="date" id="acf_from">
+            </div>
+            <div class="form-group">
+              <label>Contract Period To — إلى</label>
+              <input type="date" id="acf_to">
+            </div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>Number of Cheques</label><select id="acf_cheques"><option>1</option><option>2</option><option>4</option><option>6</option><option>12</option></select></div>
-            <div class="form-group"><label>Property Area (sqm)</label><input type="number" id="acf_property_area"></div>
+            <div class="form-group">
+              <label>Contract Value (AED) — قيمة العقد</label>
+              <input type="number" id="acf_contract_value" placeholder="Total contract value">
+            </div>
+            <div class="form-group">
+              <label>Annual Rent (AED) — الإيجار السنوي</label>
+              <input type="number" id="acf_annual_rent" placeholder="e.g. 150,000">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Security Deposit (AED) — مبلغ التأمين</label>
+              <input type="number" id="acf_deposit" placeholder="e.g. 10,000">
+            </div>
+            <div class="form-group">
+              <label>Mode of Payment — طريقة الدفع</label>
+              <input type="text" id="acf_payment_mode" placeholder="e.g. 4 Cheques, Bank Transfer">
+            </div>
           </div>
         </div>
+
+        <!-- Section 05: Additional Terms -->
+        <div class="form-section" style="margin-bottom:0;">
+          <div class="dld-section-hdr">
+            <span>Additional Terms — شروط إضافية</span>
+            <span class="dld-section-ar">اختياري</span>
+          </div>
+          <div class="form-group"><label>1.</label><input type="text" id="acf_add1" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>2.</label><input type="text" id="acf_add2" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>3.</label><input type="text" id="acf_add3" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>4.</label><input type="text" id="acf_add4" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>5.</label><input type="text" id="acf_add5" placeholder="Additional condition (optional)"></div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button class="btn-ghost" onclick="$('agentContractOverlay').classList.remove('active')">Cancel</button>
-        <button class="btn-primary" onclick="downloadAgentContract()">
+        <button class="btn-primary" onclick="downloadAgentContract()" style="background:#1a1f2e;border-color:#1a1f2e;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download Contract PDF
+          Generate EJARI Contract PDF
         </button>
       </div>
     </div>
