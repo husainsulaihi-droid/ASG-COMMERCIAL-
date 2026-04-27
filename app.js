@@ -5753,43 +5753,30 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 }
 
 // ═══════════════════════════════════════════════════
-// AUTO-IMPORT FROM EXCEL (admin only, one-time)
+// ONE-TIME CLEANUP — remove Excel-imported properties
 // ═══════════════════════════════════════════════════
 function autoImportPropertiesFromExcel() {
-  const FLAG = 'asg_import_v1_done';
-  // Already imported? Skip.
-  if (localStorage.getItem(FLAG)) return;
-  // No data bundle present? Skip.
-  if (!Array.isArray(window.ASG_IMPORT_DATA) || window.ASG_IMPORT_DATA.length === 0) return;
+  // Auto-import is disabled. This function now performs a one-time
+  // cleanup: it wipes any property that was previously auto-imported
+  // (id prefix "imp_") so the user gets a clean slate.
+  const CLEAN_FLAG = 'asg_import_cleanup_v1_done';
+  if (localStorage.getItem(CLEAN_FLAG)) return;
 
   const existing = loadProps();
-  const existingNames = new Set(existing.map(p => (p.name || '').toLowerCase().trim()));
-  const fresh = window.ASG_IMPORT_DATA.filter(p => {
-    const n = (p.name || '').toLowerCase().trim();
-    return n && !existingNames.has(n);
-  });
+  const kept = existing.filter(p => !(p.id || '').toString().startsWith('imp_'));
+  const removed = existing.length - kept.length;
 
-  if (fresh.length === 0) {
-    localStorage.setItem(FLAG, '1');
-    return;
+  if (removed > 0) {
+    persistProps(kept);
+    console.log(`✓ Cleanup: removed ${removed} Excel-imported properties; ${kept.length} manual entries kept.`);
+    if (typeof showToast === 'function') {
+      showToast(`Removed ${removed} imported properties — clean slate restored`, 'success');
+    }
   }
 
-  // Give each imported prop a fresh stable id and a createdAt
-  const now = new Date().toISOString();
-  const stamped = fresh.map(p => ({
-    ...p,
-    id: p.id || ('imp_' + Math.random().toString(36).slice(2, 10)),
-    createdAt: p.createdAt || now,
-  }));
-
-  const merged = [...existing, ...stamped];
-  persistProps(merged);
-  localStorage.setItem(FLAG, '1');
-
-  console.log(`✓ Auto-imported ${stamped.length} properties from Excel data (${existing.length} existing kept).`);
-  if (typeof showToast === 'function') {
-    showToast(`Imported ${stamped.length} properties from your Excel list`, 'success');
-  }
+  // Clear stale flags so nothing tries to re-import in the future
+  localStorage.removeItem('asg_import_v1_done');
+  localStorage.setItem(CLEAN_FLAG, '1');
 }
 
 // ═══════════════════════════════════════════════════
