@@ -2915,6 +2915,14 @@ const AGENT_ROLES = {
     hint:     'Sees rented properties for renewal, payment tracking, and tenant management. Hides vacant inventory.',
     defaultPerms: { viewFinancials: true,  viewTenant: true,  updateStatus: true, addNotes: true },
   },
+  property_management: {
+    label:    'Property Management Manager',
+    icon:     '🏢',
+    color:    '#b45309',
+    inventoryFilter: p => p.ownership === 'management',
+    hint:     'Sees only properties managed on behalf of external owners. Full access to owner details, management fees, tenant info, and disputes for that managed portfolio.',
+    defaultPerms: { viewFinancials: true,  viewTenant: true,  updateStatus: true, addNotes: true },
+  },
   general: {
     label:    'General Agent',
     icon:     '👤',
@@ -5162,6 +5170,17 @@ function renderAgentInventory() {
         </div>
       </div>`;
     }
+    if (role === 'property_management') {
+      const rentedManaged = props.filter(p => p.status === 'rented').length;
+      const vacantManaged = props.filter(p => p.status === 'vacant').length;
+      return `<div class="agent-inv-intro agent-inv-intro-pm">
+        <div class="aii-icon">🏢</div>
+        <div>
+          <div class="aii-title">Managed Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
+          <div class="aii-sub">${rentedManaged} rented · ${vacantManaged} vacant. Properties managed on behalf of external owners — track fees, owner relations, tenant compliance, and renewals.</div>
+        </div>
+      </div>`;
+    }
     return '';
   })();
 
@@ -5174,7 +5193,9 @@ function renderAgentInventory() {
       ? 'No vacant properties right now — everything in the portfolio is currently rented. Great work!'
       : role === 'leasing'
         ? 'No properties are currently rented out.'
-        : 'No properties match your filter.';
+        : role === 'property_management'
+          ? 'No properties under management yet. Add a property with Ownership = "Management Only" to see it here.'
+          : 'No properties match your filter.';
     list.innerHTML = `${intro}<div class="team-empty"><div class="empty-icon">${role==='sales'?'✅':'🏗️'}</div><p>${emptyMsg}</p></div>`;
     return;
   }

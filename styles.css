@@ -3013,3 +3013,9 @@ body {
   border-color: #c4b5fd; color: #5b21b6;
 }
 .agent-inv-intro-leasing .aii-sub { color: #6d28d9; }
+
+.agent-inv-intro-pm {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: #f59e0b; color: #78350f;
+}
+.agent-inv-intro-pm .aii-sub { color: #92400e; }
