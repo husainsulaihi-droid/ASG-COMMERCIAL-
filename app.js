@@ -5703,6 +5703,46 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 }
 
 // ═══════════════════════════════════════════════════
+// AUTO-IMPORT FROM EXCEL (admin only, one-time)
+// ═══════════════════════════════════════════════════
+function autoImportPropertiesFromExcel() {
+  const FLAG = 'asg_import_v1_done';
+  // Already imported? Skip.
+  if (localStorage.getItem(FLAG)) return;
+  // No data bundle present? Skip.
+  if (!Array.isArray(window.ASG_IMPORT_DATA) || window.ASG_IMPORT_DATA.length === 0) return;
+
+  const existing = loadProps();
+  const existingNames = new Set(existing.map(p => (p.name || '').toLowerCase().trim()));
+  const fresh = window.ASG_IMPORT_DATA.filter(p => {
+    const n = (p.name || '').toLowerCase().trim();
+    return n && !existingNames.has(n);
+  });
+
+  if (fresh.length === 0) {
+    localStorage.setItem(FLAG, '1');
+    return;
+  }
+
+  // Give each imported prop a fresh stable id and a createdAt
+  const now = new Date().toISOString();
+  const stamped = fresh.map(p => ({
+    ...p,
+    id: p.id || ('imp_' + Math.random().toString(36).slice(2, 10)),
+    createdAt: p.createdAt || now,
+  }));
+
+  const merged = [...existing, ...stamped];
+  persistProps(merged);
+  localStorage.setItem(FLAG, '1');
+
+  console.log(`✓ Auto-imported ${stamped.length} properties from Excel data (${existing.length} existing kept).`);
+  if (typeof showToast === 'function') {
+    showToast(`Imported ${stamped.length} properties from your Excel list`, 'success');
+  }
+}
+
+// ═══════════════════════════════════════════════════
 // FINANCIALS TAB (admin only)
 // ═══════════════════════════════════════════════════
 let _finYear = new Date().getFullYear();
@@ -6043,6 +6083,7 @@ boot = async function() {
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
     bindUI();
+    autoImportPropertiesFromExcel();   // ← one-time bulk load from Excel data
     showTab('warehouses');
     renderNavCounts(loadProps());
     setInterval(checkLeaseAlerts, 60000);
