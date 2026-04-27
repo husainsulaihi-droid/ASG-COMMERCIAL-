@@ -2103,59 +2103,59 @@
           </div>
         </div>
 
-        <!-- Section 04: Financial Terms -->
+        <!-- Section 04: Rental & Lessor -->
         <div class="form-section">
           <div class="section-header">
             <span class="section-num">04</span>
-            <h3 class="section-title">Financial Terms</h3>
+            <h3 class="section-title">Rental &amp; Lessor</h3>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Annual Rent (AED)</label>
-              <input type="number" id="pslAnnualRent" placeholder="e.g. 180,000" min="0" oninput="recalcProposalCheques();updateProposalGrandTotal()">
+              <label>Annual Rent (AED) <span class="req">*</span></label>
+              <input type="number" id="pslAnnualRent" placeholder="e.g. 150,000" min="0" oninput="recalcProposalCheques();recalcAdditionalCharges();updateProposalGrandTotal()">
             </div>
-            <div class="form-group">
-              <label>Security Deposit (AED)</label>
-              <input type="number" id="pslDeposit" placeholder="e.g. 30,000" min="0" oninput="updateProposalGrandTotal()">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Agency / Commission Fee (AED)</label>
-              <input type="number" id="pslAgencyFee" placeholder="e.g. 9,000" min="0" oninput="updateProposalGrandTotal()">
-            </div>
-            <div class="form-group">
-              <label>Other Charges (AED)</label>
-              <input type="number" id="pslOtherCharges" placeholder="e.g. DEWA deposit" min="0" oninput="updateProposalGrandTotal()">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Other Charges Description</label>
-            <input type="text" id="pslOtherDesc" placeholder="e.g. DEWA security deposit, Ejari registration fee">
-          </div>
-        </div>
-
-        <!-- Section 05: Payment Schedule -->
-        <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">05</span>
-            <h3 class="section-title">Payment Schedule</h3>
-          </div>
-          <div class="form-row">
             <div class="form-group">
               <label>Number of Cheques</label>
-              <select id="pslNumCheques" onchange="renderProposalCheques()">
-                <option value="">— Select —</option>
+              <select id="pslNumCheques" onchange="renderProposalCheques();recalcProposalCheques()">
                 <option value="1">1 cheque (annual)</option>
                 <option value="2">2 cheques</option>
                 <option value="3">3 cheques</option>
-                <option value="4">4 cheques</option>
-                <option value="5">5 cheques</option>
+                <option value="4" selected>4 cheques</option>
                 <option value="6">6 cheques</option>
+                <option value="12">12 cheques (monthly)</option>
               </select>
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenancy Start Date</label>
+              <input type="date" id="pslTenancyFrom" oninput="autoSpacePslChequeDates()">
+            </div>
+            <div class="form-group">
+              <label>Tenancy End Date</label>
+              <input type="date" id="pslTenancyTo">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Lessor / Payable To (Rent recipient)
+              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — the legal entity receiving the rent</span>
+            </label>
+            <input type="text" id="pslLessorName" placeholder="e.g. CALCON MEASURING AND CONTROL SYSTEMS TRADING L.L.C">
+          </div>
+        </div>
+
+        <!-- Section 05: Rental Payment Breakdown -->
+        <div class="form-section">
+          <div class="section-header">
+            <span class="section-num">05</span>
+            <h3 class="section-title">Rental Payment Breakdown</h3>
+          </div>
+          <p class="cf-note" style="margin:-6px 0 14px;">Each row's amount auto-splits the annual rent equally — adjust manually if a cheque differs. The "Payable To" defaults to the Lessor name above.</p>
           <div id="proposalChequeFields"></div>
+          <div class="psl-rent-total" id="pslRentTotal" style="display:none;">
+            <span class="psl-rent-total-lbl">TOTAL Rent Value <span style="font-style:italic;font-weight:400;">(exclusive of 5% VAT)</span></span>
+            <span class="psl-rent-total-val" id="pslRentTotalVal">AED 0</span>
+          </div>
         </div>
 
         <!-- Section 06: Additional Charges -->
@@ -2164,52 +2164,52 @@
             <span class="section-num">06</span>
             <h3 class="section-title">Additional Charges</h3>
           </div>
+          <p class="cf-note" style="margin:-6px 0 14px;">VAT auto-calculates at 5% of annual rent. The other three charges are editable. "Payable To" defaults are pre-filled per industry standard — override if needed.</p>
 
-          <!-- Service Charges -->
-          <div class="form-row">
-            <div class="form-group">
-              <label>Service Charges (AED / year)
-                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — building maintenance, cooling, HVAC, etc.</span>
-              </label>
-              <input type="number" id="pslServiceCharges" placeholder="e.g. 15,000" min="0" oninput="updateProposalGrandTotal()">
+          <div class="psl-add-tbl">
+            <div class="psl-add-head">
+              <span>Particulars</span>
+              <span>Cheque Date</span>
+              <span>Amount (AED)</span>
+              <span>Payable To</span>
             </div>
-            <div class="form-group">
-              <label>Service Charges Description</label>
-              <input type="text" id="pslServiceDesc" placeholder="e.g. Building maintenance &amp; HVAC charges">
-            </div>
-          </div>
 
-          <!-- VAT / Tax -->
-          <div class="form-row">
-            <div class="form-group">
-              <label>VAT / Tax Rate (%)
-                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — applied on annual rent · UAE standard is 5%</span>
-              </label>
-              <input type="number" id="pslTaxPct" placeholder="e.g. 5" min="0" max="100" step="0.1" oninput="recalcProposalTax('pct')">
+            <!-- 5% VAT (auto) -->
+            <div class="psl-add-row">
+              <span class="psl-add-label">5% VAT on Rent</span>
+              <input type="text" id="pslVatDate" value="CDC" placeholder="CDC">
+              <input type="number" id="pslVatAmount" min="0" placeholder="Auto-calc" oninput="updateProposalGrandTotal()">
+              <input type="text" id="pslVatPayable" placeholder="Auto = Lessor">
             </div>
-            <div class="form-group">
-              <label>VAT / Tax Amount (AED)
-                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — auto-calculated or enter manually</span>
-              </label>
-              <input type="number" id="pslTaxAmount" placeholder="Auto-calculated from %" min="0" oninput="recalcProposalTax('amount')">
-            </div>
-          </div>
 
-          <!-- Company Fees -->
-          <div class="form-row">
-            <div class="form-group">
-              <label>Company Fees (AED)</label>
-              <input type="number" id="pslCompanyFees" placeholder="e.g. 5,000" min="0" oninput="updateProposalGrandTotal()">
+            <!-- Annual Maintenance -->
+            <div class="psl-add-row">
+              <span class="psl-add-label">Annual Maintenance Fee</span>
+              <input type="text" id="pslMaintDate" value="CDC" placeholder="CDC">
+              <input type="number" id="pslMaintAmount" min="0" placeholder="e.g. 5,000" oninput="updateProposalGrandTotal()">
+              <input type="text" id="pslMaintPayable" placeholder="Auto = Lessor">
             </div>
-            <div class="form-group">
-              <label>Company Fees Description</label>
-              <input type="text" id="pslCompanyFeesDesc" placeholder="e.g. ASG Commercial management fee">
+
+            <!-- Admin Fee -->
+            <div class="psl-add-row">
+              <span class="psl-add-label">Administration Fee <span style="font-style:italic;color:var(--text-3);font-weight:400;">(inclusive of VAT)</span></span>
+              <input type="text" id="pslAdminDate" value="CDC" placeholder="CDC">
+              <input type="number" id="pslAdminAmount" min="0" placeholder="e.g. 5,250" oninput="updateProposalGrandTotal()">
+              <input type="text" id="pslAdminPayable" value="ASG Commercial Properties L.L.C">
+            </div>
+
+            <!-- DREC + Ejari -->
+            <div class="psl-add-row">
+              <span class="psl-add-label">20% DREC Sub-Lease Fee <span style="font-style:italic;color:var(--text-3);font-weight:400;">(Inclusive of 5% VAT)</span> + Ejari Fees</span>
+              <input type="text" id="pslDrecDate" value="Cheque/Card" placeholder="Cheque/Card">
+              <input type="number" id="pslDrecAmount" min="0" placeholder="Auto-calc" oninput="updateProposalGrandTotal()">
+              <input type="text" id="pslDrecPayable" value="DUBAI REAL ESTATE CORPORATION">
             </div>
           </div>
 
           <!-- Live grand total preview -->
           <div class="proposal-total-preview" id="proposalTotalPreview" style="display:none;">
-            <span class="ptotal-label">Estimated Grand Total</span>
+            <span class="ptotal-label">Estimated Grand Total (Rent + Additional Charges)</span>
             <span class="ptotal-value" id="proposalGrandTotal">AED 0</span>
           </div>
         </div>

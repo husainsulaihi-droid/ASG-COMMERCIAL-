@@ -2013,6 +2013,8 @@ function renderPayments() {
 }
 
 // ─── Proposal Modal ───────────────────────────────
+const PSL_ORDINAL = ['First','Second','Third','Fourth','Fifth','Sixth','Seventh','Eighth','Ninth','Tenth','Eleventh','Twelfth'];
+
 function openProposalModal() {
   const today = new Date().toISOString().split('T')[0];
   const validUntil = new Date(Date.now() + 30*86400000).toISOString().split('T')[0];
@@ -2023,35 +2025,32 @@ function openProposalModal() {
   $('pslValidUntil').value = validUntil;
   $('pslTitle').value      = 'Rental Payment Structure Proposal';
   $('pslPreparedBy').value = 'ASG Commercial Properties';
-  $('pslPropName').value   = '';
-  $('pslPropLocation').value = '';
-  $('pslPropSize').value   = '';
-  $('pslPropType').value   = '';
-  $('pslClientName').value = '';
-  $('pslClientCompany').value = '';
-  $('pslClientPhone').value = '';
-  $('pslClientEmail').value = '';
-  $('pslAnnualRent').value     = '';
-  $('pslDeposit').value        = '';
-  $('pslAgencyFee').value      = '';
-  $('pslOtherCharges').value   = '';
-  $('pslOtherDesc').value      = '';
-  $('pslServiceCharges').value = '';
-  $('pslServiceDesc').value    = '';
-  $('pslTaxPct').value         = '';
-  $('pslTaxAmount').value      = '';
-  $('pslCompanyFees').value    = '';
-  $('pslCompanyFeesDesc').value= '';
-  $('pslNumCheques').value     = '';
-  $('pslTerms').value          = 'All post-dated cheques to be submitted upon signing of the tenancy contract\nSecurity deposit is fully refundable at end of tenancy, subject to property condition\nService charges are payable separately as per RERA / DLD regulations\nThis proposal is subject to final approval and signing of a formal tenancy agreement';
-  $('pslNotes').value          = '';
+  ['pslPropName','pslPropLocation','pslPropSize','pslPropType',
+   'pslClientName','pslClientCompany','pslClientPhone','pslClientEmail',
+   'pslAnnualRent','pslLessorName','pslTenancyFrom','pslTenancyTo',
+   'pslVatAmount','pslMaintAmount','pslAdminAmount','pslDrecAmount',
+   'pslVatPayable','pslMaintPayable','pslNotes',
+  ].forEach(id => { const el = $(id); if (el) el.value = ''; });
+  $('pslVatDate').value     = 'CDC';
+  $('pslMaintDate').value   = 'CDC';
+  $('pslAdminDate').value   = 'CDC';
+  $('pslDrecDate').value    = 'Cheque/Card';
+  $('pslAdminPayable').value = 'ASG Commercial Properties L.L.C';
+  $('pslDrecPayable').value  = 'DUBAI REAL ESTATE CORPORATION';
+  $('pslNumCheques').value   = '4';
+  $('pslTerms').value        = 'All post-dated cheques to be submitted upon signing of the tenancy contract\nSecurity deposit is fully refundable at end of tenancy, subject to property condition\nService charges are payable separately as per RERA / DLD regulations\nThis proposal is subject to final approval and signing of a formal tenancy agreement';
+
   $('proposalChequeFields').innerHTML = '';
+  $('pslRentTotal').style.display = 'none';
   const prevEl = $('proposalTotalPreview');
   if (prevEl) prevEl.style.display = 'none';
 
   const props = loadProps();
   $('pslPropLink').innerHTML = '<option value="">— Select property to auto-fill —</option>' +
     props.map(p => `<option value="${p.id}">${p.name} (${p.type||''})</option>`).join('');
+
+  // Render initial 4-cheque skeleton
+  renderProposalCheques();
 
   $('proposalOverlay').classList.add('active');
 }
@@ -2070,106 +2069,150 @@ function autofillProposalProperty() {
   $('pslPropSize').value     = p.size     || '';
   const typeMap = { warehouse: 'Warehouse', office: 'Office', residential: 'Residential' };
   $('pslPropType').value = typeMap[p.type] || '';
-  if (p.annualRent) { $('pslAnnualRent').value = p.annualRent; }
+  if (p.annualRent)  $('pslAnnualRent').value = p.annualRent;
   if (p.tenantName)  $('pslClientName').value  = p.tenantName;
   if (p.tenantPhone) $('pslClientPhone').value = p.tenantPhone;
   if (p.tenantEmail) $('pslClientEmail').value = p.tenantEmail;
-  if (p.numCheques) {
-    $('pslNumCheques').value = p.numCheques;
-    renderProposalCheques();
-    if (p.cheques?.length) {
-      $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
-        const c = p.cheques[i]; if (!c) return;
-        row.querySelector('.psl-date').value   = c.date   || '';
-        row.querySelector('.psl-amount').value = c.amount || '';
-      });
-    }
+  if (p.leaseStart)  $('pslTenancyFrom').value = p.leaseStart;
+  if (p.leaseEnd)    $('pslTenancyTo').value   = p.leaseEnd;
+  // Lessor: if managed property, the lessor IS the property owner;
+  // otherwise default to ASG-style entity name (user can override).
+  if (p.ownership === 'management' && p.ownerName) {
+    $('pslLessorName').value = p.ownerName;
+  } else if (p.partnerName) {
+    $('pslLessorName').value = p.partnerName;
   }
+  if (p.numCheques) $('pslNumCheques').value = p.numCheques;
+  renderProposalCheques();
+  recalcProposalCheques();
+  recalcAdditionalCharges();
+}
+
+// Auto-set evenly-spaced cheque dates starting at the tenancy start
+function autoSpacePslChequeDates() {
+  const start = $('pslTenancyFrom')?.value;
+  if (!start) return;
+  const n = parseInt($('pslNumCheques').value) || 0;
+  if (!n) return;
+  const baseDate = new Date(start + 'T00:00:00');
+  if (isNaN(baseDate)) return;
+  const monthsPerCheque = 12 / n;
+  const rows = $('proposalChequeFields').querySelectorAll('.psl-row');
+  rows.forEach((row, i) => {
+    const d = new Date(baseDate);
+    d.setMonth(d.getMonth() + Math.round(i * monthsPerCheque));
+    const iso = d.toISOString().split('T')[0];
+    const inp = row.querySelector('.psl-date');
+    if (inp && !inp.value) inp.value = iso;
+  });
 }
 
 function recalcProposalCheques() {
   const n    = parseInt($('pslNumCheques').value) || 0;
   const rent = Number($('pslAnnualRent').value)   || 0;
-  if (!n || !rent) return;
+  if (!n || !rent) { updatePslRentTotal(); return; }
   const per = Math.round(rent / n);
   $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
-    if (!inp.value) inp.value = per;
+    inp.value = per;
   });
+  // Auto-fill the Payable To if blank, defaulting to lessor name
+  const lessor = ($('pslLessorName')?.value || '').trim();
+  $('proposalChequeFields').querySelectorAll('.psl-payable').forEach(inp => {
+    if (!inp.value && lessor) inp.value = lessor;
+  });
+  updatePslRentTotal();
   updateProposalGrandTotal();
 }
 
-// Recalculate VAT amount from % (or % from amount) and update grand total
-function recalcProposalTax(changedField) {
+// Auto-derive VAT (5% of rent) and the DREC line (20% sub-lease × 1.05 VAT)
+function recalcAdditionalCharges() {
   const rent = Number($('pslAnnualRent').value) || 0;
-  if (changedField === 'pct') {
-    const pct = Number($('pslTaxPct').value) || 0;
-    if (pct && rent) {
-      $('pslTaxAmount').value = Math.round(rent * pct / 100);
-    }
-  } else if (changedField === 'amount') {
-    const amt = Number($('pslTaxAmount').value) || 0;
-    if (amt && rent) {
-      $('pslTaxPct').value = (amt / rent * 100).toFixed(2);
-    } else if (!amt) {
-      $('pslTaxPct').value = '';
-    }
-  }
+  // 5% VAT auto-fills (still editable if user types over)
+  const vatEl = $('pslVatAmount');
+  if (vatEl && rent) vatEl.value = Math.round(rent * 0.05);
+  // 20% DREC sub-lease × 1.05 VAT (does NOT include Ejari — user adds Ejari amount on top if desired)
+  const drecEl = $('pslDrecAmount');
+  if (drecEl && rent) drecEl.value = Math.round(rent * 0.20 * 1.05);
   updateProposalGrandTotal();
 }
 
-// Live grand total preview in the form
+// Update the in-modal "TOTAL Rent Value" footer
+function updatePslRentTotal() {
+  let sum = 0;
+  $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
+    sum += Number(inp.value) || 0;
+  });
+  const wrap = $('pslRentTotal');
+  const val  = $('pslRentTotalVal');
+  if (!wrap || !val) return;
+  if (sum > 0) {
+    wrap.style.display = '';
+    val.textContent = 'AED ' + sum.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2});
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+// Live grand total preview in the form (rent cheques + additional charges)
 function updateProposalGrandTotal() {
   const gn = id => Number($(id)?.value) || 0;
-  const rent     = gn('pslAnnualRent');
-  const deposit  = gn('pslDeposit');
-  const agency   = gn('pslAgencyFee');
-  const other    = gn('pslOtherCharges');
-  const service  = gn('pslServiceCharges');
-  const tax      = gn('pslTaxAmount');
-  const company  = gn('pslCompanyFees');
-  const grand    = rent + deposit + agency + other + service + tax + company;
+  let chequeSum = 0;
+  $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
+    chequeSum += Number(inp.value) || 0;
+  });
+  const additional = gn('pslVatAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount');
+  const grand = chequeSum + additional;
 
-  const prevEl   = $('proposalTotalPreview');
-  const totalEl  = $('proposalGrandTotal');
+  const prevEl  = $('proposalTotalPreview');
+  const totalEl = $('proposalGrandTotal');
   if (!prevEl || !totalEl) return;
-
   if (grand > 0) {
     prevEl.style.display = '';
-    totalEl.textContent  = 'AED ' + grand.toLocaleString();
+    totalEl.textContent = 'AED ' + grand.toLocaleString();
   } else {
     prevEl.style.display = 'none';
   }
+  updatePslRentTotal();
 }
 
 function renderProposalCheques() {
-  const n    = parseInt($('pslNumCheques').value) || 0;
+  const n    = parseInt($('pslNumCheques').value) || 4;
   const cont = $('proposalChequeFields');
-  if (!n) { cont.innerHTML = ''; return; }
   const rent = Number($('pslAnnualRent').value) || 0;
   const per  = n && rent ? Math.round(rent / n) : '';
+  const lessor = ($('pslLessorName')?.value || '').trim();
+
   const existing = [];
   cont.querySelectorAll('.psl-row').forEach((row, i) => {
     existing[i] = {
-      date:   row.querySelector('.psl-date')?.value   || '',
-      amount: row.querySelector('.psl-amount')?.value || '',
-      note:   row.querySelector('.psl-note')?.value   || '',
+      date:    row.querySelector('.psl-date')?.value    || '',
+      amount:  row.querySelector('.psl-amount')?.value  || '',
+      payable: row.querySelector('.psl-payable')?.value || '',
     };
   });
+
   let html = `<div class="cheque-table">
-    <div class="cheque-head" style="grid-template-columns:28px 1fr 1fr 1fr;">
-      <span>#</span><span>Cheque Date</span><span>Amount (AED)</span><span>Note / Description</span>
+    <div class="cheque-head" style="grid-template-columns:34px 1.4fr 110px 1fr 1.4fr;">
+      <span>#</span>
+      <span>Particulars</span>
+      <span>Cheque Date</span>
+      <span>Amount (AED)</span>
+      <span>Payable To</span>
     </div>`;
   for (let i = 0; i < n; i++) {
     const prev = existing[i] || {};
-    html += `<div class="cheque-row psl-row" style="grid-template-columns:28px 1fr 1fr 1fr;">
+    const ord  = PSL_ORDINAL[i] || `Cheque ${i+1}`;
+    html += `<div class="cheque-row psl-row" style="grid-template-columns:34px 1.4fr 110px 1fr 1.4fr;">
       <span class="cheque-num">${i+1}</span>
+      <span class="psl-particulars">${ord} Rental Payment</span>
       <input type="date" class="psl-date" value="${prev.date || ''}">
-      <input type="number" class="psl-amount" placeholder="${per || 'e.g. 45,000'}" min="0" value="${prev.amount || (per||'')}">
-      <input type="text"   class="psl-note"   placeholder="Optional" value="${prev.note || ''}">
+      <input type="number" class="psl-amount" placeholder="${per || 'amount'}" min="0" value="${prev.amount || (per||'')}" oninput="updateProposalGrandTotal()">
+      <input type="text"   class="psl-payable" placeholder="Defaults to Lessor" value="${prev.payable || lessor}">
     </div>`;
   }
   html += '</div>';
   cont.innerHTML = html;
+  updatePslRentTotal();
 }
 
 function downloadProposal() {
@@ -2188,89 +2231,104 @@ function downloadProposal() {
   const company    = g('pslClientCompany');
   const phone      = g('pslClientPhone');
   const email      = g('pslClientEmail');
-  const rent           = gn('pslAnnualRent');
-  const deposit        = gn('pslDeposit');
-  const agency         = gn('pslAgencyFee');
-  const other          = gn('pslOtherCharges');
-  const otherDesc      = g('pslOtherDesc');
-  const serviceCharges = gn('pslServiceCharges');
-  const serviceDesc    = g('pslServiceDesc') || 'Service Charges';
-  const taxPct         = gn('pslTaxPct');
-  const taxAmount      = gn('pslTaxAmount') || (taxPct && rent ? Math.round(rent * taxPct / 100) : 0);
-  const companyFees    = gn('pslCompanyFees');
-  const companyDesc    = g('pslCompanyFeesDesc') || 'Company Fees';
-  const termsRaw       = g('pslTerms');
-  const notes          = g('pslNotes');
-  const terms          = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
-  const grandTotal     = rent + deposit + agency + other + serviceCharges + taxAmount + companyFees;
+  const rent       = gn('pslAnnualRent');
+  const lessor     = g('pslLessorName') || prepBy;
+  const tenancyFrom= g('pslTenancyFrom');
+  const tenancyTo  = g('pslTenancyTo');
+  const numCheques = parseInt(g('pslNumCheques')) || 0;
+
+  // Additional charges
+  const vatAmount   = gn('pslVatAmount');
+  const vatDate     = g('pslVatDate')     || 'CDC';
+  const vatPayable  = g('pslVatPayable')  || lessor;
+  const maintAmount = gn('pslMaintAmount');
+  const maintDate   = g('pslMaintDate')   || 'CDC';
+  const maintPayable= g('pslMaintPayable')|| lessor;
+  const adminAmount = gn('pslAdminAmount');
+  const adminDate   = g('pslAdminDate')   || 'CDC';
+  const adminPayable= g('pslAdminPayable')|| 'ASG Commercial Properties L.L.C';
+  const drecAmount  = gn('pslDrecAmount');
+  const drecDate    = g('pslDrecDate')    || 'Cheque/Card';
+  const drecPayable = g('pslDrecPayable') || 'DUBAI REAL ESTATE CORPORATION';
+
+  const termsRaw   = g('pslTerms');
+  const notes      = g('pslNotes');
+  const terms      = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
 
   const cheques = [];
   $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
     cheques.push({
-      n:      i + 1,
-      date:   row.querySelector('.psl-date')?.value   || '',
-      amount: Number(row.querySelector('.psl-amount')?.value) || 0,
-      note:   row.querySelector('.psl-note')?.value   || '',
+      n:        i + 1,
+      ord:      PSL_ORDINAL[i] || `Cheque ${i+1}`,
+      date:     row.querySelector('.psl-date')?.value    || '',
+      amount:   Number(row.querySelector('.psl-amount')?.value) || 0,
+      payable:  row.querySelector('.psl-payable')?.value || lessor,
     });
   });
+  const rentTotal = cheques.reduce((s,c)=>s+(c.amount||0), 0);
+  const grandTotal = rentTotal + vatAmount + maintAmount + adminAmount + drecAmount;
+  const modeOfPayment = numCheques ? `${numCheques} Cheque${numCheques>1?'s':''}` : '—';
 
-  const fd = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
-  const fa = n => n ? 'AED ' + Number(n).toLocaleString() : '—';
-  const he = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fd = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  const fa = n => n ? Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const fa0 = n => n ? 'AED ' + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const he = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-<title>${he(title)}</title>
+<title>${he(title)}${client?' — '+he(client):''}</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:13px;line-height:1.55}
-.page{max-width:800px;margin:0 auto;padding:44px 48px}
-.hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:22px;border-bottom:3px solid #111;margin-bottom:26px}
-.brand-mark{width:46px;height:46px;background:#c9a84c;color:#111;border-radius:10px;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;letter-spacing:1px;margin-bottom:5px}
-.brand-name{font-size:17px;font-weight:800}
-.brand-sub{font-size:10.5px;color:#888;text-transform:uppercase;letter-spacing:1.2px}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:12.5px;line-height:1.5}
+.page{max-width:820px;margin:0 auto;padding:36px 44px}
+
+/* Brand header */
+.brand-row{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:2px solid #111;margin-bottom:22px}
+.brand-mark{width:42px;height:42px;background:#c9a84c;color:#111;border-radius:8px;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;letter-spacing:1px;margin-bottom:4px}
+.brand-name{font-size:15px;font-weight:800}
+.brand-sub{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1.2px}
 .doc-right{text-align:right}
-.doc-title{font-size:21px;font-weight:900;text-transform:uppercase;letter-spacing:.4px}
-.doc-ref{font-size:11.5px;color:#888;margin-top:3px}
-.doc-dates{font-size:11.5px;color:#555;margin-top:5px}
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px}
-.blk{background:#fafbfc;border:1px solid #e8e8e8;border-radius:10px;padding:15px 17px}
-.blk-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:11px}
-.blk-row{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px}
-.blk-row:last-child{border-bottom:none}
-.blk-lbl{color:#666}.blk-val{font-weight:600;text-align:right}
-.fin{background:#fff;border:2px solid #c9a84c;border-radius:10px;padding:18px 20px;margin-bottom:22px}
-.fin-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:13px}
-.fin-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px;color:#444}
-.fin-row:last-child{border-bottom:none}
-.fin-row.tot{border-top:2px solid #c9a84c;margin-top:6px;padding-top:10px}
-.fin-row.tot .fl{color:#111;font-weight:700}.fin-row.tot .fv{color:#c9a84c;font-weight:800;font-size:14px}
-.fv{font-weight:600;color:#111}
-.sch-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:11px}
-table{width:100%;border-collapse:collapse;margin-bottom:22px}
-th{background:#111;color:#fff;padding:9px 13px;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;text-align:left;font-weight:700}
-th:first-child{border-radius:8px 0 0 0}th:last-child{border-radius:0 8px 0 0}
-td{padding:9px 13px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle}
-tr:last-child td{border-bottom:none}
-tr:nth-child(even) td{background:#fafbfc}
-.cnum{width:26px;height:26px;background:#c9a84c;color:#111;border-radius:50%;font-weight:800;font-size:11.5px;display:flex;align-items:center;justify-content:center}
-.amt{font-weight:700}
-.tot-row td{background:#f4f4f4!important;font-weight:700;border-top:2px solid #ddd}
-.terms-title{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.3px;color:#c9a84c;margin-bottom:9px}
-ul.tlist{list-style:none;margin-bottom:22px}
-ul.tlist li{padding:5px 0 5px 16px;position:relative;font-size:12.5px;color:#444;border-bottom:1px solid #f5f5f5}
-ul.tlist li:last-child{border-bottom:none}
+.doc-title{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:.4px}
+.doc-ref{font-size:11px;color:#888;margin-top:2px}
+.doc-dates{font-size:11px;color:#555;margin-top:4px}
+
+/* Tenant/property summary block */
+.tnt-summary{margin-bottom:18px}
+.tnt-row{display:grid;grid-template-columns:170px 1fr;gap:14px;padding:3px 0;font-size:12px}
+.tnt-lbl{color:#111;font-weight:700;text-transform:uppercase;letter-spacing:.4px;font-size:11px}
+.tnt-val{color:#111;font-weight:600}
+.tnt-val-em{color:#c9a84c;font-weight:800;font-size:13.5px}
+
+/* Table title (centered, underlined italic) */
+.tbl-title{text-align:center;font-size:14px;font-weight:800;font-style:italic;text-decoration:underline;text-underline-offset:3px;margin:18px 0 10px;text-transform:uppercase;letter-spacing:.5px}
+
+/* Tables */
+.psl-tbl{width:100%;border-collapse:collapse;margin-bottom:6px;border:1.5px solid #1a1a1a}
+.psl-tbl th{background:#fef9d7;color:#111;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;text-align:left;font-weight:800;border:1px solid #1a1a1a}
+.psl-tbl td{padding:8px 12px;border:1px solid #d6d6d6;font-size:12px;vertical-align:middle}
+.psl-tbl td.amt{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.psl-tbl td.center{text-align:center;color:#555}
+.psl-tbl tr.total-row td{background:#fdf3d4;font-weight:800;border-top:2px solid #1a1a1a}
+.psl-tbl tr.total-row td.lbl{color:#b91c1c;font-style:italic}
+.psl-tbl tr.total-row td.val{color:#b91c1c}
+.psl-tbl .italic{font-style:italic;color:#666;font-weight:400}
+
+/* Terms / notes / signatures */
+.terms-block{margin-top:24px;padding-top:14px;border-top:1px solid #ddd}
+.terms-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#c9a84c;margin-bottom:8px}
+ul.tlist{list-style:none}
+ul.tlist li{padding:4px 0 4px 16px;position:relative;font-size:11.5px;color:#444;line-height:1.5}
 ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-weight:700}
-.notes-box{background:#fffbf0;border:1px solid #e2c06a;border-radius:8px;padding:13px 15px;margin-bottom:22px;font-size:12.5px;color:#555}
-.valid-bar{background:#f0fdf4;border:1px solid #a7f3d0;border-radius:8px;padding:11px 15px;margin-bottom:26px;font-size:12.5px;color:#065f46;text-align:center;font-weight:500}
-.sigs{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:14px}
-.sig{border-top:2px solid #111;padding-top:8px}
-.sig-lbl{font-size:12px;color:#666}.sig-name{font-size:13px;font-weight:700;margin-top:2px}
-.sig-space{height:44px}.sig-date{font-size:11px;color:#aaa;margin-top:8px}
-.footer{margin-top:30px;padding-top:14px;border-top:1px solid #eee;text-align:center;font-size:10px;color:#ccc}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:22px 26px}}
+.notes-box{background:#fffbf0;border:1px solid #e2c06a;border-radius:6px;padding:11px 14px;margin-top:14px;font-size:11.5px;color:#555}
+.valid-bar{background:#f0fdf4;border:1px solid #a7f3d0;border-radius:6px;padding:9px 14px;margin-top:18px;font-size:11.5px;color:#065f46;text-align:center;font-weight:500}
+.sigs{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:24px}
+.sig{border-top:1.5px solid #111;padding-top:6px}
+.sig-lbl{font-size:11px;color:#666}.sig-name{font-size:12px;font-weight:700;margin-top:1px}
+.sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
+.footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
+@media print{.page{padding:18px 26px}@page{size:A4;margin:10mm}}
 </style></head><body><div class="page">
 
-<div class="hdr">
+<div class="brand-row">
   <div>
     <div class="brand-mark">ASG</div>
     <div class="brand-name">${he(prepBy)}</div>
@@ -2283,62 +2341,86 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
   </div>
 </div>
 
-<div class="two-col">
-  <div class="blk">
-    <div class="blk-title">Prepared For</div>
-    ${client  ? `<div class="blk-row"><span class="blk-lbl">Name</span><span class="blk-val">${he(client)}</span></div>` : ''}
-    ${company ? `<div class="blk-row"><span class="blk-lbl">Company</span><span class="blk-val">${he(company)}</span></div>` : ''}
-    ${phone   ? `<div class="blk-row"><span class="blk-lbl">Phone</span><span class="blk-val">${he(phone)}</span></div>` : ''}
-    ${email   ? `<div class="blk-row"><span class="blk-lbl">Email</span><span class="blk-val">${he(email)}</span></div>` : ''}
-    ${!client && !company ? `<div style="font-size:12px;color:#bbb;">No client details</div>` : ''}
-  </div>
-  <div class="blk">
-    <div class="blk-title">Property Details</div>
-    ${propName ? `<div class="blk-row"><span class="blk-lbl">Property</span><span class="blk-val">${he(propName)}</span></div>` : ''}
-    ${propType ? `<div class="blk-row"><span class="blk-lbl">Type</span><span class="blk-val">${he(propType)}</span></div>` : ''}
-    ${propLoc  ? `<div class="blk-row"><span class="blk-lbl">Location</span><span class="blk-val">${he(propLoc)}</span></div>` : ''}
-    ${propSize ? `<div class="blk-row"><span class="blk-lbl">Size</span><span class="blk-val">${Number(propSize).toLocaleString()} sq ft</span></div>` : ''}
-    ${!propName && !propLoc ? `<div style="font-size:12px;color:#bbb;">No property details</div>` : ''}
-  </div>
-</div>
-
-<div class="fin">
-  <div class="fin-title">Financial Summary</div>
-  ${rent           ? `<div class="fin-row"><span class="fl">Annual Rent</span><span class="fv">${fa(rent)}</span></div>` : ''}
-  ${deposit        ? `<div class="fin-row"><span class="fl">Security Deposit</span><span class="fv">${fa(deposit)}</span></div>` : ''}
-  ${agency         ? `<div class="fin-row"><span class="fl">Agency / Commission Fee</span><span class="fv">${fa(agency)}</span></div>` : ''}
-  ${serviceCharges ? `<div class="fin-row"><span class="fl">${he(serviceDesc)}</span><span class="fv">${fa(serviceCharges)}</span></div>` : ''}
-  ${taxAmount      ? `<div class="fin-row"><span class="fl">VAT / Tax${taxPct ? ` (${taxPct}%)` : ''}</span><span class="fv">${fa(taxAmount)}</span></div>` : ''}
-  ${companyFees    ? `<div class="fin-row"><span class="fl">${he(companyDesc)}</span><span class="fv">${fa(companyFees)}</span></div>` : ''}
-  ${other          ? `<div class="fin-row"><span class="fl">${he(otherDesc)||'Other Charges'}</span><span class="fv">${fa(other)}</span></div>` : ''}
-  ${grandTotal     ? `<div class="fin-row tot"><span class="fl">Grand Total</span><span class="fv">${fa(grandTotal)}</span></div>` : ''}
+<div class="tnt-summary">
+  ${client       ? `<div class="tnt-row"><span class="tnt-lbl">Tenant Name:</span><span class="tnt-val">${he(client)}${company?` &nbsp;·&nbsp; ${he(company)}`:''}</span></div>` : ''}
+  ${propName     ? `<div class="tnt-row"><span class="tnt-lbl">Property Details:</span><span class="tnt-val">${he(propName)}${propLoc?`, ${he(propLoc)}`:''}</span></div>` : ''}
+  ${propSize     ? `<div class="tnt-row"><span class="tnt-lbl">Property Size:</span><span class="tnt-val">${Number(propSize).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} Sq.Ft</span></div>` : ''}
+  ${(tenancyFrom||tenancyTo) ? `<div class="tnt-row"><span class="tnt-lbl">Tenancy Period:</span><span class="tnt-val">${fd(tenancyFrom)} to ${fd(tenancyTo)}</span></div>` : ''}
+  ${rent         ? `<div class="tnt-row"><span class="tnt-lbl">Annual Rent:</span><span class="tnt-val tnt-val-em">${fa0(rent)}</span></div>` : ''}
+  <div class="tnt-row"><span class="tnt-lbl">Mode of Payment:</span><span class="tnt-val">${he(modeOfPayment)}</span></div>
 </div>
 
 ${cheques.length ? `
-<div class="sch-title">Payment Schedule — ${cheques.length} Cheque${cheques.length>1?'s':''}</div>
-<table>
-  <thead><tr><th>#</th><th>Cheque Date</th><th>Amount</th><th>Description / Note</th></tr></thead>
+<div class="tbl-title">Rental Payment Breakdown</div>
+<table class="psl-tbl">
+  <thead><tr>
+    <th style="width:34%">Particulars</th>
+    <th style="width:18%">Cheque Date</th>
+    <th style="width:18%;text-align:right">Amount in AED</th>
+    <th style="width:30%">Payable To</th>
+  </tr></thead>
   <tbody>
     ${cheques.map(c=>`<tr>
-      <td><div class="cnum">${c.n}</div></td>
+      <td>${he(c.ord)} Rental Payment</td>
       <td>${fd(c.date)}</td>
-      <td class="amt">${c.amount ? fa(c.amount) : '—'}</td>
-      <td style="color:#555">${he(c.note)||'—'}</td>
+      <td class="amt">${fa(c.amount)}</td>
+      <td>${he(c.payable)}</td>
     </tr>`).join('')}
-    ${cheques.length>1 ? `<tr class="tot-row">
-      <td colspan="2" style="text-align:right;font-size:11.5px;color:#888;">Total</td>
-      <td class="amt">${fa(cheques.reduce((s,c)=>s+(c.amount||0),0))}</td><td></td>
+    <tr class="total-row">
+      <td class="lbl">TOTAL Rent Value <span class="italic">(exclusive of 5% VAT)</span></td>
+      <td class="center">—</td>
+      <td class="amt val">AED ${fa(rentTotal)}</td>
+      <td class="center">—</td>
+    </tr>
+  </tbody>
+</table>` : ''}
+
+${(vatAmount||maintAmount||adminAmount||drecAmount) ? `
+<div class="tbl-title">Additional Charges</div>
+<table class="psl-tbl">
+  <thead><tr>
+    <th style="width:34%">Particulars</th>
+    <th style="width:18%">Cheque Date</th>
+    <th style="width:18%;text-align:right">Amount in AED</th>
+    <th style="width:30%">Payable To</th>
+  </tr></thead>
+  <tbody>
+    ${vatAmount ? `<tr>
+      <td>5% VAT on Rent</td>
+      <td>${he(vatDate)}</td>
+      <td class="amt">${fa(vatAmount)}</td>
+      <td>${he(vatPayable)}</td>
+    </tr>` : ''}
+    ${maintAmount ? `<tr>
+      <td>Annual Maintenance Fee</td>
+      <td>${he(maintDate)}</td>
+      <td class="amt">${fa(maintAmount)}</td>
+      <td>${he(maintPayable)}</td>
+    </tr>` : ''}
+    ${adminAmount ? `<tr>
+      <td>Administration Fee <span class="italic">(inclusive of VAT)</span></td>
+      <td>${he(adminDate)}</td>
+      <td class="amt">${fa(adminAmount)}</td>
+      <td>${he(adminPayable)}</td>
+    </tr>` : ''}
+    ${drecAmount ? `<tr>
+      <td>20% DREC Sub-Lease Fee <span class="italic">(Inclusive of 5% VAT)</span> + Ejari Fees</td>
+      <td>${he(drecDate)}</td>
+      <td class="amt">${fa(drecAmount)}</td>
+      <td>${he(drecPayable)}</td>
     </tr>` : ''}
   </tbody>
 </table>` : ''}
 
 ${terms.length ? `
-<div class="terms-title">Terms &amp; Conditions</div>
-<ul class="tlist">${terms.map(t=>`<li>${he(t)}</li>`).join('')}</ul>` : ''}
+<div class="terms-block">
+  <div class="terms-title">Terms &amp; Conditions</div>
+  <ul class="tlist">${terms.map(t=>`<li>${he(t)}</li>`).join('')}</ul>
+</div>` : ''}
 
 ${notes ? `<div class="notes-box"><strong>Note:</strong> ${he(notes)}</div>` : ''}
 
-${validUntil ? `<div class="valid-bar">✅ This proposal is valid until <strong>${fd(validUntil)}</strong>. All figures are subject to change after this date.</div>` : ''}
+${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd(validUntil)}</strong>. All figures are subject to change after this date.</div>` : ''}
 
 <div class="sigs">
   <div class="sig">
@@ -2364,7 +2446,16 @@ ${validUntil ? `<div class="valid-bar">✅ This proposal is valid until <strong>
   win.document.write(doc);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 700);
+  setTimeout(() => {
+    const imgs = win.document.images;
+    if (!imgs.length) { win.print(); return; }
+    let loaded = 0;
+    Array.from(imgs).forEach(img => {
+      const tick = () => { if (++loaded >= imgs.length) win.print(); };
+      if (img.complete) tick();
+      else { img.onload = tick; img.onerror = tick; }
+    });
+  }, 400);
 }
 
 function renderDisputes() {

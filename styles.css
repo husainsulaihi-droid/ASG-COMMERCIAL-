@@ -3019,3 +3019,64 @@ body {
   border-color: #f59e0b; color: #78350f;
 }
 .agent-inv-intro-pm .aii-sub { color: #92400e; }
+
+/* ════════════════════════════════════════════════════
+   PROPOSAL — RENTAL BREAKDOWN + ADDITIONAL CHARGES
+   ════════════════════════════════════════════════════ */
+.psl-particulars {
+  font-size:13px; font-weight:600; color:var(--text);
+  display:flex; align-items:center; padding:0 6px;
+}
+.psl-rent-total {
+  display:flex; justify-content:space-between; align-items:center;
+  background:#fdf3d4; border:1px solid #f59e0b;
+  padding:11px 16px; border-radius:8px; margin-top:10px;
+}
+.psl-rent-total-lbl { font-size:13px; font-weight:700; color:#b91c1c; }
+.psl-rent-total-val { font-size:15px; font-weight:800; color:#b91c1c; font-variant-numeric:tabular-nums; }
+
+.psl-add-tbl {
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  margin-bottom:14px;
+}
+.psl-add-head {
+  display:grid;
+  grid-template-columns: 1.6fr 110px 1fr 1.4fr;
+  gap:0;
+  background:#1c2b4a;
+  color:#fff;
+  font-size:11px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.5px;
+  padding:10px 12px;
+}
+.psl-add-head span { padding: 0 6px; }
+.psl-add-row {
+  display:grid;
+  grid-template-columns: 1.6fr 110px 1fr 1.4fr;
+  gap:0;
+  align-items:center;
+  border-top:1px solid var(--border);
+  padding:6px 8px;
+  background:#fff;
+}
+.psl-add-row:nth-child(even) { background:#fafafa; }
+.psl-add-label {
+  font-size:13px; font-weight:600; color:var(--text);
+  padding: 6px;
+}
+.psl-add-row input {
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:7px 9px;
+  font-size:12.5px;
+  font-family:inherit;
+  background:#fff;
+  margin: 4px;
+}
+.psl-add-row input:focus {
+  outline:none;
+  border-color:var(--gold);
+  box-shadow: 0 0 0 2px rgba(201,168,76,0.15);
+}
