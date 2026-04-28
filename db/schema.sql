@@ -362,7 +362,7 @@ CREATE TABLE secondary_listings (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   title           TEXT    NOT NULL,
   type            TEXT    DEFAULT 'apartment',
-  transaction     TEXT    DEFAULT 'sale',     -- sale, rent, both
+  txn_type        TEXT    DEFAULT 'sale',     -- sale, rent, both (renamed from `transaction`, which is reserved in SQLite)
   status          TEXT    DEFAULT 'active',   -- active, reserved, sold, rented, inactive
   location        TEXT    NOT NULL,
   size            REAL,
