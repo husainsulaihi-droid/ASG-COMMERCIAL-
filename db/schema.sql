@@ -15,24 +15,29 @@
 
 PRAGMA foreign_keys = ON;
 
--- ─── USERS (admin + agents in one table) ────────────────────────
+-- ─── USERS (admin + agents + team leaders in one table) ────────
 CREATE TABLE users (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  username        TEXT    UNIQUE NOT NULL,
-  password_hash   TEXT    NOT NULL,
-  role            TEXT    NOT NULL CHECK(role IN ('admin', 'agent')),
-  name            TEXT    NOT NULL,
-  email           TEXT,
-  phone           TEXT,
-  agent_role      TEXT,    -- sales, leasing, property_management, accounts, general (only for agents)
-  permissions     TEXT,    -- JSON: { viewFinancials, viewTenant, updateStatus, addNotes }
-  availability    TEXT    DEFAULT 'available',  -- available, in_meeting, at_viewing, off_duty, on_leave
-  active          INTEGER DEFAULT 1,
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  username         TEXT    UNIQUE NOT NULL,
+  password_hash    TEXT    NOT NULL,
+  role             TEXT    NOT NULL CHECK(role IN ('admin', 'agent')),
+  name             TEXT    NOT NULL,
+  email            TEXT,
+  phone            TEXT,
+  agent_role       TEXT,    -- sales, leasing, property_management, accounts, general (only for agents)
+  permissions      TEXT,    -- JSON: { viewFinancials, viewTenant, updateStatus, addNotes }
+  availability     TEXT    DEFAULT 'available',  -- available, in_meeting, at_viewing, off_duty, on_leave
+  -- Team hierarchy
+  is_team_leader   INTEGER DEFAULT 0,            -- 1 if this user manages a team of agents
+  team_leader_id   INTEGER,                      -- FK -> users(id). The team leader this agent reports to
+  active           INTEGER DEFAULT 1,
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (team_leader_id) REFERENCES users(id)
 );
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_users_role     ON users(role);
+CREATE INDEX idx_users_username       ON users(username);
+CREATE INDEX idx_users_role           ON users(role);
+CREATE INDEX idx_users_team_leader    ON users(team_leader_id);
 
 -- ─── SESSIONS (cookie-based auth) ───────────────────────────────
 CREATE TABLE sessions (
