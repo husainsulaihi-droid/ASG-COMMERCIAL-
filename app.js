@@ -3290,6 +3290,15 @@ function openAgentModal(id) {
   $('permViewTenant').checked     = p.viewTenant !== false;
   $('permUpdateStatus').checked   = p.updateStatus !== false;
   $('permAddNotes').checked       = p.addNotes !== false;
+
+  // Team hierarchy fields
+  const isLeaderEl = $('agentIsLeader');
+  if (isLeaderEl) isLeaderEl.checked = !!(ag && ag.isTeamLeader);
+  populateReportsToDropdown(ag ? ag.id : '');
+  const reportsTo = $('agentReportsTo');
+  if (reportsTo) reportsTo.value = (ag && ag.teamLeaderId) || '';
+  onTeamLeaderToggle();
+
   updateAgentRoleHint();
   // Re-bind role change to live-update hint and (for new agents) prefill perms
   const sel = $('agentRole');
@@ -3316,6 +3325,26 @@ function updateAgentRoleHint() {
   const hint = $('agentRoleHint');
   if (hint) hint.textContent = meta.hint || '';
 }
+
+// Team-leader helpers
+function populateReportsToDropdown(excludeId) {
+  const sel = document.getElementById('agentReportsTo');
+  if (!sel) return;
+  const leaders = loadAgents().filter(a => a.active !== false && a.isTeamLeader && a.id !== excludeId);
+  sel.innerHTML = '<option value="">— Independent (no team leader) —</option>' +
+    leaders.map(l => `<option value="${l.id}">${h(l.name)}</option>`).join('');
+}
+function onTeamLeaderToggle() {
+  const isLeader = !!(document.getElementById('agentIsLeader') && document.getElementById('agentIsLeader').checked);
+  const reportsToGroup = document.getElementById('agentReportsToGroup');
+  if (reportsToGroup) reportsToGroup.style.display = isLeader ? 'none' : '';
+  // A team leader can't also report to another leader (no nested hierarchy)
+  if (isLeader) {
+    const sel = document.getElementById('agentReportsTo');
+    if (sel) sel.value = '';
+  }
+}
+
 function closeAgentModal() { $('agentModalOverlay').classList.remove('active'); }
 
 function saveAgent() {
@@ -3335,6 +3364,9 @@ function saveAgent() {
   const conflict = agents.find(a => a.username === username && a.id !== id);
   if (conflict) { showToast('Username already taken by another agent', 'error'); return; }
 
+  const isTeamLeader = !!($('agentIsLeader') && $('agentIsLeader').checked);
+  const teamLeaderId = isTeamLeader ? '' : (($('agentReportsTo') && $('agentReportsTo').value) || '');
+
   const agentObj = {
     id:       id || ('agent_' + uid()),
     name, username, password,
@@ -3342,6 +3374,8 @@ function saveAgent() {
     phone:    $('agentPhone').value.trim(),
     email:    $('agentEmail').value.trim(),
     active:   true,
+    isTeamLeader,
+    teamLeaderId,
     createdAt: id ? (agents.find(a=>a.id===id)||{}).createdAt : new Date().toISOString(),
     permissions: {
       viewFinancials: $('permViewFinancials').checked,
@@ -3561,8 +3595,14 @@ function renderTeamTab() {
         <div class="agent-card${ag.active ? '' : ' agent-inactive'}">
           <div class="agent-card-avatar">${ag.name.charAt(0).toUpperCase()}</div>
           <div class="agent-card-body">
-            <div class="agent-card-name">${h(ag.name)} ${ag.active ? '' : '<span class="chip" style="background:#fee2e2;color:#dc2626;font-size:10px;">Inactive</span>'}</div>
-            <div class="agent-card-role">${(()=>{const m=agentRoleMeta(ag.role); return m.icon+' '+h(m.label);})()} ${ag.phone ? '· '+h(ag.phone) : ''}</div>
+            <div class="agent-card-name">${h(ag.name)} ${ag.isTeamLeader ? '<span class="chip" style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;">⭐ Team Leader</span>' : ''} ${ag.active ? '' : '<span class="chip" style="background:#fee2e2;color:#dc2626;font-size:10px;">Inactive</span>'}</div>
+            <div class="agent-card-role">${(()=>{const m=agentRoleMeta(ag.role); return m.icon+' '+h(m.label);})()} ${ag.phone ? '· '+h(ag.phone) : ''}${(() => {
+              if (ag.teamLeaderId) {
+                const leader = loadAgents().find(x => x.id === ag.teamLeaderId);
+                return leader ? ` · <span style="color:var(--text-3);">reports to ${h(leader.name)}</span>` : '';
+              }
+              return '';
+            })()}</div>
             <div class="agent-card-stats">
               <span class="agent-stat"><strong>${active}</strong> active tasks</span>
               <span class="agent-stat"><strong>${done}</strong> done</span>

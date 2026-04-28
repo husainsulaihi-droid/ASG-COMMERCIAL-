@@ -207,6 +207,36 @@ For instant deploys instead of polling, set up a GitHub webhook → small Node l
 
 ---
 
+## Backend (Phase 1 — skeleton in progress)
+
+Express + SQLite REST API lives in [`backend/`](./backend/). Schema in [`db/schema.sql`](./db/schema.sql).
+
+Currently:
+- ✅ Phase 1 — Skeleton: `/api/health` endpoint, DB initializes from schema
+- ⏳ Phase 2 — Auth (login, sessions, bcrypt)
+- ⏳ Phase 3 — Core endpoints (properties, agents, tasks, leads)
+- ⏳ Phase 4 — Remaining endpoints (meetings, announcements, leaves, off-plan, secondary, proposals)
+- ⏳ Phase 5 — File uploads
+- ⏳ Phase 6 — Frontend rewire (replace localStorage with `fetch`)
+- ⏳ Phase 7 — Multi-user testing
+
+VPS deployment instructions: [`deploy/DEPLOY.md`](./deploy/DEPLOY.md).
+
+### Team hierarchy
+
+Three-tier user model:
+- **Admin** — sees everything, manages all users and data
+- **Team leader** — agent who manages a team; sees their team's leads/tasks/meetings; can assign tasks/leads within the team only
+- **Agent** — sees own data only
+
+Server-enforced rules:
+- Properties (owned portfolio) admin-only — agents see filtered subsets based on `agent_role`:
+  - `sales` → vacant only
+  - `leasing` → rented only (for tenant management)
+  - `property_management` → managed properties (any status)
+  - All agents: rent/financial fields stripped
+- Team leaders enforce `team_leader_id` check on every assign/edit operation
+
 ## Roadmap
 
 When the backend lands, these flip from "planned" to "implemented":

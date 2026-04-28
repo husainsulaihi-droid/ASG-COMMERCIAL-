@@ -2832,6 +2832,24 @@
               </span>
             </label>
           </div>
+
+          <div class="form-section-divider">Team Hierarchy</div>
+          <div class="agent-team-block">
+            <label class="perm-toggle">
+              <input type="checkbox" id="agentIsLeader" onchange="onTeamLeaderToggle()">
+              <span class="perm-toggle-box"></span>
+              <span class="perm-toggle-label">
+                <strong>Team Leader</strong>
+                <small>Manages a team of agents — sees their leads, tasks &amp; performance</small>
+              </span>
+            </label>
+            <div class="form-group" id="agentReportsToGroup" style="margin-top:12px;">
+              <label>Reports To <span class="optional-label">(team leader)</span></label>
+              <select id="agentReportsTo">
+                <option value="">— Independent (no team leader) —</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">

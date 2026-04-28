@@ -3855,6 +3855,14 @@ body, button, input, select, textarea {
 }
 .sec-card-by { font-style:italic; }
 
+/* Team hierarchy block in agent modal */
+.agent-team-block {
+  background:#f9fafb;
+  border:1px solid #e5e7eb;
+  border-radius:6px;
+  padding:14px 16px;
+}
+
 /* ═══════════════════════════════════════════════════════
    BLUE-BOX TEXT — force all text inside blue cards to white
    (inner white-bg row tiles still get dark text via override)
