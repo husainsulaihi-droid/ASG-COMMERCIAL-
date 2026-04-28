@@ -47,6 +47,19 @@ DB_PATH=/var/asg/data/asg.db npm run init-db
 #               [init-db] Done.
 ```
 
+### 4b. Seed the initial admin user
+
+```bash
+DB_PATH=/var/asg/data/asg.db npm run seed-admin
+# Default: username=admin, password=asg2024
+#
+# Or set custom credentials:
+# DB_PATH=... ADMIN_USERNAME=husain ADMIN_PASSWORD='your-strong-password' npm run seed-admin
+```
+
+**Change the default password immediately** by logging in and updating it via the API
+(or just by hitting `PATCH /api/users/<id>` with `{ "password": "..." }`).
+
 ### 5. Install the systemd service
 
 ```bash

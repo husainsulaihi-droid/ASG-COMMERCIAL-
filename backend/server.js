@@ -13,6 +13,9 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const { initDb, getDb } = require('./db');
+const { clearExpiredSessions } = require('./auth');
+const authRoutes = require('./routes-auth');
+const userRoutes = require('./routes-users');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -36,15 +39,26 @@ app.use((req, res, next) => {
 // ─── Database ─────────────────────────────────────────
 initDb();
 
+// GC expired sessions every hour
+setInterval(() => {
+  try {
+    const n = clearExpiredSessions();
+    if (n > 0) console.log(`[sessions] Cleared ${n} expired session(s)`);
+  } catch (err) {
+    console.error('[sessions] GC failed:', err.message);
+  }
+}, 60 * 60 * 1000);
+
 // ─── Routes ───────────────────────────────────────────
 
-// Health check — used to verify the backend is reachable.
-// Hit it via: GET https://crm.asgproperties.ae/api/health
+// Health check
 app.get('/api/health', (req, res) => {
   let dbReachable = false;
+  let userCount = 0;
   try {
     const row = getDb().prepare('SELECT 1 AS ok').get();
     dbReachable = row?.ok === 1;
+    userCount = getDb().prepare('SELECT COUNT(*) AS n FROM users').get().n;
   } catch (err) {
     console.error('[health] DB check failed:', err.message);
   }
@@ -52,9 +66,13 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     db: dbReachable,
-    version: '0.1.0'
+    users: userCount,
+    version: '0.2.0'
   });
 });
+
+app.use('/api/auth',  authRoutes);
+app.use('/api/users', userRoutes);
 
 // Catch-all for unknown /api/* routes
 app.use('/api', (req, res) => {

@@ -44,9 +44,26 @@ backend/
 ## Phase status
 
 - ✅ Phase 1 — Skeleton: `/api/health` works, DB initializes from schema
-- ⏳ Phase 2 — Auth: login, sessions, password hashing
-- ⏳ Phase 3 — Core endpoints (properties, agents, tasks, leads)
+- ✅ Phase 2 — Auth: login, sessions, password hashing, user CRUD
+- ⏳ Phase 3 — Core endpoints (properties, tasks, leads)
 - ⏳ Phase 4 — Remaining endpoints (meetings, announcements, leaves, off-plan, secondary, proposals)
 - ⏳ Phase 5 — File upload (photos, documents)
 - ⏳ Phase 6 — Frontend rewire (replace localStorage with `fetch`)
 - ⏳ Phase 7 — Multi-user testing & polish
+
+## API endpoints (Phase 2)
+
+| Method | Path                  | Auth          | Purpose                                   |
+|--------|-----------------------|---------------|-------------------------------------------|
+| GET    | `/api/health`         | none          | Backend reachable + DB OK                 |
+| POST   | `/api/auth/login`     | none          | `{username, password}` → sets cookie     |
+| POST   | `/api/auth/logout`    | none          | Clears session cookie                     |
+| GET    | `/api/auth/me`        | any user      | Current user info                         |
+| GET    | `/api/users`          | any user      | List users (filtered by role)             |
+| GET    | `/api/users/:id`      | admin or self | One user                                  |
+| POST   | `/api/users`          | admin only    | Create user                               |
+| PATCH  | `/api/users/:id`      | admin or self | Update user (admin can edit any field)    |
+| DELETE | `/api/users/:id`      | admin only    | Soft-delete (sets active = 0)             |
+
+Sessions live in HttpOnly cookies (`asg_session`). Default lifetime: 30 days.
+Passwords hashed with bcrypt cost 12.

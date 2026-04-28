@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "init-db": "node init-db.js",
+    "seed-admin": "node seed-admin.js",
     "dev": "node --watch server.js"
   },
   "engines": {
