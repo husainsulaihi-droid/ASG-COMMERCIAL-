@@ -235,11 +235,12 @@ function showTab(tab) {
   $('disputesView').style.display     = tab === 'disputes'     ? '' : 'none';
   $('constructionView').style.display = tab === 'construction' ? '' : 'none';
   $('paymentView').style.display      = tab === 'payment'      ? '' : 'none';
+  const proposalsEl = $('proposalsView'); if (proposalsEl) proposalsEl.style.display = tab === 'proposals' ? '' : 'none';
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('teamView').style.display         = tab === 'team'         ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Map','Team','Financials'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','Team','Financials'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -256,6 +257,7 @@ function showTab(tab) {
   if (tab === 'disputes')     renderDisputes();
   if (tab === 'construction') renderProjects();
   if (tab === 'payment')      renderPayments();
+  if (tab === 'proposals')    renderProposals();
   if (tab === 'map')          initMapTab();
   if (tab === 'team')         renderTeamTab();
   if (tab === 'financials')   renderFinancials();
@@ -946,7 +948,7 @@ function openAddModal() {
   $('modalTitle').textContent = 'Add New Property';
   $('saveBtnText').textContent = 'Save Property';
   $('propertyForm').reset();
-  pendingFiles = { ijari: null, affection: null, tenancy: null };
+  pendingFiles = { drec: null, ijari: null, affection: null, tenancy: null };
   pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
   resetFileZones();
   renderMediaPreviews();
@@ -979,7 +981,7 @@ async function openEditModal(id) {
   $('editPropertyId').value = id;
   $('modalTitle').textContent = 'Edit Property';
   $('saveBtnText').textContent = 'Save Changes';
-  pendingFiles = { ijari: null, affection: null, tenancy: null };
+  pendingFiles = { drec: null, ijari: null, affection: null, tenancy: null };
   pendingMedia = [];
   existingMediaMeta = p.media ? [...p.media] : [];
   removedMediaIds   = [];
@@ -1023,6 +1025,9 @@ async function openEditModal(id) {
   $('propPurchaseDate').value  = p.purchaseDate  || '';
   $('propMarketValue').value   = p.marketValue   || '';
   $('propRent').value          = p.annualRent    || '';
+  $('propServiceCharges').value = p.serviceCharges || '';
+  $('propMaintenanceFees').value = p.maintenanceFees || '';
+  recalcVat();
   $('propTenantName').value    = p.tenantName    || '';
   $('propTenantPhone').value   = p.tenantPhone   || '';
   $('propTenantEmail').value   = p.tenantEmail   || '';
@@ -1051,6 +1056,7 @@ async function openEditModal(id) {
   toggleOwnership();
   toggleRentalSection();
 
+  showExisting('drec',      p.files?.drec);
   showExisting('ijari',     p.files?.ijari);
   showExisting('affection', p.files?.affection);
   showExisting('tenancy',   p.files?.tenancy);
@@ -1067,6 +1073,14 @@ function toggleOwnership() {
   const v = $('propOwnership').value;
   $('partnershipFields').style.display = v === 'partnership' ? 'block' : 'none';
   $('managementFields').style.display  = v === 'management'  ? 'block' : 'none';
+}
+
+// Auto-calculate 5% VAT from annual rent only
+function recalcVat() {
+  const rent = Number(document.getElementById('propRent')?.value) || 0;
+  const vat  = Math.round(rent * 0.05);
+  const out  = document.getElementById('propVat');
+  if (out) out.value = vat || '';
 }
 
 function renderChequeFields() {
@@ -1130,30 +1144,44 @@ function handleFile(e, key) {
   if (!file) return;
   if (file.size > 50 * 1024 * 1024) { showToast('File too large (max 50 MB)', 'error'); return; }
   pendingFiles[key] = file;
-  const zone  = e.target.closest('.file-zone');
-  const label = $(`file${cap(key)}Label`);
-  zone.classList.add('has-file');
-  label.textContent = file.name.length > 24 ? file.name.slice(0, 22) + '…' : file.name;
+  const display = file.name.length > 24 ? file.name.slice(0, 22) + '…' : file.name;
+  // Mirror state across every zone with the same data-doc-key (e.g. Ijari shown in both sections)
+  document.querySelectorAll(`.file-zone[data-doc-key="${key}"]`).forEach(zone => {
+    zone.classList.add('has-file');
+    const lbl = zone.querySelector('.file-zone-text');
+    if (lbl) lbl.textContent = display;
+  });
 }
 
 function showExisting(key, info) {
-  const tagEl = $(`existing${cap(key)}`);
-  if (info?.name) {
-    tagEl.style.display = 'flex';
-    tagEl.innerHTML = `✅ ${h(info.name)} <span style="color:var(--text-3)">(existing)</span>`;
-  } else {
-    tagEl.style.display = 'none';
-  }
+  // Update every existing-file-tag bound to this key (data attribute), and the legacy id one
+  const tags = Array.from(document.querySelectorAll(`[data-existing-key="${key}"]`));
+  const legacy = $(`existing${cap(key)}`);
+  if (legacy && !tags.includes(legacy)) tags.push(legacy);
+  tags.forEach(tagEl => {
+    if (info?.name) {
+      tagEl.style.display = 'flex';
+      tagEl.innerHTML = `✅ ${h(info.name)} <span style="color:var(--text-3)">(existing)</span>`;
+    } else {
+      tagEl.style.display = 'none';
+    }
+  });
 }
 
 function resetFileZones() {
-  ['ijari', 'affection', 'tenancy'].forEach(key => {
-    const input = $(`file${cap(key)}`);
-    if (input) input.value = '';
-    const zone = input?.closest('.file-zone');
-    if (zone) zone.classList.remove('has-file');
-    const label = $(`file${cap(key)}Label`);
-    if (label) label.textContent = `Upload ${key === 'ijari' ? 'Ijari' : key === 'affection' ? 'Plan' : 'Contract'}`;
+  const labels = { drec: 'Upload DREC', ijari: 'Upload Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract' };
+  ['drec', 'ijari', 'affection', 'tenancy'].forEach(key => {
+    // Reset every <input type=file> tied to this key (e.g. fileIjari and fileIjari2)
+    document.querySelectorAll(`.file-zone[data-doc-key="${key}"] input[type="file"]`).forEach(inp => { inp.value = ''; });
+    document.querySelectorAll(`.file-zone[data-doc-key="${key}"]`).forEach(zone => {
+      zone.classList.remove('has-file');
+      const lbl = zone.querySelector('.file-zone-text');
+      if (lbl) lbl.textContent = labels[key];
+    });
+    // Legacy id-based reset (still applies to fileDrecLabel, fileIjariLabel etc.)
+    const legacyLabel = $(`file${cap(key)}Label`);
+    if (legacyLabel) legacyLabel.textContent = labels[key];
+    document.querySelectorAll(`[data-existing-key="${key}"]`).forEach(t => { t.style.display = 'none'; });
     const tag = $(`existing${cap(key)}`);
     if (tag) tag.style.display = 'none';
   });
@@ -1307,6 +1335,9 @@ async function handleSave() {
     marketValue:   Number($('propMarketValue').value)   || null,
     status:        getRadio('propStatus')               || null,
     annualRent:    Number($('propRent').value)          || null,
+    serviceCharges:  Number($('propServiceCharges').value)  || null,
+    maintenanceFees: Number($('propMaintenanceFees').value) || null,
+    vat:             Number($('propVat').value)             || null,
     coords:        $('propCoords').value.trim()        || null,
     tenantName:    $('propTenantName').value.trim()   || null,
     tenantPhone:   $('propTenantPhone').value.trim()  || null,
@@ -1341,7 +1372,7 @@ async function handleSave() {
   }
 
   // Save new doc files
-  for (const key of ['ijari', 'affection', 'tenancy']) {
+  for (const key of ['drec', 'ijari', 'affection', 'tenancy']) {
     const file = pendingFiles[key];
     if (file) {
       const fileId = `${property.id}_${key}`;
@@ -1477,6 +1508,9 @@ async function openDetailModal(id) {
             ${p.purchaseDate  ? `<div class="detail-row"><span class="dr-label">Purchase Date</span><span class="dr-value">${fmtDate(p.purchaseDate)}</span></div>` : ''}
             ${p.marketValue   ? `<div class="detail-row"><span class="dr-label">Market Value</span><span class="dr-value">AED ${num(p.marketValue)}</span></div>` : ''}
             ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span><span class="dr-value big">AED ${num(p.annualRent)}</span></div>` : ''}
+            ${p.serviceCharges  ? `<div class="detail-row"><span class="dr-label">Service Charges</span><span class="dr-value">AED ${num(p.serviceCharges)} / yr</span></div>` : ''}
+            ${p.maintenanceFees ? `<div class="detail-row"><span class="dr-label">Annual Maintenance</span><span class="dr-value">AED ${num(p.maintenanceFees)} / yr</span></div>` : ''}
+            ${p.annualRent ? `<div class="detail-row"><span class="dr-label">VAT (5%)</span><span class="dr-value">AED ${num(Math.round(Number(p.annualRent) * 0.05))}</span></div>` : ''}
             ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, p.purchasePrice)}</span></div>` : ''}
           </div>
         </div>
@@ -1533,6 +1567,7 @@ async function openDetailModal(id) {
       <div class="detail-block">
         <div class="detail-block-header">📁 Documents & Attachments</div>
         <div class="docs-grid">
+          ${docTile('DREC Certificate', p.files?.drec)}
           ${docTile('Ijari Document', p.files?.ijari)}
           ${docTile('Affection Plan', p.files?.affection)}
           ${docTile('Tenancy Contract', p.files?.tenancy)}
@@ -1952,6 +1987,13 @@ function renderPayments() {
   const totalAmt = filtered.reduce((s, r) => s + (Number(r.cheque.amount) || 0), 0);
   const rcvdAmt  = filtered.filter(r => r.cheque.status === 'received').reduce((s, r) => s + (Number(r.cheque.amount) || 0), 0);
 
+  // Aggregate additional charges across the same filtered properties
+  const propIdsInView = new Set(filtered.map(r => r.prop.id));
+  const propsInView   = props.filter(p => propIdsInView.has(p.id));
+  const totalService  = propsInView.reduce((s,p) => s + (Number(p.serviceCharges)||0), 0);
+  const totalMaint    = propsInView.reduce((s,p) => s + (Number(p.maintenanceFees)||0), 0);
+  const totalVat      = propsInView.reduce((s,p) => s + Math.round((Number(p.annualRent)||0) * 0.05), 0);
+
   $('paymentStatsBar').innerHTML = `
     <div class="ts-chip ts-chip-default">💳 ${total} Cheque${total !== 1 ? 's' : ''}</div>
     <div class="ts-chip ts-chip-success">✅ ${received} Received</div>
@@ -1959,6 +2001,9 @@ function renderPayments() {
     <div class="ts-chip ts-chip-danger">❌ ${bounced} Bounced</div>
     ${totalAmt ? `<div class="ts-chip ts-chip-default" style="margin-left:auto;">Total: AED ${totalAmt.toLocaleString()}</div>` : ''}
     ${rcvdAmt  ? `<div class="ts-chip ts-chip-success">Collected: AED ${rcvdAmt.toLocaleString()}</div>` : ''}
+    ${totalService ? `<div class="ts-chip ts-chip-default">Service: AED ${totalService.toLocaleString()}</div>` : ''}
+    ${totalMaint   ? `<div class="ts-chip ts-chip-default">Maintenance: AED ${totalMaint.toLocaleString()}</div>` : ''}
+    ${totalVat     ? `<div class="ts-chip ts-chip-default">VAT: AED ${totalVat.toLocaleString()}</div>` : ''}
   `;
 
   const table  = $('paymentTable');
@@ -1981,14 +2026,19 @@ function renderPayments() {
 
   const typeIcon = t => t === 'warehouse' ? '🏭' : t === 'office' ? '🏢' : '🏠';
 
-  table.innerHTML = Object.values(byProp).map(g => `
+  table.innerHTML = Object.values(byProp).map(g => {
+    const sc   = Number(g.prop.serviceCharges)  || 0;
+    const mf   = Number(g.prop.maintenanceFees) || 0;
+    const vat  = Math.round((Number(g.prop.annualRent) || 0) * 0.05);
+    const addTotal = sc + mf + vat;
+    return `
     <div class="pmt-group">
       <div class="pmt-group-header">
         <span class="pmt-prop-icon">${typeIcon(g.prop.type)}</span>
         <span class="pmt-prop-name">${h(g.prop.name)}</span>
         ${g.prop.tenantName ? `<span class="pmt-tenant">👤 ${h(g.prop.tenantName)}</span>` : ''}
         ${g.prop.annualRent ? `<span class="pmt-rent">AED ${num(g.prop.annualRent)} / yr</span>` : ''}
-        <button class="pmt-edit-btn" onclick="openEditModal('${g.prop.id}')">Edit Cheques</button>
+        <button class="pmt-edit-btn" onclick="openEditModal('${g.prop.id}')">Edit</button>
       </div>
       <div class="pmt-table">
         <div class="pmt-thead">
@@ -2008,8 +2058,18 @@ function renderPayments() {
           </span>
         </div>`).join('')}
       </div>
+      ${addTotal ? `
+      <div class="pmt-additional">
+        <div class="pmt-add-title">Additional Charges</div>
+        <div class="pmt-add-grid">
+          ${sc  ? `<div class="pmt-add-item"><span class="pmt-add-lbl">Service Charges</span><span class="pmt-add-val">AED ${num(sc)} / yr</span></div>` : ''}
+          ${mf  ? `<div class="pmt-add-item"><span class="pmt-add-lbl">Annual Maintenance</span><span class="pmt-add-val">AED ${num(mf)} / yr</span></div>` : ''}
+          ${vat ? `<div class="pmt-add-item"><span class="pmt-add-lbl">VAT (5% on rent)</span><span class="pmt-add-val">AED ${num(vat)}</span></div>` : ''}
+          <div class="pmt-add-item pmt-add-total"><span class="pmt-add-lbl">Sub-total</span><span class="pmt-add-val">AED ${num(addTotal)}</span></div>
+        </div>
+      </div>` : ''}
     </div>
-  `).join('');
+  `;}).join('');
 }
 
 // ─── Proposal Modal ───────────────────────────────
@@ -2070,6 +2130,10 @@ function autofillProposalProperty() {
   const typeMap = { warehouse: 'Warehouse', office: 'Office', residential: 'Residential' };
   $('pslPropType').value = typeMap[p.type] || '';
   if (p.annualRent)  $('pslAnnualRent').value = p.annualRent;
+  // Sync property's service charges, maintenance fees, and VAT into the proposal
+  if (p.serviceCharges)  $('pslServiceAmount').value = p.serviceCharges;
+  if (p.maintenanceFees) $('pslMaintAmount').value   = p.maintenanceFees;
+  if (p.vat || p.annualRent) $('pslVatAmount').value = p.vat || Math.round(Number(p.annualRent) * 0.05);
   if (p.tenantName)  $('pslClientName').value  = p.tenantName;
   if (p.tenantPhone) $('pslClientPhone').value = p.tenantPhone;
   if (p.tenantEmail) $('pslClientEmail').value = p.tenantEmail;
@@ -2160,7 +2224,7 @@ function updateProposalGrandTotal() {
   $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
     chequeSum += Number(inp.value) || 0;
   });
-  const additional = gn('pslVatAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount');
+  const additional = gn('pslVatAmount') + gn('pslServiceAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount');
   const grand = chequeSum + additional;
 
   const prevEl  = $('proposalTotalPreview');
@@ -2215,46 +2279,9 @@ function renderProposalCheques() {
   updatePslRentTotal();
 }
 
-function downloadProposal() {
+function _readProposalForm() {
   const g  = id => $(id)?.value?.trim() || '';
   const gn = id => Number($(id)?.value) || 0;
-  const title      = g('pslTitle')      || 'Rental Payment Structure Proposal';
-  const ref        = g('pslRef');
-  const date       = g('pslDate');
-  const validUntil = g('pslValidUntil');
-  const prepBy     = g('pslPreparedBy') || 'ASG Commercial Properties';
-  const propName   = g('pslPropName');
-  const propType   = g('pslPropType');
-  const propLoc    = g('pslPropLocation');
-  const propSize   = gn('pslPropSize');
-  const client     = g('pslClientName');
-  const company    = g('pslClientCompany');
-  const phone      = g('pslClientPhone');
-  const email      = g('pslClientEmail');
-  const rent       = gn('pslAnnualRent');
-  const lessor     = g('pslLessorName') || prepBy;
-  const tenancyFrom= g('pslTenancyFrom');
-  const tenancyTo  = g('pslTenancyTo');
-  const numCheques = parseInt(g('pslNumCheques')) || 0;
-
-  // Additional charges
-  const vatAmount   = gn('pslVatAmount');
-  const vatDate     = g('pslVatDate')     || 'CDC';
-  const vatPayable  = g('pslVatPayable')  || lessor;
-  const maintAmount = gn('pslMaintAmount');
-  const maintDate   = g('pslMaintDate')   || 'CDC';
-  const maintPayable= g('pslMaintPayable')|| lessor;
-  const adminAmount = gn('pslAdminAmount');
-  const adminDate   = g('pslAdminDate')   || 'CDC';
-  const adminPayable= g('pslAdminPayable')|| 'ASG Commercial Properties L.L.C';
-  const drecAmount  = gn('pslDrecAmount');
-  const drecDate    = g('pslDrecDate')    || 'Cheque/Card';
-  const drecPayable = g('pslDrecPayable') || 'DUBAI REAL ESTATE CORPORATION';
-
-  const termsRaw   = g('pslTerms');
-  const notes      = g('pslNotes');
-  const terms      = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
-
   const cheques = [];
   $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
     cheques.push({
@@ -2262,14 +2289,104 @@ function downloadProposal() {
       ord:      PSL_ORDINAL[i] || `Cheque ${i+1}`,
       date:     row.querySelector('.psl-date')?.value    || '',
       amount:   Number(row.querySelector('.psl-amount')?.value) || 0,
-      payable:  row.querySelector('.psl-payable')?.value || lessor,
+      payable:  row.querySelector('.psl-payable')?.value || '',
     });
   });
+  return {
+    id:           ($('pslEditId')?.value) || ('psl_' + uid()),
+    title:        g('pslTitle')      || 'Rental Payment Structure Proposal',
+    ref:          g('pslRef'),
+    date:         g('pslDate'),
+    validUntil:   g('pslValidUntil'),
+    prepBy:       g('pslPreparedBy') || 'ASG Commercial Properties',
+    propLink:     g('pslPropLink'),
+    propName:     g('pslPropName'),
+    propType:     g('pslPropType'),
+    propLocation: g('pslPropLocation'),
+    propSize:     gn('pslPropSize'),
+    client:       g('pslClientName'),
+    company:      g('pslClientCompany'),
+    phone:        g('pslClientPhone'),
+    email:        g('pslClientEmail'),
+    rent:         gn('pslAnnualRent'),
+    lessor:       g('pslLessorName'),
+    tenancyFrom:  g('pslTenancyFrom'),
+    tenancyTo:    g('pslTenancyTo'),
+    numCheques:   parseInt(g('pslNumCheques')) || 0,
+    vatAmount:    gn('pslVatAmount'),    vatDate:    g('pslVatDate'),    vatPayable:    g('pslVatPayable'),
+    serviceAmount:gn('pslServiceAmount'),serviceDate:g('pslServiceDate'),servicePayable:g('pslServicePayable'),
+    maintAmount:  gn('pslMaintAmount'),  maintDate:  g('pslMaintDate'),  maintPayable:  g('pslMaintPayable'),
+    adminAmount:  gn('pslAdminAmount'),  adminDate:  g('pslAdminDate'),  adminPayable:  g('pslAdminPayable'),
+    drecAmount:   gn('pslDrecAmount'),   drecDate:   g('pslDrecDate'),   drecPayable:   g('pslDrecPayable'),
+    termsRaw:     g('pslTerms'),
+    notes:        g('pslNotes'),
+    cheques
+  };
+}
+
+function downloadProposal() {
+  const data = _readProposalForm();
+  // Persist for the Proposals tab
+  saveProposalRecord(data);
+  printProposalDoc(data);
+  closeProposalModal();
+  if (typeof renderProposals === 'function') renderProposals();
+  showToast('Proposal saved & opened for printing', 'success');
+}
+
+function printProposalDoc(d) {
+  const title      = d.title      || 'Rental Payment Structure Proposal';
+  const ref        = d.ref        || '';
+  const date       = d.date       || '';
+  const validUntil = d.validUntil || '';
+  const prepBy     = d.prepBy     || 'ASG Commercial Properties';
+  const propName   = d.propName   || '';
+  const propType   = d.propType   || '';
+  const propLoc    = d.propLocation || '';
+  const propSize   = Number(d.propSize) || 0;
+  const client     = d.client     || '';
+  const company    = d.company    || '';
+  const phone      = d.phone      || '';
+  const email      = d.email      || '';
+  const rent       = Number(d.rent) || 0;
+  const lessor     = (d.lessor || '').trim() || prepBy;
+  const tenancyFrom= d.tenancyFrom || '';
+  const tenancyTo  = d.tenancyTo   || '';
+  const numCheques = parseInt(d.numCheques) || 0;
+
+  // Additional charges
+  const vatAmount   = Number(d.vatAmount) || 0;
+  const vatDate     = d.vatDate    || 'CDC';
+  const vatPayable  = d.vatPayable || lessor;
+  const serviceAmount = Number(d.serviceAmount) || 0;
+  const serviceDate   = d.serviceDate    || 'CDC';
+  const servicePayable= d.servicePayable || lessor;
+  const maintAmount = Number(d.maintAmount) || 0;
+  const maintDate   = d.maintDate    || 'CDC';
+  const maintPayable= d.maintPayable || lessor;
+  const adminAmount = Number(d.adminAmount) || 0;
+  const adminDate   = d.adminDate    || 'CDC';
+  const adminPayable= d.adminPayable || 'ASG Commercial Properties L.L.C';
+  const drecAmount  = Number(d.drecAmount) || 0;
+  const drecDate    = d.drecDate    || 'Cheque/Card';
+  const drecPayable = d.drecPayable || 'DUBAI REAL ESTATE CORPORATION';
+
+  const termsRaw   = d.termsRaw || '';
+  const notes      = d.notes    || '';
+  const terms      = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
+
+  const cheques = (d.cheques || []).map((c, i) => ({
+    n:       i + 1,
+    ord:     c.ord || PSL_ORDINAL[i] || `Cheque ${i+1}`,
+    date:    c.date || '',
+    amount:  Number(c.amount) || 0,
+    payable: c.payable || lessor
+  }));
   const rentTotal = cheques.reduce((s,c)=>s+(c.amount||0), 0);
-  const grandTotal = rentTotal + vatAmount + maintAmount + adminAmount + drecAmount;
+  const grandTotal = rentTotal + vatAmount + serviceAmount + maintAmount + adminAmount + drecAmount;
   const modeOfPayment = numCheques ? `${numCheques} Cheque${numCheques>1?'s':''}` : '—';
 
-  const fd = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  const fd = s => s ? new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
   const fa = n => n ? Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
   const fa0 = n => n ? 'AED ' + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
   const he = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -2279,17 +2396,74 @@ function downloadProposal() {
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
 body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:12.5px;line-height:1.5}
-.page{max-width:820px;margin:0 auto;padding:36px 44px}
+.page{max-width:820px;margin:0 auto;padding:0 44px 110px;position:relative;min-height:1100px}
 
-/* Brand header */
-.brand-row{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:2px solid #111;margin-bottom:22px}
-.brand-mark{width:42px;height:42px;background:#c9a84c;color:#111;border-radius:8px;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;letter-spacing:1px;margin-bottom:4px}
-.brand-name{font-size:15px;font-weight:800}
-.brand-sub{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1.2px}
-.doc-right{text-align:right}
-.doc-title{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:.4px}
+/* ─── ASG Letterhead Header ─── */
+.lh-header{position:relative;padding:22px 0 26px;margin-bottom:20px}
+.lh-header-frame{
+  border:2px solid #c9a84c;
+  border-bottom:none;
+  border-radius:70px 70px 0 0;
+  height:130px;
+  position:absolute;top:0;left:-44px;right:-44px;
+  pointer-events:none;
+}
+.lh-logo-block{position:relative;padding:14px 0 0 6px;display:inline-block}
+.lh-logo-icon{display:flex;align-items:flex-end;gap:2px;height:42px;margin-bottom:2px}
+.lh-bar{background:#c9a84c;width:8px;border-radius:1px}
+.lh-bar.b1{height:24px}
+.lh-bar.b2{height:36px}
+.lh-bar.b3{height:30px}
+.lh-bar.b4{height:42px;width:10px}
+.lh-divider{height:2px;width:440px;background:#c9a84c;margin:8px 0 0}
+.lh-asg{font-size:34px;font-weight:900;letter-spacing:6px;color:#7a5d1e;line-height:1}
+.lh-sub{font-size:11.5px;letter-spacing:2.6px;color:#7a5d1e;font-weight:700;margin-top:3px}
+
+/* Document title block (right of header) */
+.lh-doc-meta{position:absolute;right:0;top:34px;text-align:right;max-width:310px}
+.doc-title{font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:#111}
 .doc-ref{font-size:11px;color:#888;margin-top:2px}
 .doc-dates{font-size:11px;color:#555;margin-top:4px}
+
+/* ─── ASG Watermark ─── */
+.lh-watermark{
+  position:fixed;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  font-size:340px;font-weight:900;letter-spacing:30px;
+  color:#f8efd5;
+  z-index:0;
+  pointer-events:none;
+  user-select:none;
+  white-space:nowrap;
+}
+
+/* Make sure all real content sits above the watermark */
+.page > *{position:relative;z-index:1}
+
+/* ─── ASG Letterhead Footer ─── */
+.lh-footer{
+  position:fixed;left:0;right:0;bottom:0;
+  background:#1a1f2e;color:#fff;padding:14px 44px;
+  z-index:5;
+}
+.lh-footer-grid{
+  display:grid;
+  grid-template-columns:1.1fr 1.1fr 1.6fr;
+  gap:22px;
+  max-width:820px;margin:0 auto;
+  font-size:10.5px;line-height:1.4;
+}
+.lh-fcol{display:flex;flex-direction:column;gap:6px}
+.lh-fitem{display:flex;align-items:center;gap:8px;color:#fff}
+.lh-icon{
+  width:18px;height:18px;border:1.2px solid #c9a84c;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  color:#c9a84c;font-size:9px;flex-shrink:0;
+}
+
+/* Brand row legacy hidden */
+.brand-row{display:none}
 
 /* Tenant/property summary block */
 .tnt-summary{margin-bottom:18px}
@@ -2325,16 +2499,27 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-lbl{font-size:11px;color:#666}.sig-name{font-size:12px;font-weight:700;margin-top:1px}
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
-@media print{.page{padding:18px 26px}@page{size:A4;margin:10mm}}
-</style></head><body><div class="page">
+@media print{.page{padding:0 26px 110px}@page{size:A4;margin:10mm 10mm 0 10mm}}
+</style></head><body>
 
-<div class="brand-row">
-  <div>
-    <div class="brand-mark">ASG</div>
-    <div class="brand-name">${he(prepBy)}</div>
-    <div class="brand-sub">Commercial Properties</div>
+<div class="lh-watermark">ASG</div>
+
+<div class="page">
+
+<div class="lh-header">
+  <div class="lh-header-frame"></div>
+  <div class="lh-logo-block">
+    <div class="lh-logo-icon">
+      <span class="lh-bar b1"></span>
+      <span class="lh-bar b2"></span>
+      <span class="lh-bar b3"></span>
+      <span class="lh-bar b4"></span>
+    </div>
+    <div class="lh-asg">ASG</div>
+    <div class="lh-sub">COMMERCIAL PROPERTIES L.L.C.</div>
+    <div class="lh-divider"></div>
   </div>
-  <div class="doc-right">
+  <div class="lh-doc-meta">
     <div class="doc-title">${he(title)}</div>
     ${ref ? `<div class="doc-ref">Ref: ${he(ref)}</div>` : ''}
     <div class="doc-dates">Date: ${fd(date)}${validUntil ? `&nbsp;&nbsp;|&nbsp;&nbsp;Valid Until: ${fd(validUntil)}` : ''}</div>
@@ -2375,7 +2560,7 @@ ${cheques.length ? `
   </tbody>
 </table>` : ''}
 
-${(vatAmount||maintAmount||adminAmount||drecAmount) ? `
+${(vatAmount||serviceAmount||maintAmount||adminAmount||drecAmount) ? `
 <div class="tbl-title">Additional Charges</div>
 <table class="psl-tbl">
   <thead><tr>
@@ -2390,6 +2575,12 @@ ${(vatAmount||maintAmount||adminAmount||drecAmount) ? `
       <td>${he(vatDate)}</td>
       <td class="amt">${fa(vatAmount)}</td>
       <td>${he(vatPayable)}</td>
+    </tr>` : ''}
+    ${serviceAmount ? `<tr>
+      <td>Service Charges</td>
+      <td>${he(serviceDate)}</td>
+      <td class="amt">${fa(serviceAmount)}</td>
+      <td>${he(servicePayable)}</td>
     </tr>` : ''}
     ${maintAmount ? `<tr>
       <td>Annual Maintenance Fee</td>
@@ -2437,9 +2628,28 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
   </div>
 </div>
 
-<div class="footer">Generated by ASG Commercial Properties Dashboard &nbsp;·&nbsp; ${fd(date||new Date().toISOString().split('T')[0])}</div>
+</div>
 
-</div></body></html>`;
+<div class="lh-footer">
+  <div class="lh-footer-grid">
+    <div class="lh-fcol">
+      <div class="lh-fitem"><span class="lh-icon">⌾</span>asg.commercial_properties</div>
+      <div class="lh-fitem"><span class="lh-icon">⊕</span>www.asgholdings.ae</div>
+    </div>
+    <div class="lh-fcol">
+      <div class="lh-fitem"><span class="lh-icon">✉</span>info@asggroup.ae</div>
+      <div class="lh-fitem"><span class="lh-icon">☏</span>+971 4 264 2899</div>
+    </div>
+    <div class="lh-fcol">
+      <div class="lh-fitem" style="align-items:flex-start;">
+        <span class="lh-icon" style="margin-top:1px;">◉</span>
+        <span>Office No. 1006, 10<sup>th</sup> Floor, Dubai National<br>Insurance Building, Port Saeed - Dubai</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body></html>`;
 
   const win = window.open('', '_blank');
   if (!win) { showToast('Allow pop-ups to download the PDF', 'error'); return; }
@@ -3428,10 +3638,10 @@ function renderTeamTab() {
 
             ${lastNote ? `
             <div class="task-last-note">
-              <span class="task-last-note-icon">💬</span>
+              <span class="task-last-note-icon">${lastNote.authorType === 'admin' ? '👑' : '💬'}</span>
               <div>
                 <div class="task-last-note-text">${h(lastNote.text)}</div>
-                <div class="task-last-note-date">${formatDate(lastNote.date)} — ${h(ag ? ag.name : agName)}</div>
+                <div class="task-last-note-date">${formatDate(lastNote.date)} — ${h(lastNote.authorName || (lastNote.authorType === 'admin' ? 'Admin' : (ag ? ag.name : agName)))}</div>
               </div>
             </div>` : ''}
 
@@ -3440,7 +3650,7 @@ function renderTeamTab() {
               ${t.notes && t.notes.length ? `<span class="task-note-count">💬 ${t.notes.length} update${t.notes.length>1?'s':''}</span>` : '<span class="task-note-count" style="color:#bbb;">No updates yet</span>'}
             </div>
             <div class="task-card-actions">
-              <button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 View Updates</button>
+              <button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Reply (${t.notes?t.notes.length:0})</button>
               <button class="btn-sm btn-ghost" onclick="openTaskModal('${t.id}')">✏️ Edit Task</button>
               <div class="task-readonly-badge">🔒 Status set by agent</div>
               <button class="btn-sm btn-danger" onclick="deleteTask('${t.id}')">🗑️</button>
@@ -6963,7 +7173,27 @@ function _finRenderBody(props) {
 
   const mgmtTotal = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
 
-  const grandTotal = rentTotalOurs + mgmtTotal;
+  // ── Additional charges (service, maintenance, VAT) — only on rented properties active in year ──
+  const addRows = pool
+    .filter(p => p.status === 'rented' && _finActiveInYear(p, _finYear)
+      && ((Number(p.serviceCharges)||0) || (Number(p.maintenanceFees)||0) || (Number(p.annualRent)||0)))
+    .map(p => {
+      const months = _finMonthsActive(p, _finYear);
+      const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
+      const service = Math.round((Number(p.serviceCharges)||0)  * (months/12) * (sharePct/100));
+      const maint   = Math.round((Number(p.maintenanceFees)||0) * (months/12) * (sharePct/100));
+      const vat     = Math.round((Number(p.annualRent)||0) * 0.05 * (months/12) * (sharePct/100));
+      return { p, months, service, maint, vat, sub: service + maint + vat };
+    })
+    .filter(r => r.sub > 0)
+    .sort((a,b) => b.sub - a.sub);
+
+  const serviceTotal = addRows.reduce((s,r)=>s+r.service, 0);
+  const maintTotalFin= addRows.reduce((s,r)=>s+r.maint,   0);
+  const vatTotal     = addRows.reduce((s,r)=>s+r.vat,     0);
+  const additionalTotal = serviceTotal + maintTotalFin + vatTotal;
+
+  const grandTotal = rentTotalOurs + mgmtTotal + additionalTotal;
   const typeLabel  = _finType === 'all' ? 'Properties'
                    : _finType === 'warehouse' ? 'Warehouses'
                    : _finType === 'office' ? 'Offices' : 'Residential';
@@ -6985,6 +7215,11 @@ function _finRenderBody(props) {
         <div class="fin-kpi-label">Management Fees</div>
         <div class="fin-kpi-value">AED ${mgmtTotal.toLocaleString()}</div>
         <div class="fin-kpi-sub">${mgmtRows.length} managed propert${mgmtRows.length===1?'y':'ies'}</div>
+      </div>
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">Service + Maintenance + VAT</div>
+        <div class="fin-kpi-value">AED ${additionalTotal.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Service ${serviceTotal.toLocaleString()} · Maint. ${maintTotalFin.toLocaleString()} · VAT ${vatTotal.toLocaleString()}</div>
       </div>
       <div class="fin-kpi">
         <div class="fin-kpi-label">Vacant ${typeLabel}</div>
@@ -7127,6 +7362,60 @@ function _finRenderBody(props) {
       `}
     </div>
 
+    <!-- ── ADDITIONAL CHARGES TABLE ───────────────── -->
+    ${addRows.length ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Service Charges, Maintenance &amp; VAT — ${typeLabel}</h2>
+          <span class="fin-section-sub">Additional revenue beyond base rent — ${_finYear}, prorated by months active</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Total</span>
+          <span class="fin-tot-value">AED ${additionalTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead>
+            <tr>
+              <th style="width:34px">#</th>
+              <th>Property</th>
+              <th>Tenant</th>
+              <th class="ta-c">Months</th>
+              <th class="ta-r">Service Charges</th>
+              <th class="ta-r">Maintenance</th>
+              <th class="ta-r">VAT (5%)</th>
+              <th class="ta-r">Sub-total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${addRows.map((r,i)=>`
+              <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(r.p.name)}</strong></td>
+                <td>${h(r.p.tenantName||'—')}</td>
+                <td class="ta-c">${r.months}/12</td>
+                <td class="ta-r">${r.service ? 'AED '+num(r.service) : '—'}</td>
+                <td class="ta-r">${r.maint   ? 'AED '+num(r.maint)   : '—'}</td>
+                <td class="ta-r">${r.vat     ? 'AED '+num(r.vat)     : '—'}</td>
+                <td class="ta-r fin-our"><strong>AED ${num(r.sub)}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4" class="ta-r"><strong>TOTAL</strong></td>
+              <td class="ta-r"><strong>AED ${num(serviceTotal)}</strong></td>
+              <td class="ta-r"><strong>AED ${num(maintTotalFin)}</strong></td>
+              <td class="ta-r"><strong>AED ${num(vatTotal)}</strong></td>
+              <td class="ta-r fin-our"><strong>AED ${num(additionalTotal)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+
     <!-- ── COMBINED TOTAL ───────────────────────── -->
     <div class="fin-grand">
       <div class="fin-grand-row">
@@ -7137,6 +7426,11 @@ function _finRenderBody(props) {
         <span>Management Fee Income</span>
         <span>AED ${mgmtTotal.toLocaleString()}</span>
       </div>
+      ${additionalTotal ? `
+      <div class="fin-grand-row">
+        <span>Service + Maintenance + VAT</span>
+        <span>AED ${additionalTotal.toLocaleString()}</span>
+      </div>` : ''}
       <div class="fin-grand-row fin-grand-total">
         <span>TOTAL INCOME — ${_finYear}</span>
         <span>AED ${grandTotal.toLocaleString()}</span>
@@ -7182,6 +7476,3525 @@ boot = async function() {
     updateAgentBadges();
   }
 };
+
+// ═══════════════════════════════════════════════════════
+//  TEAM MODULE EXPANSION
+//  - Performance metrics + leaderboard
+//  - Activity timeline
+//  - Schedule / availability
+//  - Internal announcements
+//  - Agent property view = admin view (minus rent/financial)
+//  - Two-way updates module with author labels
+// ═══════════════════════════════════════════════════════
+
+// ─── Storage ──────────────────────────────────────────
+const ANNOUNCEMENTS_KEY = 'asg_announcements';
+const LEAVES_KEY        = 'asg_leaves';
+
+function loadAnnouncements()  { try { return JSON.parse(localStorage.getItem(ANNOUNCEMENTS_KEY)) || []; } catch { return []; } }
+function saveAnnouncements(a) { localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(a)); }
+function loadLeaves()         { try { return JSON.parse(localStorage.getItem(LEAVES_KEY))        || []; } catch { return []; } }
+function saveLeaves(l)        { localStorage.setItem(LEAVES_KEY, JSON.stringify(l)); }
+
+const AVAILABILITY_META = {
+  available:  { icon:'🟢', label:'Available',     cls:'av-available' },
+  in_meeting: { icon:'🟡', label:'In Meeting',    cls:'av-meeting'   },
+  at_viewing: { icon:'🏗️', label:'At Viewing',    cls:'av-viewing'   },
+  off_duty:   { icon:'⚪', label:'Off Duty',      cls:'av-off'       },
+  on_leave:   { icon:'🌴', label:'On Leave',      cls:'av-leave'     }
+};
+function availMeta(v) { return AVAILABILITY_META[v] || AVAILABILITY_META.available; }
+
+// ─── One-time data migration ─────────────────────────
+(function migrateTeamData() {
+  // Ensure every agent has an availability field
+  const agents = loadAgents();
+  let changed = false;
+  agents.forEach(a => { if (!a.availability) { a.availability = 'available'; changed = true; } });
+  if (changed) saveAgents(agents);
+
+  // Ensure existing task notes have author info (legacy notes default to admin)
+  const tasks = loadTasks();
+  let tChanged = false;
+  tasks.forEach(t => {
+    if (!t.notes) return;
+    t.notes.forEach(n => {
+      if (!n.authorType) {
+        n.authorType = 'admin';
+        n.authorName = 'Admin';
+        n.authorId   = '';
+        tChanged = true;
+      }
+    });
+  });
+  if (tChanged) saveTasks(tasks);
+})();
+
+// ─── Helpers ─────────────────────────────────────────
+function isAdminUser() { const s = getSession(); return s && s.type === 'admin'; }
+function getAuthorMeta() {
+  const s = getSession();
+  if (!s) return { type:'admin', id:'', name:'Admin' };
+  if (s.type === 'admin') return { type:'admin', id:'', name:'Admin' };
+  return { type:'agent', id: s.agentId, name: s.name };
+}
+function startOfMonth(d) { const x = new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x; }
+function inPeriod(iso, period) {
+  if (!iso) return false;
+  if (period === 'all') return true;
+  const t = new Date(iso); if (isNaN(t)) return false;
+  if (period === 'month') return t >= startOfMonth(new Date());
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════
+//  AGENT PROPERTY VIEW — admin layout, rent stripped
+// ═══════════════════════════════════════════════════════
+
+function agentCardHTML(p) {
+  const typeIcon = p.type === 'warehouse' ? '🏭' : p.type === 'office' ? '🏢' : p.type === 'residential' ? '🏠' : '🏗️';
+  const today    = new Date();
+  const reminderThreshold = Number(p.reminderDays) || 60;
+  let leaseBadge = '';
+  if (p.status === 'rented' && p.leaseEnd) {
+    const days = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
+    if      (days < 0)                    leaseBadge = `<span class="lease-badge lease-expired">Expired</span>`;
+    else if (days <= reminderThreshold)   leaseBadge = `<span class="lease-badge lease-warning">${days}d left</span>`;
+    else                                  leaseBadge = `<span class="lease-badge lease-ok">${days}d left</span>`;
+  }
+  const mapChip = p.mapLink
+    ? `<span class="chip chip-map" onclick="event.stopPropagation();window.open('${p.mapLink}','_blank')">🗺 Map</span>`
+    : '';
+  const mediaStrip = p.media?.length
+    ? `<div class="card-media-strip count-${Math.min(p.media.length, 3)}" id="strip-${p.id}">
+        ${p.media.slice(0, 3).map((m, i) =>
+          isVideo(m.mime)
+            ? `<video id="strip-${p.id}-${i}" muted></video>`
+            : `<img id="strip-${p.id}-${i}" alt="">`
+        ).join('')}
+        ${p.media.length > 3 ? `<div class="card-media-more">+${p.media.length - 3}</div>` : ''}
+      </div>`
+    : '';
+  const sess = getSession() || {};
+  const perms = sess.perms || {};
+  const showTenant = perms.viewTenant !== false;
+  const tenantSection = (p.status === 'rented' && p.tenantName && showTenant) ? `
+    <hr class="card-divider">
+    <div class="card-tenant">
+      <div class="tenant-left">
+        <div class="tenant-avatar">${p.tenantName.charAt(0).toUpperCase()}</div>
+        <div>
+          <div class="tenant-name">${h(p.tenantName)}</div>
+          <div class="tenant-dates">${fmtDate(p.leaseStart)} → ${fmtDate(p.leaseEnd)}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        ${leaseBadge}
+      </div>
+    </div>` : '';
+  const vacantBanner = p.status === 'vacant'
+    ? `<div style="padding:6px 10px;background:var(--danger-bg);border-radius:6px;font-size:12px;font-weight:600;color:var(--danger);text-align:center;">🔓 Vacant — Available</div>`
+    : '';
+  return `
+    <div class="property-card${p.status === 'vacant' ? ' card-vacant' : ''}" onclick="openDetailModal('${p.id}')">
+      <div class="card-header">
+        <div class="card-header-top">
+          <div>
+            <div class="card-type-pill pill-${p.type}">${typeIcon} ${p.type}</div>
+            <div class="card-title">${h(p.name)}</div>
+            ${p.location ? `<div class="card-location">📍 ${h(p.location)}</div>` : ''}
+          </div>
+          ${p.status ? `<span class="card-status-badge status-${p.status}">${p.status}</span>` : ''}
+        </div>
+      </div>
+      ${mediaStrip}
+      <div class="card-body">
+        <div class="card-kpis card-kpis-agent">
+          <div class="kpi"><span class="kpi-label">Size</span><span class="kpi-value">${p.size ? num(p.size)+' sq ft' : '—'}</span></div>
+          <div class="kpi"><span class="kpi-label">Type</span><span class="kpi-value" style="text-transform:capitalize;">${p.type || '—'}</span></div>
+          <div class="kpi"><span class="kpi-label">Status</span><span class="kpi-value" style="text-transform:capitalize;">${p.status || '—'}</span></div>
+          <div class="kpi"><span class="kpi-label">Photos</span><span class="kpi-value">${(p.media?.length || 0)} file${(p.media?.length||0)===1?'':'s'}</span></div>
+        </div>
+        <div class="card-chips">
+          ${mapChip}
+          ${p.compound  === 'yes' ? `<span class="chip">🏠 Compound</span>` : ''}
+          ${p.mezzanine === 'yes' ? `<span class="chip">🏗️ Mezzanine</span>` : ''}
+          ${p.usage ? `<span class="chip">${h(_fmtUsage ? _fmtUsage(p.usage) : p.usage)}</span>` : ''}
+        </div>
+        ${vacantBanner}
+        ${tenantSection}
+      </div>
+    </div>`;
+}
+
+// Override openDetailModal so agents see admin layout, but with rent/financial stripped
+const _origOpenDetailModal = openDetailModal;
+openDetailModal = async function(id) {
+  // Admin path unchanged
+  if (!isAgentUser()) return _origOpenDetailModal(id);
+  // Agent path: delegate then strip
+  await _origOpenDetailModal(id);
+  applyAgentDetailMode();
+};
+
+function applyAgentDetailMode() {
+  const body = document.getElementById('detailBody');
+  if (!body) return;
+  body.classList.add('detail-agent-mode');
+
+  // Remove the Financial Details block by header text match
+  body.querySelectorAll('.detail-block').forEach(blk => {
+    const head = blk.querySelector('.detail-block-header');
+    if (!head) return;
+    const txt = head.textContent || '';
+    if (txt.includes('Financial Details')) blk.remove();
+    if (txt.includes('Cheque Schedule')) blk.remove();
+    if (txt.includes('Vacant Property')) {
+      // keep block but strip rent rows
+      blk.querySelectorAll('.detail-row').forEach(row => {
+        const lab = row.querySelector('.dr-label');
+        if (!lab) return;
+        const t = lab.textContent || '';
+        if (t.includes('Asking Rent') || t.includes('Per Month')) row.remove();
+      });
+      // if block now empty, drop it
+      if (!blk.querySelector('.detail-row')) blk.remove();
+    }
+  });
+
+  // Within Tenant Information block: drop monthly rent row
+  body.querySelectorAll('.detail-row').forEach(row => {
+    const lab = row.querySelector('.dr-label');
+    if (!lab) return;
+    const t = (lab.textContent || '').trim();
+    if (t === 'Monthly Rent' || t === 'Annual Rent' || t === 'Asking Rent' ||
+        t === 'Purchase Price' || t === 'Market Value' || t === 'Rental Yield' ||
+        t === 'Management Fee' || t === 'Purchase Date' || t === 'Agreement Date' ||
+        t === 'Our Share' || t === 'Partner') {
+      row.remove();
+    }
+  });
+
+  // Hide admin-only footer buttons; keep Close visible
+  const delBtn  = document.getElementById('deletePropertyBtn');
+  const editBtn = document.getElementById('editFromDetailBtn');
+  if (delBtn)  delBtn.style.display  = 'none';
+  if (editBtn) editBtn.style.display = 'none';
+}
+
+// When admin reopens, ensure the buttons return
+const _origCloseDetail = (typeof closeDetailModal === 'function') ? closeDetailModal : null;
+function _restoreDetailFooter() {
+  const delBtn  = document.getElementById('deletePropertyBtn');
+  const editBtn = document.getElementById('editFromDetailBtn');
+  if (delBtn)  delBtn.style.display  = '';
+  if (editBtn) editBtn.style.display = '';
+  const body = document.getElementById('detailBody');
+  if (body) body.classList.remove('detail-agent-mode');
+}
+if (_origCloseDetail) {
+  closeDetailModal = function() {
+    _restoreDetailFooter();
+    return _origCloseDetail();
+  };
+}
+
+// Replace agent inventory rendering with admin-style cards
+const _origRenderAgentInventory = renderAgentInventory;
+renderAgentInventory = function() {
+  const allProps = loadProps();
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const list = document.getElementById('agentInventoryList');
+  if (!list) return;
+
+  const role = sess.role || 'general';
+  const meta = agentRoleMeta(role);
+  const props = allProps.filter(meta.inventoryFilter || (() => true));
+
+  // Re-use original intro banner by calling original (which writes intro+empty too) only when empty
+  if (!allProps.length) {
+    list.innerHTML = `<div class="team-empty"><div class="empty-icon">🏗️</div><p>No properties in the portfolio yet.</p></div>`;
+    return;
+  }
+  if (!props.length) {
+    return _origRenderAgentInventory();
+  }
+
+  // Build intro
+  let intro = '';
+  if (role === 'sales') {
+    intro = `<div class="agent-inv-intro agent-inv-intro-sales">
+      <div class="aii-icon">🏷️</div>
+      <div>
+        <div class="aii-title">Sales Inventory · ${props.length} vacant ${props.length === 1 ? 'property' : 'properties'}</div>
+        <div class="aii-sub">Browse properties available to lease or sell. Click a card to view full details, photos, and documents.</div>
+      </div>
+    </div>`;
+  } else if (role === 'leasing') {
+    intro = `<div class="agent-inv-intro agent-inv-intro-leasing">
+      <div class="aii-icon">📋</div>
+      <div>
+        <div class="aii-title">Active Leases · ${props.length} rented</div>
+        <div class="aii-sub">Click any property to see full details, photos, and documents.</div>
+      </div>
+    </div>`;
+  } else if (role === 'property_management') {
+    intro = `<div class="agent-inv-intro agent-inv-intro-pm">
+      <div class="aii-icon">🏢</div>
+      <div>
+        <div class="aii-title">Managed Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
+        <div class="aii-sub">Click any property for full details, photos, and documents.</div>
+      </div>
+    </div>`;
+  }
+
+  // Render as a grid of admin-style cards
+  list.innerHTML = `${intro}<div class="grid agent-inventory-grid">${props.map(agentCardHTML).join('')}</div>`;
+
+  // Hydrate media thumbnails (mirror admin behavior)
+  if (typeof loadCardMedia === 'function') {
+    props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+//  TWO-WAY UPDATES MODULE — author labels everywhere
+// ═══════════════════════════════════════════════════════
+
+// Override task-notes render: chat-bubble style with author label
+renderNotesList = function(notes) {
+  const list = document.getElementById('taskNotesList');
+  if (!list) return;
+  if (!notes || !notes.length) {
+    list.innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:8px 0;">No updates yet.</p>`;
+    return;
+  }
+  list.innerHTML = notes.map(n => {
+    const author = n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown');
+    const isAdmin = n.authorType === 'admin';
+    const side = isAdmin ? 'note-admin' : 'note-agent';
+    return `
+      <div class="thread-msg ${side}">
+        <div class="thread-msg-meta">
+          <span class="thread-msg-author">${isAdmin ? '👑 ' : ''}${h(author)}${isAdmin ? '' : ''}</span>
+          <span class="thread-msg-date">${formatDate(n.date)}</span>
+        </div>
+        <div class="thread-msg-bubble">${h(n.text)}</div>
+      </div>`;
+  }).join('');
+  // Auto-scroll to bottom
+  list.scrollTop = list.scrollHeight;
+};
+
+// Override submitTaskNote: store author info from session, allow admin to post
+submitTaskNote = function() {
+  const input = document.getElementById('taskNoteInput');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  const tasks = loadTasks();
+  const task = tasks.find(t => t.id === notesTaskId);
+  if (!task) return;
+  if (!task.notes) task.notes = [];
+  const a = getAuthorMeta();
+  task.notes.push({
+    text,
+    date: new Date().toISOString(),
+    authorType: a.type,
+    authorId:   a.id,
+    authorName: a.name
+  });
+  task.updatedAt = new Date().toISOString();
+  saveTasks(tasks);
+  input.value = '';
+  renderNotesList(task.notes);
+  showToast('Update posted', 'success');
+  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
+  else if (typeof renderTeamTab === 'function') renderTeamTab();
+};
+
+// Override openTaskNotes: switch modal title for admin, ensure input is visible
+const _origOpenTaskNotes = openTaskNotes;
+openTaskNotes = function(taskId) {
+  _origOpenTaskNotes(taskId);
+  const titleEl = document.querySelector('#taskNotesOverlay h2');
+  if (titleEl) titleEl.textContent = 'Conversation';
+  const input = document.getElementById('taskNoteInput');
+  if (input) input.placeholder = isAdminUser() ? 'Reply as Admin…' : 'Write an update…';
+  // Ensure the input row is visible for both roles
+  const formGroup = input?.closest('.form-group');
+  if (formGroup) formGroup.style.display = '';
+};
+
+// ─── Lead activities: admin can also reply ─────────
+const _origRenderActivityLog = renderActivityLog;
+renderActivityLog = function(activities) {
+  const log = document.getElementById('leadActivityLog');
+  if (!log) return;
+  if (!activities || !activities.length) {
+    log.innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:10px;">No activity logged yet.</p>`;
+    return;
+  }
+  log.innerHTML = [...activities].reverse().map(a => {
+    const at = ACT_TYPES[a.type] || { icon:'📝', label:'Note' };
+    const isAdmin = a.authorType === 'admin' || (!a.byAgentId && !a.authorId && a.byAgentName === 'Admin');
+    const author = a.byAgentName || a.authorName || (isAdmin ? 'Admin' : 'Unknown');
+    const potential = a.potential
+      ? `<span class="act-potential act-pot-${a.potential}">${a.potential==='high'?'🔥':'⚡'} ${a.potential.charAt(0).toUpperCase()+a.potential.slice(1)} potential</span>` : '';
+    const stageChange = a.stageChanged
+      ? `<span class="act-stage-change">→ Stage: ${(LEAD_STAGES[a.stageChanged]||{icon:'',label:a.stageChanged}).icon} ${(LEAD_STAGES[a.stageChanged]||{label:a.stageChanged}).label}</span>` : '';
+    return `
+      <div class="act-item ${isAdmin ? 'act-admin' : 'act-agent'}">
+        <div class="act-icon">${isAdmin ? '👑' : at.icon}</div>
+        <div class="act-body">
+          <div class="act-header">
+            <span class="act-type">${at.label}</span>
+            ${potential}${stageChange}
+            <span class="act-date">${formatDate(a.date)}</span>
+          </div>
+          <div class="act-by">${isAdmin ? 'Admin' : 'by ' + h(author)}</div>
+          <div class="act-note">${h(a.note)}</div>
+        </div>
+      </div>`;
+  }).join('');
+};
+
+// New: admin can submit a reply to a lead activity log
+function adminSubmitLeadActivity() {
+  if (!isAdminUser()) return;
+  const noteEl = document.getElementById('actNote');
+  const note = (noteEl?.value || '').trim();
+  if (!note) { showToast('Write a message', 'error'); return; }
+  const leads = loadLeads();
+  const lead  = leads.find(l => l.id === currentLeadId);
+  if (!lead) return;
+  const newStage = (document.getElementById('actStage')?.value) || '';
+  const act = {
+    id:           'act_' + uid(),
+    type:         (document.getElementById('actType')?.value) || 'note',
+    potential:    (document.getElementById('actPotential')?.value) || '',
+    stageChanged: newStage,
+    note,
+    date:         new Date().toISOString(),
+    authorType:   'admin',
+    authorName:   'Admin',
+    byAgentName:  'Admin'
+  };
+  if (!lead.activities) lead.activities = [];
+  lead.activities.push(act);
+  if (newStage) lead.stage = newStage;
+  lead.updatedAt = new Date().toISOString();
+  saveLeads(leads);
+  if (noteEl) noteEl.value = '';
+  if (document.getElementById('actStage'))     document.getElementById('actStage').value = '';
+  if (document.getElementById('actPotential')) document.getElementById('actPotential').value = '';
+  renderActivityLog(lead.activities);
+  if (typeof renderLeadsPipeline === 'function') renderLeadsPipeline();
+  showToast('Reply posted', 'success');
+}
+
+// Override submitLeadActivity to also tag agent author info
+const _origSubmitLeadActivity = submitLeadActivity;
+submitLeadActivity = function() {
+  if (isAdminUser()) return adminSubmitLeadActivity();
+  return _origSubmitLeadActivity();
+};
+
+// Override openLeadDetail so admin also sees the reply form
+const _origOpenLeadDetail = openLeadDetail;
+openLeadDetail = function(id) {
+  _origOpenLeadDetail(id);
+  if (isAdminUser()) {
+    const form = document.getElementById('leadAddActivityForm');
+    const btn  = document.getElementById('leadAddActBtn');
+    if (form) form.style.display = '';
+    if (btn)  { btn.style.display = ''; btn.textContent = '👑 Reply as Admin'; }
+    const noteEl = document.getElementById('actNote');
+    if (noteEl) noteEl.placeholder = 'Reply as Admin… (changes stage if you pick one)';
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+//  PERFORMANCE METRICS
+// ═══════════════════════════════════════════════════════
+
+let _perfPeriod = 'month'; // 'month' | 'all'
+
+function computeAgentMetrics(agentId, period) {
+  const tasks  = loadTasks().filter(t => t.agentId === agentId);
+  const leads  = loadLeads().filter(l => l.assignedTo === agentId);
+  const subs   = loadPendingProps().filter(p => p.addedByAgent === agentId);
+
+  const tasksInP   = tasks.filter(t => inPeriod(t.updatedAt || t.createdAt, period));
+  const leadsInP   = leads.filter(l => inPeriod(l.updatedAt || l.createdAt, period));
+
+  const tasksDone        = tasksInP.filter(t => t.status === 'done').length;
+  const tasksActive      = tasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
+  const propertiesShown  = tasksInP.filter(t => t.status === 'done' && t.type === 'site-visit').length;
+  const proposalsSent    = leads.reduce((s,l) => s + ((l.activities||[]).filter(a => a.type === 'proposal' && inPeriod(a.date, period)).length), 0);
+  const dealsWon         = leadsInP.filter(l => l.stage === 'won').length;
+  const dealsLost        = leadsInP.filter(l => l.stage === 'lost').length;
+  const totalAssigned    = leadsInP.length;
+  const closedTotal      = dealsWon + dealsLost;
+  const conversion       = closedTotal > 0 ? Math.round((dealsWon / closedTotal) * 100) : 0;
+  const revenueClosed    = leadsInP
+    .filter(l => l.stage === 'won')
+    .reduce((s,l) => s + (Number(String(l.budget || '').replace(/[^\d.]/g,'')) || 0), 0);
+  const submissions      = subs.filter(p => inPeriod(p.submittedAt, period)).length;
+  const submissionsApp   = subs.filter(p => p.status === 'approved' && inPeriod(p.submittedAt, period)).length;
+
+  // Stage distribution (active leads only)
+  const stageDist = {};
+  leads.forEach(l => { if (l.stage !== 'won' && l.stage !== 'lost') stageDist[l.stage] = (stageDist[l.stage] || 0) + 1; });
+
+  return {
+    tasksDone, tasksActive, propertiesShown, proposalsSent,
+    dealsWon, dealsLost, totalAssigned, conversion, revenueClosed,
+    submissions, submissionsApp, stageDist
+  };
+}
+
+function renderLeaderboard() {
+  const wrap = document.getElementById('teamLeaderboardSection');
+  if (!wrap) return;
+  const agents = loadAgents().filter(a => a.active !== false);
+  const rows = agents.map(a => ({ a, m: computeAgentMetrics(a.id, _perfPeriod) }))
+    .sort((x,y) => (y.m.revenueClosed - x.m.revenueClosed) || (y.m.dealsWon - x.m.dealsWon) || (y.m.tasksDone - x.m.tasksDone));
+
+  const periodLbl = _perfPeriod === 'month' ? 'This Month' : 'All Time';
+  const top = rows[0];
+
+  wrap.innerHTML = `
+    <div class="team-section-header">
+      <div>
+        <div class="team-section-title">🏆 Performance Leaderboard</div>
+        <div class="team-section-sub">Ranked by revenue closed · ${periodLbl}</div>
+      </div>
+      <div class="perf-toggle">
+        <button class="perf-btn ${_perfPeriod==='month'?'active':''}" onclick="setPerfPeriod('month')">This Month</button>
+        <button class="perf-btn ${_perfPeriod==='all'?'active':''}" onclick="setPerfPeriod('all')">All Time</button>
+      </div>
+    </div>
+    ${rows.length === 0 ? `<div class="team-empty"><div class="empty-icon">🏆</div><p>No agents yet.</p></div>` : `
+    <div class="leaderboard-table">
+      <div class="lb-head">
+        <span>#</span><span>Agent</span><span>Revenue</span><span>Deals Won</span><span>Conv. %</span><span>Properties Shown</span><span>Proposals</span><span>Tasks Done</span>
+      </div>
+      ${rows.map(({a,m}, i) => `
+        <div class="lb-row${i===0?' lb-top':''}">
+          <span class="lb-rank">${i===0?'👑':'#'+(i+1)}</span>
+          <span class="lb-agent"><span class="lb-avatar">${a.name.charAt(0).toUpperCase()}</span>${h(a.name)}</span>
+          <span class="lb-rev">${m.revenueClosed ? 'AED '+num(m.revenueClosed) : '—'}</span>
+          <span>${m.dealsWon}</span>
+          <span>${m.conversion}%</span>
+          <span>${m.propertiesShown}</span>
+          <span>${m.proposalsSent}</span>
+          <span>${m.tasksDone}</span>
+        </div>`).join('')}
+    </div>`}
+  `;
+}
+
+function setPerfPeriod(p) { _perfPeriod = p; renderLeaderboard(); renderAgentMetricStrips(); }
+
+function renderAgentMetricStrips() {
+  // Inject metric strips below each existing agent card
+  const cards = document.querySelectorAll('#agentsList .agent-card');
+  const agents = loadAgents();
+  cards.forEach(card => {
+    // find the agent by name match (the existing card doesn't carry id) — improved: re-render in one go
+  });
+  // Simpler: rebuild the agents list with metrics included (next render of team)
+}
+
+// ═══════════════════════════════════════════════════════
+//  ACTIVITY TIMELINE (auto-derived)
+// ═══════════════════════════════════════════════════════
+
+function buildTimelineEvents(agentFilter, typeFilter) {
+  const agents = loadAgents();
+  const agentName = (id) => (agents.find(a => a.id === id)?.name) || 'Unassigned';
+  const events = [];
+
+  loadLeads().forEach(l => {
+    if (l.createdAt) events.push({
+      ts: l.createdAt, type: 'lead-created', agentId: l.assignedTo || '',
+      icon: '📥', text: `New lead: ${l.name}${l.company ? ' ('+l.company+')' : ''}`,
+      who: l.assignedTo ? agentName(l.assignedTo) : 'Unassigned'
+    });
+    (l.activities || []).forEach(a => {
+      const at = ACT_TYPES[a.type] || { icon:'📝', label:'Activity' };
+      const isAdmin = a.authorType === 'admin';
+      events.push({
+        ts: a.date, type: 'lead-activity', agentId: isAdmin ? '' : (a.byAgentId || ''),
+        icon: isAdmin ? '👑' : at.icon,
+        text: `${at.label} on lead ${l.name}${a.note ? ' — '+a.note.slice(0,80) : ''}`,
+        who: isAdmin ? 'Admin' : (a.byAgentName || agentName(a.byAgentId))
+      });
+      if (a.stageChanged) events.push({
+        ts: a.date, type: 'lead-stage', agentId: isAdmin ? '' : (a.byAgentId || ''),
+        icon: a.stageChanged === 'won' ? '🏆' : a.stageChanged === 'lost' ? '❌' : '🔁',
+        text: `Lead "${l.name}" → ${(LEAD_STAGES[a.stageChanged]||{label:a.stageChanged}).label}`,
+        who: isAdmin ? 'Admin' : (a.byAgentName || agentName(a.byAgentId))
+      });
+    });
+  });
+
+  loadTasks().forEach(t => {
+    if (t.createdAt) events.push({
+      ts: t.createdAt, type: 'task-created', agentId: t.agentId || '',
+      icon: '📋', text: `Task assigned: ${t.title}`,
+      who: t.agentId ? agentName(t.agentId) : 'Unassigned'
+    });
+    if (t.status === 'done' && t.updatedAt) events.push({
+      ts: t.updatedAt, type: 'task-done', agentId: t.agentId || '',
+      icon: '✅', text: `Task completed: ${t.title}`,
+      who: t.agentId ? agentName(t.agentId) : 'Unassigned'
+    });
+    (t.notes || []).forEach(n => events.push({
+      ts: n.date, type: 'task-note', agentId: n.authorType === 'agent' ? n.authorId : '',
+      icon: n.authorType === 'admin' ? '👑' : '💬',
+      text: `Update on "${t.title}" — ${n.text.slice(0,80)}`,
+      who: n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown')
+    }));
+  });
+
+  loadPendingProps().forEach(p => {
+    if (p.submittedAt) events.push({
+      ts: p.submittedAt, type: 'prop-submitted', agentId: p.addedByAgent || '',
+      icon: '🏗️', text: `Property submitted: ${p.name}`,
+      who: p.addedByAgentName || agentName(p.addedByAgent)
+    });
+  });
+
+  return events
+    .filter(e => e.ts && !isNaN(new Date(e.ts)))
+    .filter(e => !agentFilter || e.agentId === agentFilter)
+    .filter(e => !typeFilter || e.type === typeFilter)
+    .sort((a,b) => new Date(b.ts) - new Date(a.ts));
+}
+
+function renderActivityTimeline() {
+  const wrap = document.getElementById('teamActivityTimeline');
+  if (!wrap) return;
+  const agentFilter = (document.getElementById('timelineAgentFilter')?.value) || '';
+  const typeFilter  = (document.getElementById('timelineTypeFilter')?.value)  || '';
+  const events = buildTimelineEvents(agentFilter, typeFilter).slice(0, 80);
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yest  = new Date(today.getTime() - 86400000);
+  const wkAgo = new Date(today.getTime() - 7*86400000);
+
+  const groups = { Today: [], Yesterday: [], 'Earlier this week': [], Older: [] };
+  events.forEach(e => {
+    const d = new Date(e.ts);
+    if      (d >= today)  groups.Today.push(e);
+    else if (d >= yest)   groups.Yesterday.push(e);
+    else if (d >= wkAgo)  groups['Earlier this week'].push(e);
+    else                  groups.Older.push(e);
+  });
+
+  const agents = loadAgents();
+  const agentOpts = agents.map(a => `<option value="${a.id}"${agentFilter===a.id?' selected':''}>${h(a.name)}</option>`).join('');
+
+  wrap.innerHTML = `
+    <div class="team-section-header">
+      <div>
+        <div class="team-section-title">📜 Activity Timeline</div>
+        <div class="team-section-sub">Live feed of everything happening in the team</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <select class="filter-select" id="timelineAgentFilter" onchange="renderActivityTimeline()" style="width:160px;">
+          <option value="">All Agents</option>${agentOpts}
+        </select>
+        <select class="filter-select" id="timelineTypeFilter" onchange="renderActivityTimeline()" style="width:160px;">
+          <option value="">All Types</option>
+          <option value="lead-created"${typeFilter==='lead-created'?' selected':''}>Lead Created</option>
+          <option value="lead-activity"${typeFilter==='lead-activity'?' selected':''}>Lead Activity</option>
+          <option value="lead-stage"${typeFilter==='lead-stage'?' selected':''}>Stage Changes</option>
+          <option value="task-created"${typeFilter==='task-created'?' selected':''}>Task Created</option>
+          <option value="task-done"${typeFilter==='task-done'?' selected':''}>Task Done</option>
+          <option value="task-note"${typeFilter==='task-note'?' selected':''}>Task Updates</option>
+          <option value="prop-submitted"${typeFilter==='prop-submitted'?' selected':''}>Property Submitted</option>
+        </select>
+      </div>
+    </div>
+    ${events.length === 0 ? `<div class="team-empty"><div class="empty-icon">📜</div><p>No activity matches your filters.</p></div>` :
+      Object.entries(groups).filter(([,arr]) => arr.length).map(([label, arr]) => `
+        <div class="timeline-group">
+          <div class="timeline-group-label">${label} <span class="timeline-group-count">${arr.length}</span></div>
+          ${arr.map(e => `
+            <div class="timeline-item">
+              <div class="timeline-icon">${e.icon}</div>
+              <div class="timeline-body">
+                <div class="timeline-text">${h(e.text)}</div>
+                <div class="timeline-meta">${h(e.who)} · ${formatDate(e.ts)}</div>
+              </div>
+            </div>`).join('')}
+        </div>`).join('')}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════
+//  SCHEDULE / AVAILABILITY
+// ═══════════════════════════════════════════════════════
+
+function setAgentAvailability(agentId, status) {
+  const agents = loadAgents();
+  const ag = agents.find(a => a.id === agentId);
+  if (!ag) return;
+  ag.availability = status;
+  saveAgents(agents);
+  renderTeamTab();
+  showToast('Availability updated', 'success');
+}
+
+function renderScheduleBoard() {
+  const wrap = document.getElementById('teamScheduleSection');
+  if (!wrap) return;
+  const agents = loadAgents().filter(a => a.active !== false);
+  const leaves = loadLeaves();
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const isOnLeaveToday = (agentId) => leaves.some(L => {
+    if (L.agentId !== agentId) return false;
+    const s = new Date(L.startDate); s.setHours(0,0,0,0);
+    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
+    return today >= s && today <= e;
+  });
+
+  const upcomingLeaves = leaves
+    .filter(L => new Date(L.endDate) >= today)
+    .sort((a,b) => new Date(a.startDate) - new Date(b.startDate))
+    .slice(0, 10);
+
+  const agentName = (id) => (agents.find(a => a.id === id)?.name) || 'Unknown';
+
+  const statusOpts = Object.entries(AVAILABILITY_META)
+    .map(([k,m]) => `<option value="${k}">${m.icon} ${m.label}</option>`).join('');
+
+  wrap.innerHTML = `
+    <div class="team-section-header">
+      <div>
+        <div class="team-section-title">📅 Today's Schedule</div>
+        <div class="team-section-sub">Who's available, in meetings, on leave</div>
+      </div>
+      <button class="btn-primary" onclick="openLeaveModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Leave
+      </button>
+    </div>
+    <div class="schedule-grid">
+      ${agents.length === 0 ? `<div class="team-empty"><div class="empty-icon">👥</div><p>No active agents.</p></div>` :
+        agents.map(a => {
+          const onLeave = isOnLeaveToday(a.id);
+          const status  = onLeave ? 'on_leave' : (a.availability || 'available');
+          const m = availMeta(status);
+          return `
+            <div class="schedule-card">
+              <div class="schedule-card-top">
+                <span class="schedule-avatar">${a.name.charAt(0).toUpperCase()}</span>
+                <div style="flex:1;min-width:0;">
+                  <div class="schedule-name">${h(a.name)}</div>
+                  <div class="schedule-status ${m.cls}">${m.icon} ${m.label}</div>
+                </div>
+              </div>
+              ${!onLeave ? `
+              <select class="schedule-status-select" onchange="setAgentAvailability('${a.id}', this.value)">
+                ${Object.entries(AVAILABILITY_META).filter(([k]) => k !== 'on_leave').map(([k,mm]) =>
+                  `<option value="${k}"${(a.availability||'available')===k?' selected':''}>${mm.icon} ${mm.label}</option>`
+                ).join('')}
+              </select>` : '<div class="schedule-onleave-note">On leave today</div>'}
+            </div>`;
+        }).join('')}
+    </div>
+    ${upcomingLeaves.length ? `
+    <div class="leaves-section">
+      <div class="leaves-section-title">🌴 Upcoming Leaves</div>
+      <div class="leaves-list">
+        ${upcomingLeaves.map(L => `
+          <div class="leave-item">
+            <div class="leave-item-avatar">${(agentName(L.agentId)||'?').charAt(0).toUpperCase()}</div>
+            <div class="leave-item-body">
+              <div class="leave-item-name">${h(agentName(L.agentId))}</div>
+              <div class="leave-item-dates">${fmtDate(L.startDate)} → ${fmtDate(L.endDate)}${L.reason ? ' · '+h(L.reason) : ''}</div>
+            </div>
+            <button class="btn-icon-sm btn-danger-sm" onclick="deleteLeave('${L.id}')" title="Delete leave">🗑️</button>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
+  `;
+  // Suppress unused arg
+  void statusOpts;
+}
+
+function openLeaveModal() {
+  const agents = loadAgents().filter(a => a.active !== false);
+  const sel = document.getElementById('leaveAgent');
+  if (!sel) return;
+  sel.innerHTML = agents.map(a => `<option value="${a.id}">${h(a.name)}</option>`).join('');
+  document.getElementById('leaveStart').value  = '';
+  document.getElementById('leaveEnd').value    = '';
+  document.getElementById('leaveReason').value = '';
+  document.getElementById('leaveModalOverlay').classList.add('active');
+}
+function closeLeaveModal() { document.getElementById('leaveModalOverlay').classList.remove('active'); }
+
+function saveLeave() {
+  const agentId = document.getElementById('leaveAgent').value;
+  const start   = document.getElementById('leaveStart').value;
+  const end     = document.getElementById('leaveEnd').value;
+  const reason  = document.getElementById('leaveReason').value.trim();
+  if (!agentId) { showToast('Pick an agent', 'error'); return; }
+  if (!start || !end) { showToast('Both dates required', 'error'); return; }
+  if (new Date(end) < new Date(start)) { showToast('End date must be after start', 'error'); return; }
+  const leaves = loadLeaves();
+  leaves.push({ id: 'lv_' + uid(), agentId, startDate: start, endDate: end, reason, createdAt: new Date().toISOString() });
+  saveLeaves(leaves);
+  closeLeaveModal();
+  showToast('Leave added', 'success');
+  renderTeamTab();
+}
+
+function deleteLeave(id) {
+  if (!confirm('Delete this leave entry?')) return;
+  saveLeaves(loadLeaves().filter(L => L.id !== id));
+  renderTeamTab();
+  showToast('Leave deleted', 'success');
+}
+
+// ═══════════════════════════════════════════════════════
+//  INTERNAL ANNOUNCEMENTS
+// ═══════════════════════════════════════════════════════
+
+function renderAdminAnnouncements() {
+  const wrap = document.getElementById('teamAnnouncementsSection');
+  if (!wrap) return;
+  const items = loadAnnouncements()
+    .sort((a,b) => (b.pinned?1:0) - (a.pinned?1:0) || new Date(b.createdAt) - new Date(a.createdAt));
+  const agents = loadAgents().filter(a => a.active !== false);
+
+  wrap.innerHTML = `
+    <div class="team-section-header">
+      <div>
+        <div class="team-section-title">📢 Announcements</div>
+        <div class="team-section-sub">Broadcast messages to all agents</div>
+      </div>
+      <button class="btn-primary" onclick="openAnnouncementModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Announcement
+      </button>
+    </div>
+    ${items.length === 0 ? `<div class="team-empty"><div class="empty-icon">📢</div><p>No announcements yet. Post something to keep the team informed.</p></div>` : `
+    <div class="announce-list">
+      ${items.map(an => {
+        const expired = an.expiresAt && new Date(an.expiresAt) < new Date();
+        const readCount = (an.readBy || []).length;
+        const total = agents.length;
+        return `
+          <div class="announce-item${an.pinned ? ' announce-pinned' : ''}${expired ? ' announce-expired' : ''}">
+            <div class="announce-head">
+              <div class="announce-title-wrap">
+                ${an.pinned ? '<span class="announce-pin-chip">📌 Pinned</span>' : ''}
+                ${expired ? '<span class="announce-exp-chip">Expired</span>' : ''}
+                <div class="announce-title">${h(an.title)}</div>
+              </div>
+              <div class="announce-actions">
+                <button class="btn-icon-sm" onclick="openAnnouncementModal('${an.id}')" title="Edit">✏️</button>
+                <button class="btn-icon-sm btn-danger-sm" onclick="deleteAnnouncement('${an.id}')" title="Delete">🗑️</button>
+              </div>
+            </div>
+            <div class="announce-body">${h(an.body)}</div>
+            <div class="announce-meta">
+              <span>📅 ${formatDate(an.createdAt)}</span>
+              ${an.expiresAt ? `<span>⏳ Expires ${fmtDate(an.expiresAt)}</span>` : ''}
+              <span>👁️ Read by ${readCount}/${total}</span>
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`}
+  `;
+}
+
+function openAnnouncementModal(id) {
+  const items = loadAnnouncements();
+  const a = id ? items.find(x => x.id === id) : null;
+  document.getElementById('announceModalTitle').textContent = a ? 'Edit Announcement' : 'New Announcement';
+  document.getElementById('announceId').value     = a ? a.id : '';
+  document.getElementById('announceTitle').value  = a ? a.title : '';
+  document.getElementById('announceBody').value   = a ? a.body  : '';
+  document.getElementById('announcePinned').checked = a ? !!a.pinned : false;
+  document.getElementById('announceExpiresAt').value = a ? (a.expiresAt || '') : '';
+  document.getElementById('announceModalOverlay').classList.add('active');
+}
+function closeAnnouncementModal() { document.getElementById('announceModalOverlay').classList.remove('active'); }
+
+function saveAnnouncement() {
+  const id        = document.getElementById('announceId').value;
+  const title     = document.getElementById('announceTitle').value.trim();
+  const body      = document.getElementById('announceBody').value.trim();
+  const pinned    = document.getElementById('announcePinned').checked;
+  const expiresAt = document.getElementById('announceExpiresAt').value;
+  if (!title) { showToast('Title is required', 'error'); return; }
+  if (!body)  { showToast('Body is required', 'error');  return; }
+  const items = loadAnnouncements();
+  if (id) {
+    const idx = items.findIndex(x => x.id === id);
+    if (idx > -1) items[idx] = { ...items[idx], title, body, pinned, expiresAt };
+  } else {
+    items.unshift({
+      id: 'ann_' + uid(), title, body, pinned, expiresAt,
+      createdAt: new Date().toISOString(),
+      readBy: []
+    });
+  }
+  saveAnnouncements(items);
+  closeAnnouncementModal();
+  showToast('Announcement saved', 'success');
+  renderTeamTab();
+}
+
+function deleteAnnouncement(id) {
+  if (!confirm('Delete this announcement?')) return;
+  saveAnnouncements(loadAnnouncements().filter(a => a.id !== id));
+  renderTeamTab();
+  showToast('Announcement deleted', 'success');
+}
+
+function dismissAnnouncementForAgent(id) {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const items = loadAnnouncements();
+  const a = items.find(x => x.id === id);
+  if (!a) return;
+  if (!a.readBy) a.readBy = [];
+  if (!a.readBy.includes(sess.agentId)) a.readBy.push(sess.agentId);
+  saveAnnouncements(items);
+  renderAgentAnnouncementBanner();
+}
+
+function renderAgentAnnouncementBanner() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const wrap = document.getElementById('agentAnnouncementBanner');
+  if (!wrap) return;
+  const now = new Date();
+  const items = loadAnnouncements()
+    .filter(a => !a.expiresAt || new Date(a.expiresAt) >= now)
+    .filter(a => !(a.readBy || []).includes(sess.agentId))
+    .sort((a,b) => (b.pinned?1:0) - (a.pinned?1:0) || new Date(b.createdAt) - new Date(a.createdAt));
+  if (!items.length) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.style.display = '';
+  wrap.innerHTML = items.map(a => `
+    <div class="agent-announce-card${a.pinned?' agent-announce-pinned':''}">
+      <div class="agent-announce-icon">${a.pinned?'📌':'📢'}</div>
+      <div class="agent-announce-body">
+        <div class="agent-announce-title">${h(a.title)}</div>
+        <div class="agent-announce-text">${h(a.body)}</div>
+        <div class="agent-announce-meta">${formatDate(a.createdAt)}</div>
+      </div>
+      <button class="agent-announce-dismiss" onclick="dismissAnnouncementForAgent('${a.id}')" title="Mark as read">✓</button>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════
+//  TEAM PAGE — inject new sections + agent metric strips
+// ═══════════════════════════════════════════════════════
+
+// ─── Sub-tab system on Team page ─────────────────────
+let _currentTeamSubTab = 'overview';
+
+const TEAM_SUBTABS = [
+  { id:'overview',    label:'Overview',     icon:'📊' },
+  { id:'performance', label:'Performance',  icon:'🏆' },
+  { id:'tasks',       label:'Tasks',        icon:'📋' },
+  { id:'agents',      label:'Agents',       icon:'👥' },
+  { id:'tasksgiven',  label:'Tasks Given',  icon:'✅' },
+  { id:'leads',       label:'Leads',        icon:'🎯' }
+];
+
+// Map every section to a sub-tab. Sections rendered if value matches active tab.
+const TEAM_SECTION_TABS = {
+  teamOverviewSection:      'overview',
+  teamLeaderboardSection:   'performance',
+  teamActivityTimeline:     'performance',
+  teamScheduleSection:      'tasks',
+  teamAnnouncementsSection: 'tasks',
+  pendingPropsSection:      'tasks',
+  teamAgentsSection:        'agents',
+  teamTasksSection:         'tasksgiven',
+  teamLeadsSection:         'leads',
+  teamMeetingsSection:      'leads'
+};
+
+function ensureTeamSections() {
+  const teamPage = document.querySelector('#teamView .team-page');
+  if (!teamPage) return;
+
+  // 1) Wrap existing content in a content area + add a left sub-nav
+  let content = document.getElementById('teamContent');
+  let nav     = document.getElementById('teamSubTabNav');
+
+  if (!nav) {
+    nav = document.createElement('aside');
+    nav.id = 'teamSubTabNav';
+    nav.className = 'team-subnav';
+    nav.innerHTML = `
+      <div class="team-subnav-label">Team Module</div>
+      ${TEAM_SUBTABS.map(t => `
+        <button class="team-subnav-btn${_currentTeamSubTab===t.id?' active':''}" data-tab="${t.id}" onclick="setTeamSubTab('${t.id}')">
+          <span class="team-subnav-icon">${t.icon}</span>
+          <span class="team-subnav-label-text">${t.label}</span>
+        </button>`).join('')}
+    `;
+  }
+
+  if (!content) {
+    content = document.createElement('div');
+    content.id = 'teamContent';
+    content.className = 'team-content';
+    // Move every existing direct child (the .team-section blocks) into the content wrapper
+    Array.from(teamPage.children).forEach(child => {
+      if (child === nav) return;
+      content.appendChild(child);
+    });
+    teamPage.appendChild(nav);
+    teamPage.appendChild(content);
+  }
+
+  // 2) Ensure all dynamic sections exist (inside content)
+  const dyn = ['teamOverviewSection','teamLeaderboardSection','teamScheduleSection','teamAnnouncementsSection','teamActivityTimeline','teamMeetingsSection'];
+  dyn.forEach(id => {
+    if (document.getElementById(id)) return;
+    const div = document.createElement('div');
+    div.id = id;
+    div.className = 'team-section';
+    content.appendChild(div);
+  });
+
+  // 3) Tag every section with its sub-tab so visibility can be filtered
+  Object.entries(TEAM_SECTION_TABS).forEach(([id, tab]) => {
+    const el = document.getElementById(id);
+    if (el) el.dataset.teamTab = tab;
+  });
+
+  // 4) Apply visibility for the current sub-tab
+  applyTeamSubTab();
+}
+
+function setTeamSubTab(tab) {
+  _currentTeamSubTab = tab;
+  // Update nav button active state
+  const nav = document.getElementById('teamSubTabNav');
+  if (nav) {
+    nav.querySelectorAll('.team-subnav-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+    });
+  }
+  applyTeamSubTab();
+  if (tab === 'overview') renderTeamOverview();
+}
+
+function applyTeamSubTab() {
+  const teamPage = document.querySelector('#teamView .team-page');
+  if (!teamPage) return;
+  teamPage.querySelectorAll('[data-team-tab]').forEach(el => {
+    el.style.display = (el.dataset.teamTab === _currentTeamSubTab) ? '' : 'none';
+  });
+}
+
+// ─── Overview tab content ───────────────────────────
+function renderTeamOverview() {
+  const wrap = document.getElementById('teamOverviewSection');
+  if (!wrap) return;
+
+  const agents = loadAgents().filter(a => a.active !== false);
+  const leaves = loadLeaves();
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const onLeaveCount = agents.filter(a => leaves.some(L => {
+    if (L.agentId !== a.id) return false;
+    const s = new Date(L.startDate); s.setHours(0,0,0,0);
+    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
+    return today >= s && today <= e;
+  })).length;
+  const availableCount = agents.length - onLeaveCount;
+
+  const allLeads = loadLeads();
+  const activeLeads = allLeads.filter(l => l.stage !== 'won' && l.stage !== 'lost').length;
+
+  // Aggregate metrics for the team this month
+  const monthMetrics = agents.map(a => computeAgentMetrics(a.id, 'month'));
+  const dealsMonth     = monthMetrics.reduce((s,m) => s + m.dealsWon, 0);
+  const revenueMonth   = monthMetrics.reduce((s,m) => s + m.revenueClosed, 0);
+  const proposalsMonth = monthMetrics.reduce((s,m) => s + m.proposalsSent, 0);
+
+  // Top 3 leaderboard
+  const ranked = agents.map(a => ({ a, m: computeAgentMetrics(a.id, 'month') }))
+    .sort((x,y) => (y.m.revenueClosed - x.m.revenueClosed) || (y.m.dealsWon - x.m.dealsWon) || (y.m.tasksDone - x.m.tasksDone))
+    .slice(0, 3);
+
+  // Today's status snapshot
+  const onLeaveAgents = agents.filter(a => leaves.some(L => {
+    if (L.agentId !== a.id) return false;
+    const s = new Date(L.startDate); s.setHours(0,0,0,0);
+    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
+    return today >= s && today <= e;
+  }));
+  const inMeetingAgents = agents.filter(a => a.availability === 'in_meeting' && !onLeaveAgents.includes(a));
+  const atViewingAgents = agents.filter(a => a.availability === 'at_viewing' && !onLeaveAgents.includes(a));
+
+  // Latest 3 announcements
+  const items = loadAnnouncements()
+    .filter(a => !a.expiresAt || new Date(a.expiresAt) >= new Date())
+    .sort((a,b) => (b.pinned?1:0) - (a.pinned?1:0) || new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 3);
+
+  // Recent activity
+  const recent = buildTimelineEvents('', '').slice(0, 5);
+
+  // Pending submissions count
+  const pendingSubs = loadPendingProps().filter(p => p.status === 'pending').length;
+
+  wrap.innerHTML = `
+    <!-- KPI strip -->
+    <div class="overview-kpi-strip">
+      <div class="okpi"><div class="okpi-num">${agents.length}</div><div class="okpi-lbl">Active Agents</div></div>
+      <div class="okpi"><div class="okpi-num">${availableCount}</div><div class="okpi-lbl">Available Today</div></div>
+      <div class="okpi"><div class="okpi-num">${activeLeads}</div><div class="okpi-lbl">Active Leads</div></div>
+      <div class="okpi"><div class="okpi-num">${(() => {
+        const start = new Date(); start.setHours(0,0,0,0);
+        const end = new Date(start); end.setDate(end.getDate() + 7);
+        return loadMeetings().filter(m => {
+          if (m.status !== 'scheduled') return false;
+          if (!m.date) return false;
+          const d = new Date(m.date); return d >= start && d <= end;
+        }).length;
+      })()}</div><div class="okpi-lbl">Meetings (7 days)</div></div>
+      <div class="okpi"><div class="okpi-num">${dealsMonth}</div><div class="okpi-lbl">Deals (Month)</div></div>
+      <div class="okpi"><div class="okpi-num">${revenueMonth ? 'AED '+num(revenueMonth) : '—'}</div><div class="okpi-lbl">Revenue (Month)</div></div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="overview-quick-actions">
+      <button class="qaction" onclick="openAgentModal()">👤 Add Agent</button>
+      <button class="qaction" onclick="openTaskModal()">📋 Assign Task</button>
+      <button class="qaction" onclick="openLeadModal()">🎯 Add Lead</button>
+      <button class="qaction" onclick="openAnnouncementModal()">📢 Announcement</button>
+      <button class="qaction" onclick="openLeaveModal()">🌴 Add Leave</button>
+    </div>
+
+    <!-- 2-col layout -->
+    <div class="overview-grid">
+
+      <!-- Top performers -->
+      <div class="overview-card">
+        <div class="overview-card-head">
+          <div class="overview-card-title">🏆 Top Performers — This Month</div>
+          <button class="btn-link" onclick="setTeamSubTab('performance')">View all →</button>
+        </div>
+        ${ranked.length === 0 ? '<div class="overview-empty">No agents yet.</div>' : `
+        <div class="overview-podium">
+          ${ranked.map(({a,m}, i) => `
+            <div class="podium-row podium-${i+1}">
+              <span class="podium-rank">${i===0?'👑':'#'+(i+1)}</span>
+              <span class="podium-avatar">${a.name.charAt(0).toUpperCase()}</span>
+              <div class="podium-body">
+                <div class="podium-name">${h(a.name)}</div>
+                <div class="podium-stats">${m.dealsWon} won · ${m.conversion}% conv · ${m.revenueClosed?'AED '+num(m.revenueClosed):'—'}</div>
+              </div>
+            </div>`).join('')}
+        </div>`}
+      </div>
+
+      <!-- Today's status -->
+      <div class="overview-card">
+        <div class="overview-card-head">
+          <div class="overview-card-title">📅 Today</div>
+          <button class="btn-link" onclick="setTeamSubTab('tasks')">Manage →</button>
+        </div>
+        ${onLeaveAgents.length === 0 && inMeetingAgents.length === 0 && atViewingAgents.length === 0 ? `
+          <div class="overview-empty">Everyone available — no meetings, leaves, or viewings logged.</div>
+        ` : `
+          ${onLeaveAgents.length ? `<div class="status-bucket"><span class="status-bucket-label">🌴 On leave</span><span class="status-bucket-names">${onLeaveAgents.map(a => h(a.name)).join(', ')}</span></div>` : ''}
+          ${inMeetingAgents.length ? `<div class="status-bucket"><span class="status-bucket-label">🟡 In meeting</span><span class="status-bucket-names">${inMeetingAgents.map(a => h(a.name)).join(', ')}</span></div>` : ''}
+          ${atViewingAgents.length ? `<div class="status-bucket"><span class="status-bucket-label">🏗️ At viewing</span><span class="status-bucket-names">${atViewingAgents.map(a => h(a.name)).join(', ')}</span></div>` : ''}
+        `}
+      </div>
+
+      <!-- Announcements snapshot -->
+      <div class="overview-card">
+        <div class="overview-card-head">
+          <div class="overview-card-title">📢 Latest Announcements</div>
+          <button class="btn-link" onclick="setTeamSubTab('tasks')">All →</button>
+        </div>
+        ${items.length === 0 ? '<div class="overview-empty">No active announcements.</div>' : `
+        <div class="overview-announce-list">
+          ${items.map(a => `
+            <div class="overview-announce-row${a.pinned?' overview-announce-pinned':''}">
+              ${a.pinned ? '<span class="overview-announce-pin">📌</span>' : ''}
+              <div>
+                <div class="overview-announce-title">${h(a.title)}</div>
+                <div class="overview-announce-meta">${formatDate(a.createdAt)} · ${(a.readBy||[]).length}/${agents.length} read</div>
+              </div>
+            </div>`).join('')}
+        </div>`}
+      </div>
+
+      <!-- Recent activity -->
+      <div class="overview-card">
+        <div class="overview-card-head">
+          <div class="overview-card-title">📜 Recent Activity</div>
+          <button class="btn-link" onclick="setTeamSubTab('performance')">Full feed →</button>
+        </div>
+        ${recent.length === 0 ? '<div class="overview-empty">No recent activity.</div>' : `
+        <div class="overview-activity-list">
+          ${recent.map(e => `
+            <div class="overview-activity-row">
+              <span class="overview-activity-icon">${e.icon}</span>
+              <div>
+                <div class="overview-activity-text">${h(e.text)}</div>
+                <div class="overview-activity-meta">${h(e.who)} · ${formatDate(e.ts)}</div>
+              </div>
+            </div>`).join('')}
+        </div>`}
+      </div>
+
+    </div>
+
+    ${pendingSubs > 0 ? `
+    <div class="overview-pending-callout" onclick="setTeamSubTab('tasks')">
+      <span>⚠️</span>
+      <div>
+        <div class="overview-pending-title">${pendingSubs} property submission${pendingSubs===1?'':'s'} awaiting your review</div>
+        <div class="overview-pending-sub">Click to review in Operations</div>
+      </div>
+      <span style="margin-left:auto;">→</span>
+    </div>` : ''}
+
+    <!-- Counts summary at the bottom -->
+    <div class="overview-summary-row">
+      <span>${proposalsMonth} proposals sent this month</span>
+      <span>${pendingSubs} pending submission${pendingSubs===1?'':'s'}</span>
+    </div>
+  `;
+}
+
+// Append metric strip to each agent card after the existing render
+function decorateAgentCardsWithMetrics() {
+  const agents = loadAgents();
+  const list = document.getElementById('agentsList');
+  if (!list) return;
+  const cards = list.querySelectorAll('.agent-card');
+  cards.forEach(card => {
+    if (card.querySelector('.agent-metric-strip')) return; // already decorated
+    // Match agent by username chip (`@username`)
+    const userChip = card.querySelector('.agent-stat:last-of-type');
+    const uname = (userChip?.textContent || '').replace(/^@/, '').trim();
+    const ag = agents.find(a => a.username === uname);
+    if (!ag) return;
+    const m = computeAgentMetrics(ag.id, _perfPeriod);
+    const av = availMeta(ag.availability || 'available');
+
+    const strip = document.createElement('div');
+    strip.className = 'agent-metric-strip';
+    strip.innerHTML = `
+      <span class="agent-availability ${av.cls}">${av.icon} ${av.label}</span>
+      <span class="agent-metric"><strong>${m.dealsWon}</strong> won</span>
+      <span class="agent-metric"><strong>${m.conversion}%</strong> conv.</span>
+      <span class="agent-metric"><strong>${m.propertiesShown}</strong> shown</span>
+      <span class="agent-metric"><strong>${m.proposalsSent}</strong> proposals</span>
+      <span class="agent-metric agent-metric-rev"><strong>${m.revenueClosed ? 'AED '+num(m.revenueClosed) : '—'}</strong> revenue</span>
+    `;
+    const body = card.querySelector('.agent-card-body');
+    if (body) body.appendChild(strip);
+  });
+}
+
+// Override the previously-overridden renderTeamTab to inject the new sections
+const _origRenderTeamTab2 = renderTeamTab;
+renderTeamTab = function() {
+  ensureTeamSections();
+  _origRenderTeamTab2();
+  renderTeamOverview();
+  renderLeaderboard();
+  renderScheduleBoard();
+  renderAdminAnnouncements();
+  renderActivityTimeline();
+  renderAdminMeetings();
+  decorateAgentCardsWithMetrics();
+};
+
+// Admin view of all meetings & viewings across agents
+function renderAdminMeetings() {
+  const wrap = document.getElementById('teamMeetingsSection');
+  if (!wrap) return;
+  const agents = loadAgents();
+  const leads  = loadLeads();
+  const props  = loadProps();
+  let items = loadMeetings();
+
+  const agentF  = (document.getElementById('mtgAdminAgent')?.value)  || '';
+  const typeF   = (document.getElementById('mtgAdminType')?.value)   || '';
+  const statusF = (document.getElementById('mtgAdminStatus')?.value) || '';
+  if (agentF)  items = items.filter(m => m.agentId === agentF);
+  if (typeF)   items = items.filter(m => m.type   === typeF);
+  if (statusF) items = items.filter(m => m.status === statusF);
+  items = items.sort((a,b) => {
+    const ad = new Date((a.date||'') + 'T' + (a.time||'00:00'));
+    const bd = new Date((b.date||'') + 'T' + (b.time||'00:00'));
+    return bd - ad;
+  });
+
+  const counts = {
+    total: items.length,
+    scheduled: items.filter(m => m.status === 'scheduled').length,
+    completed: items.filter(m => m.status === 'completed').length,
+    photos:    items.reduce((s,m) => s + (m.photos?.length || 0), 0)
+  };
+
+  const agentName = id => (agents.find(a => a.id === id)?.name) || 'Unknown';
+
+  wrap.innerHTML = `
+    <div class="team-section-header">
+      <div>
+        <div class="team-section-title">📅 Meetings &amp; Viewings</div>
+        <div class="team-section-sub">All client meetings &amp; property viewings logged by your team</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <select class="filter-select" id="mtgAdminAgent" onchange="renderAdminMeetings()" style="width:160px;">
+          <option value="">All Agents</option>
+          ${agents.map(a => `<option value="${a.id}"${agentF===a.id?' selected':''}>${h(a.name)}</option>`).join('')}
+        </select>
+        <select class="filter-select" id="mtgAdminType" onchange="renderAdminMeetings()" style="width:150px;">
+          <option value="">All Types</option>
+          <option value="meeting"${typeF==='meeting'?' selected':''}>🤝 Meeting</option>
+          <option value="viewing"${typeF==='viewing'?' selected':''}>🏗️ Viewing</option>
+        </select>
+        <select class="filter-select" id="mtgAdminStatus" onchange="renderAdminMeetings()" style="width:160px;">
+          <option value="">All Statuses</option>
+          <option value="scheduled"${statusF==='scheduled'?' selected':''}>⏰ Scheduled</option>
+          <option value="completed"${statusF==='completed'?' selected':''}>✅ Completed</option>
+          <option value="cancelled"${statusF==='cancelled'?' selected':''}>❌ Cancelled</option>
+          <option value="noshow"${statusF==='noshow'?' selected':''}>🚫 No-show</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mtg-stat-row">
+      <span class="mtg-stat-chip">📅 ${counts.total} total</span>
+      <span class="mtg-stat-chip mtg-stat-blue">⏰ ${counts.scheduled} scheduled</span>
+      <span class="mtg-stat-chip mtg-stat-green">✅ ${counts.completed} completed</span>
+      <span class="mtg-stat-chip">📷 ${counts.photos} photo${counts.photos===1?'':'s'}</span>
+    </div>
+
+    ${items.length === 0 ? `
+      <div class="team-empty"><div class="empty-icon">📅</div><p>No meetings logged${agentF||typeF||statusF?' with these filters':''}.</p></div>
+    ` : `
+      <div class="mtg-admin-table">
+        <div class="mtg-row mtg-head">
+          <span>Date / Time</span>
+          <span>Type</span>
+          <span>Agent</span>
+          <span>Lead / Property</span>
+          <span>Location</span>
+          <span>Status</span>
+          <span>Photos</span>
+        </div>
+        ${items.map(m => {
+          const tm   = MTG_TYPE_META[m.type]   || MTG_TYPE_META.meeting;
+          const sm   = MTG_STATUS_META[m.status] || MTG_STATUS_META.scheduled;
+          const lead = m.leadId ? leads.find(l => l.id === m.leadId) : null;
+          const prop = m.propId ? props.find(p => p.id === m.propId) : null;
+          return `
+          <div class="mtg-row" onclick="openMeetingModal('${m.id}')">
+            <span>${m.date ? fmtDate(m.date) : '—'}${m.time ? `<span class="mtg-sub">${m.time}</span>` : ''}</span>
+            <span>${tm.icon} ${tm.label}</span>
+            <span>${h(m.agentName || agentName(m.agentId))}</span>
+            <span>${lead ? h(lead.name) : '—'}${prop ? `<span class="mtg-sub">🏗️ ${h(prop.name)}</span>` : (lead && lead.company ? `<span class="mtg-sub">${h(lead.company)}</span>` : '')}</span>
+            <span>${m.location ? h(m.location) : '—'}</span>
+            <span><span class="meeting-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span></span>
+            <span>${(m.photos?.length || 0)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    `}
+  `;
+}
+
+// Override agent overview to render announcement banner
+const _origRenderAgentOverview = renderAgentOverview;
+renderAgentOverview = function() {
+  _origRenderAgentOverview();
+  ensureAgentAnnouncementBanner();
+  renderAgentAnnouncementBanner();
+};
+
+function ensureAgentAnnouncementBanner() {
+  if (document.getElementById('agentAnnouncementBanner')) return;
+  const overview = document.getElementById('agentTabOverview');
+  const welcome  = document.getElementById('agentWelcome');
+  if (!overview || !welcome) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'agentAnnouncementBanner';
+  wrap.className = 'agent-announcement-banner';
+  // Insert right after the welcome card
+  welcome.insertAdjacentElement('afterend', wrap);
+}
+
+// ═══════════════════════════════════════════════════════
+//  AGENT DASHBOARD — personal performance + leaderboard rank
+// ═══════════════════════════════════════════════════════
+
+function ensureAgentDashboardPanel() {
+  if (document.getElementById('agentDashboardPanel')) return;
+  const stats = document.getElementById('agentStats');
+  if (!stats) return;
+  const panel = document.createElement('div');
+  panel.id = 'agentDashboardPanel';
+  panel.className = 'agent-dashboard-panel';
+  // Insert right after the stats bar so it sits above wins/tasks/leads
+  stats.insertAdjacentElement('afterend', panel);
+}
+
+function renderAgentDashboardPanel() {
+  const sess = getSession();
+  if (!sess || sess.type !== 'agent') return;
+  const panel = document.getElementById('agentDashboardPanel');
+  if (!panel) return;
+
+  const allAgents = loadAgents().filter(a => a.active !== false);
+  const me        = allAgents.find(a => a.id === sess.agentId) || {};
+  const meM       = computeAgentMetrics(sess.agentId, 'month');
+  const meAll     = computeAgentMetrics(sess.agentId, 'all');
+
+  // Leaderboard rank for this month
+  const ranked = allAgents
+    .map(a => ({ a, m: computeAgentMetrics(a.id, 'month') }))
+    .sort((x,y) => (y.m.revenueClosed - x.m.revenueClosed) || (y.m.dealsWon - x.m.dealsWon) || (y.m.tasksDone - x.m.tasksDone));
+  const myRank = ranked.findIndex(r => r.a.id === sess.agentId) + 1;
+  const totalRanked = ranked.length;
+
+  // Today's status (with on-leave check)
+  const leaves = loadLeaves();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const onLeaveToday = leaves.some(L => {
+    if (L.agentId !== sess.agentId) return false;
+    const s = new Date(L.startDate); s.setHours(0,0,0,0);
+    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
+    return today >= s && today <= e;
+  });
+  const status = onLeaveToday ? 'on_leave' : (me.availability || 'available');
+  const av = availMeta(status);
+
+  // Upcoming personal leaves
+  const myUpcomingLeaves = leaves
+    .filter(L => L.agentId === sess.agentId && new Date(L.endDate) >= today)
+    .sort((a,b) => new Date(a.startDate) - new Date(b.startDate))
+    .slice(0, 3);
+
+  // Pipeline distribution (active leads only)
+  const myLeads = loadLeads().filter(l => l.assignedTo === sess.agentId);
+  const pipeline = ['new','contacted','meeting','qualified','proposal','negotiation']
+    .map(stage => ({ stage, label: LEAD_STAGES[stage].label, icon: LEAD_STAGES[stage].icon, count: myLeads.filter(l => l.stage === stage).length }));
+  const pipelineMax = Math.max(1, ...pipeline.map(p => p.count));
+
+  // Overdue tasks count
+  const overdueTasks = loadTasks().filter(t =>
+    t.agentId === sess.agentId &&
+    t.deadline && t.status !== 'done' && t.status !== 'cancelled' &&
+    new Date(t.deadline) < new Date()
+  ).length;
+
+  // Rank chip color
+  const rankIcon = myRank === 1 ? '👑' : myRank === 2 ? '🥈' : myRank === 3 ? '🥉' : '🎖️';
+
+  panel.innerHTML = `
+    <div class="dash-grid">
+
+      <!-- Performance card -->
+      <div class="dash-card dash-card-perf">
+        <div class="dash-card-head">
+          <div class="dash-card-title">📊 My Performance</div>
+          <span class="dash-period">This Month</span>
+        </div>
+        <div class="dash-metrics">
+          <div class="dash-metric">
+            <div class="dash-metric-num">${meM.dealsWon}</div>
+            <div class="dash-metric-lbl">Deals Won</div>
+          </div>
+          <div class="dash-metric">
+            <div class="dash-metric-num">${meM.conversion}%</div>
+            <div class="dash-metric-lbl">Conversion</div>
+          </div>
+          <div class="dash-metric">
+            <div class="dash-metric-num">${meM.propertiesShown}</div>
+            <div class="dash-metric-lbl">Properties Shown</div>
+          </div>
+          <div class="dash-metric">
+            <div class="dash-metric-num">${meM.proposalsSent}</div>
+            <div class="dash-metric-lbl">Proposals Sent</div>
+          </div>
+          <div class="dash-metric dash-metric-rev">
+            <div class="dash-metric-num">${meM.revenueClosed ? 'AED '+num(meM.revenueClosed) : '—'}</div>
+            <div class="dash-metric-lbl">Revenue Closed</div>
+          </div>
+          <div class="dash-metric">
+            <div class="dash-metric-num">${meM.tasksDone}</div>
+            <div class="dash-metric-lbl">Tasks Done</div>
+          </div>
+        </div>
+        <div class="dash-alltime">
+          <span>All time:</span>
+          <span><strong>${meAll.dealsWon}</strong> won</span>
+          <span><strong>${meAll.tasksDone}</strong> tasks done</span>
+          <span><strong>${meAll.revenueClosed ? 'AED '+num(meAll.revenueClosed) : '—'}</strong> revenue</span>
+        </div>
+      </div>
+
+      <!-- Rank + status card -->
+      <div class="dash-card dash-card-rank">
+        <div class="dash-card-head">
+          <div class="dash-card-title">${rankIcon} Team Rank</div>
+        </div>
+        ${totalRanked > 0 ? `
+        <div class="dash-rank-big">#${myRank}<span class="dash-rank-of">of ${totalRanked}</span></div>
+        <div class="dash-rank-sub">${myRank === 1 ? 'You\'re leading the team this month.' : myRank <= 3 ? 'Top performer this month.' : 'Keep pushing — every deal counts.'}</div>
+        ` : '<div class="dash-empty-mini">No team data yet.</div>'}
+
+        <div class="dash-divider"></div>
+        <div class="dash-card-title" style="font-size:13px;">📅 Today's Status</div>
+        <div class="dash-status-row">
+          <span class="agent-availability ${av.cls}">${av.icon} ${av.label}</span>
+        </div>
+        ${myUpcomingLeaves.length ? `
+        <div class="dash-leaves">
+          <div class="dash-leaves-label">🌴 Your upcoming leaves</div>
+          ${myUpcomingLeaves.map(L => `<div class="dash-leave-row">${fmtDate(L.startDate)} → ${fmtDate(L.endDate)}${L.reason?' · '+h(L.reason):''}</div>`).join('')}
+        </div>` : ''}
+      </div>
+
+      <!-- Pipeline card -->
+      <div class="dash-card dash-card-pipe">
+        <div class="dash-card-head">
+          <div class="dash-card-title">🎯 My Pipeline</div>
+          <span class="dash-period">${myLeads.filter(l => l.stage!=='won' && l.stage!=='lost').length} active</span>
+        </div>
+        <div class="dash-pipeline">
+          ${pipeline.map(p => `
+            <div class="dash-pipe-row">
+              <span class="dash-pipe-label">${p.icon} ${p.label}</span>
+              <div class="dash-pipe-track"><div class="dash-pipe-fill" style="width:${(p.count/pipelineMax)*100}%"></div></div>
+              <span class="dash-pipe-count">${p.count}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Today / alerts card -->
+      <div class="dash-card dash-card-alerts">
+        <div class="dash-card-head">
+          <div class="dash-card-title">🔔 Today</div>
+        </div>
+        <div class="dash-alert-list">
+          <div class="dash-alert-row ${meM.tasksActive ? 'dash-alert-info' : 'dash-alert-ok'}">
+            <span>📋</span><div><strong>${meM.tasksActive}</strong> active task${meM.tasksActive===1?'':'s'}</div>
+          </div>
+          <div class="dash-alert-row ${overdueTasks ? 'dash-alert-danger' : 'dash-alert-ok'}">
+            <span>⏰</span><div><strong>${overdueTasks}</strong> overdue</div>
+          </div>
+          <div class="dash-alert-row dash-alert-info">
+            <span>👥</span><div><strong>${myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length}</strong> active lead${myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length===1?'':'s'}</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  `;
+}
+
+// Hook into the existing agent overview render
+const _origRenderAgentOverview2 = renderAgentOverview;
+renderAgentOverview = function() {
+  _origRenderAgentOverview2();
+  ensureAgentDashboardPanel();
+  renderAgentDashboardPanel();
+};
+
+// ═══════════════════════════════════════════════════════
+//  PROPOSALS — saved list, reprint, edit, delete
+// ═══════════════════════════════════════════════════════
+
+const PROPOSALS_KEY = 'asg_proposals';
+function loadProposals()  { try { return JSON.parse(localStorage.getItem(PROPOSALS_KEY)) || []; } catch { return []; } }
+function saveProposalsArr(a) { localStorage.setItem(PROPOSALS_KEY, JSON.stringify(a)); }
+
+function saveProposalRecord(data) {
+  const items = loadProposals();
+  const sess  = getSession();
+  const author = sess?.type === 'agent'
+    ? { id: sess.agentId, name: sess.name, type: 'agent' }
+    : { id: '', name: 'Admin', type: 'admin' };
+  const idx = items.findIndex(p => p.id === data.id);
+  const record = {
+    ...data,
+    createdAt: idx > -1 ? items[idx].createdAt : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: idx > -1 ? items[idx].createdBy : author
+  };
+  if (idx > -1) items[idx] = record; else items.unshift(record);
+  saveProposalsArr(items);
+}
+
+function renderProposals() {
+  const wrap = document.getElementById('proposalsList');
+  if (!wrap) return;
+  const sess = getSession();
+  let items = loadProposals();
+  // Agents only see their own; admin sees all
+  if (sess?.type === 'agent') items = items.filter(p => p.createdBy?.id === sess.agentId);
+  items = items.sort((a,b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+
+  if (!items.length) {
+    wrap.innerHTML = `
+      <div class="team-empty">
+        <div class="empty-icon">📄</div>
+        <p>No proposals yet. Click <strong>Create Proposal</strong> to make your first one.</p>
+      </div>`;
+    return;
+  }
+
+  const fmtDate2 = iso => iso ? new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  wrap.innerHTML = `
+    <div class="proposals-table">
+      <div class="prop-row prop-head">
+        <span>Title</span>
+        <span>Client</span>
+        <span>Property</span>
+        <span>Total (AED)</span>
+        <span>Created</span>
+        <span>Actions</span>
+      </div>
+      ${items.map(p => {
+        const rentTotal = (p.cheques || []).reduce((s,c) => s + (Number(c.amount)||0), 0);
+        const total = rentTotal + (Number(p.vatAmount)||0) + (Number(p.serviceAmount)||0)
+                    + (Number(p.maintAmount)||0) + (Number(p.adminAmount)||0) + (Number(p.drecAmount)||0);
+        return `
+          <div class="prop-row">
+            <span class="prop-title">${h(p.title || 'Untitled')}${p.ref ? `<span class="prop-ref">Ref: ${h(p.ref)}</span>` : ''}</span>
+            <span>${h(p.client || '—')}${p.company ? `<span class="prop-sub">${h(p.company)}</span>` : ''}</span>
+            <span>${h(p.propName || '—')}${p.propLocation ? `<span class="prop-sub">${h(p.propLocation)}</span>` : ''}</span>
+            <span class="prop-total">${total ? 'AED ' + num(total) : '—'}</span>
+            <span>${fmtDate2(p.createdAt)}<span class="prop-sub">${h(p.createdBy?.name || 'Admin')}</span></span>
+            <span class="prop-actions">
+              <button class="btn-sm btn-primary" onclick="reprintProposal('${p.id}')">🖨️ Print PDF</button>
+              <button class="btn-sm btn-ghost"   onclick="editProposal('${p.id}')">✏️ Edit</button>
+              <button class="btn-sm btn-danger"  onclick="deleteProposalRec('${p.id}')">🗑️</button>
+            </span>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function reprintProposal(id) {
+  const p = loadProposals().find(x => x.id === id);
+  if (!p) return;
+  printProposalDoc(p);
+}
+
+function editProposal(id) {
+  const p = loadProposals().find(x => x.id === id);
+  if (!p) return;
+  openProposalModal();
+  // Wait for modal init then populate
+  setTimeout(() => { _hydrateProposalForm(p); }, 80);
+}
+
+function _hydrateProposalForm(p) {
+  // Stash the id so save updates rather than creating a new record
+  let edit = document.getElementById('pslEditId');
+  if (!edit) {
+    edit = document.createElement('input');
+    edit.type = 'hidden';
+    edit.id = 'pslEditId';
+    document.getElementById('proposalModalOverlay')?.appendChild(edit);
+  }
+  edit.value = p.id;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  set('pslTitle', p.title);            set('pslRef', p.ref);
+  set('pslDate', p.date);              set('pslValidUntil', p.validUntil);
+  set('pslPreparedBy', p.prepBy);
+  set('pslPropLink', p.propLink);
+  set('pslPropName', p.propName);      set('pslPropType', p.propType);
+  set('pslPropLocation', p.propLocation); set('pslPropSize', p.propSize);
+  set('pslClientName', p.client);      set('pslClientCompany', p.company);
+  set('pslClientPhone', p.phone);      set('pslClientEmail', p.email);
+  set('pslAnnualRent', p.rent);        set('pslLessorName', p.lessor);
+  set('pslTenancyFrom', p.tenancyFrom); set('pslTenancyTo', p.tenancyTo);
+  set('pslNumCheques', p.numCheques);
+  set('pslVatAmount', p.vatAmount);    set('pslVatDate', p.vatDate);    set('pslVatPayable', p.vatPayable);
+  set('pslServiceAmount', p.serviceAmount); set('pslServiceDate', p.serviceDate); set('pslServicePayable', p.servicePayable);
+  set('pslMaintAmount', p.maintAmount); set('pslMaintDate', p.maintDate); set('pslMaintPayable', p.maintPayable);
+  set('pslAdminAmount', p.adminAmount); set('pslAdminDate', p.adminDate); set('pslAdminPayable', p.adminPayable);
+  set('pslDrecAmount', p.drecAmount);   set('pslDrecDate', p.drecDate);   set('pslDrecPayable', p.drecPayable);
+  set('pslTerms', p.termsRaw);          set('pslNotes', p.notes);
+
+  // Rebuild cheque rows then patch their values
+  if (typeof renderProposalCheques === 'function') renderProposalCheques();
+  const rows = document.querySelectorAll('#proposalChequeFields .psl-row');
+  (p.cheques || []).forEach((c, i) => {
+    const r = rows[i]; if (!r) return;
+    const dEl = r.querySelector('.psl-date');    if (dEl) dEl.value = c.date    || '';
+    const aEl = r.querySelector('.psl-amount');  if (aEl) aEl.value = c.amount  || '';
+    const pEl = r.querySelector('.psl-payable'); if (pEl) pEl.value = c.payable || '';
+  });
+  if (typeof updateProposalGrandTotal === 'function') updateProposalGrandTotal();
+  if (typeof updatePslRentTotal === 'function') updatePslRentTotal();
+}
+
+function deleteProposalRec(id) {
+  if (!confirm('Delete this proposal? This cannot be undone.')) return;
+  saveProposalsArr(loadProposals().filter(p => p.id !== id));
+  renderProposals();
+  showToast('Proposal deleted', 'success');
+}
+
+// Clear the edit-id flag whenever the modal is opened fresh
+const _origOpenProposalModal = (typeof openProposalModal === 'function') ? openProposalModal : null;
+if (_origOpenProposalModal) {
+  openProposalModal = function() {
+    const r = _origOpenProposalModal.apply(this, arguments);
+    const edit = document.getElementById('pslEditId');
+    if (edit) edit.value = '';
+    return r;
+  };
+}
+
+// Agent's existing proposals tab — render the saved list there too
+const _origShowAgentTab2 = (typeof showAgentTab === 'function') ? showAgentTab : null;
+if (_origShowAgentTab2) {
+  showAgentTab = function(tab) {
+    _origShowAgentTab2.apply(this, arguments);
+    if (tab === 'proposals') {
+      // Add a list container next to the existing launcher if not present
+      const view = document.getElementById('agentTabProposals');
+      if (view && !document.getElementById('proposalsList')) {
+        const list = document.createElement('div');
+        list.id = 'proposalsList';
+        list.style.marginTop = '16px';
+        view.appendChild(list);
+      }
+      renderProposals();
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+//  MEETINGS & VIEWINGS
+// ═══════════════════════════════════════════════════════
+
+const MEETINGS_KEY = 'asg_meetings';
+function loadMeetings()  { try { return JSON.parse(localStorage.getItem(MEETINGS_KEY)) || []; } catch { return []; } }
+function saveMeetingsArr(a) { localStorage.setItem(MEETINGS_KEY, JSON.stringify(a)); }
+
+const MTG_TYPE_META = {
+  meeting: { icon:'🤝', label:'Meeting' },
+  viewing: { icon:'🏗️', label:'Property Viewing' }
+};
+const MTG_STATUS_META = {
+  scheduled: { icon:'⏰', label:'Scheduled', cls:'mtg-st-scheduled' },
+  completed: { icon:'✅', label:'Completed', cls:'mtg-st-completed' },
+  cancelled: { icon:'❌', label:'Cancelled', cls:'mtg-st-cancelled' },
+  noshow:    { icon:'🚫', label:'No-show',   cls:'mtg-st-noshow'    }
+};
+
+// In-flight photo uploads while modal is open (before save)
+let _meetingPendingPhotos = []; // { tempId, dataUrl, name }
+let _meetingExistingPhotos = []; // { id, name } (already saved to idb)
+let _meetingRemovedPhotos  = []; // ids to delete on save
+
+function _agentMeetingsForSession() {
+  const sess = getSession();
+  const all = loadMeetings();
+  if (!sess) return [];
+  if (sess.type === 'agent') return all.filter(m => m.agentId === sess.agentId);
+  return all;
+}
+
+function renderAgentMeetings() {
+  const list = document.getElementById('agentMeetingsList');
+  if (!list) return;
+  const typeF   = (document.getElementById('mtgFilterType')?.value)   || '';
+  const statusF = (document.getElementById('mtgFilterStatus')?.value) || '';
+  let items = _agentMeetingsForSession();
+  if (typeF)   items = items.filter(m => m.type   === typeF);
+  if (statusF) items = items.filter(m => m.status === statusF);
+  items = items.sort((a,b) => {
+    const ad = new Date((a.date||'') + 'T' + (a.time||'00:00'));
+    const bd = new Date((b.date||'') + 'T' + (b.time||'00:00'));
+    return bd - ad;
+  });
+
+  if (!items.length) {
+    list.innerHTML = `
+      <div class="team-empty">
+        <div class="empty-icon">📅</div>
+        <p>No meetings or viewings yet. Click <strong>New Entry</strong> or push from a lead.</p>
+      </div>`;
+    return;
+  }
+
+  const leads = loadLeads();
+  const props = loadProps();
+  list.innerHTML = `<div class="meeting-list">${items.map(m => {
+    const tm = MTG_TYPE_META[m.type] || MTG_TYPE_META.meeting;
+    const sm = MTG_STATUS_META[m.status] || MTG_STATUS_META.scheduled;
+    const lead = m.leadId ? leads.find(l => l.id === m.leadId) : null;
+    const prop = m.propId ? props.find(p => p.id === m.propId) : null;
+    const photoCount = (m.photos || []).length;
+    const noteCount = (m.notes || []).length;
+    const lastNote = noteCount ? m.notes[noteCount-1].text : '';
+    return `
+      <div class="meeting-card" onclick="openMeetingModal('${m.id}')">
+        <div class="meeting-card-top">
+          <div class="meeting-type-icon">${tm.icon}</div>
+          <div class="meeting-card-body">
+            <div class="meeting-card-row1">
+              <span class="meeting-card-type">${tm.label}</span>
+              <span class="meeting-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span>
+            </div>
+            <div class="meeting-card-title">${lead ? h(lead.name) : (prop ? h(prop.name) : 'Untitled')}${lead && lead.company ? ' · ' + h(lead.company) : ''}</div>
+            <div class="meeting-card-meta">
+              ${m.date ? '📅 ' + fmtDate(m.date) : ''}${m.time ? ' · ' + m.time : ''}
+              ${m.location ? ' · 📍 ' + h(m.location) : ''}
+            </div>
+            ${prop && !lead ? `<div class="meeting-card-meta">🏗️ ${h(prop.name)}${prop.location ? ' — '+h(prop.location) : ''}</div>` : ''}
+            ${prop && lead ? `<div class="meeting-card-meta">🏗️ ${h(prop.name)}</div>` : ''}
+            ${lastNote ? `<div class="meeting-card-note">"${h(lastNote.length > 90 ? lastNote.slice(0,88)+'…' : lastNote)}"</div>` : ''}
+            <div class="meeting-card-foot">
+              ${photoCount ? `<span>📷 ${photoCount} photo${photoCount>1?'s':''}</span>` : ''}
+              ${noteCount  ? `<span>💬 ${noteCount} note${noteCount>1?'s':''}</span>`   : ''}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+function openMeetingModal(id, presetLeadId) {
+  _meetingPendingPhotos = [];
+  _meetingExistingPhotos = [];
+  _meetingRemovedPhotos = [];
+
+  const m = id ? loadMeetings().find(x => x.id === id) : null;
+  document.getElementById('meetingModalTitle').textContent = m ? 'Edit Entry' : 'New Meeting / Viewing';
+  document.getElementById('meetingId').value = m ? m.id : '';
+
+  // Populate lead dropdown
+  const leadSel = document.getElementById('meetingLead');
+  const sess = getSession();
+  let leads = loadLeads();
+  if (sess?.type === 'agent') leads = leads.filter(l => l.assignedTo === sess.agentId);
+  leadSel.innerHTML = '<option value="">— No lead linked —</option>' +
+    leads.map(l => `<option value="${l.id}">${h(l.name)}${l.company ? ' · '+h(l.company) : ''}</option>`).join('');
+
+  // Populate prop dropdown
+  const propSel = document.getElementById('meetingProp');
+  const props = loadProps();
+  propSel.innerHTML = '<option value="">— No property —</option>' +
+    props.map(p => `<option value="${p.id}">${h(p.name)}${p.location ? ' — '+h(p.location) : ''}</option>`).join('');
+
+  if (m) {
+    document.getElementById('meetingType').value     = m.type     || 'meeting';
+    document.getElementById('meetingStatus').value   = m.status   || 'scheduled';
+    document.getElementById('meetingLead').value     = m.leadId   || '';
+    document.getElementById('meetingProp').value     = m.propId   || '';
+    document.getElementById('meetingDate').value     = m.date     || '';
+    document.getElementById('meetingTime').value     = m.time     || '';
+    document.getElementById('meetingLocation').value = m.location || '';
+    const lastNote = (m.notes && m.notes.length) ? m.notes[m.notes.length-1].text : '';
+    document.getElementById('meetingNotes').value    = lastNote;
+    _meetingExistingPhotos = (m.photos || []).map(ph => ({ ...ph, _existing: true }));
+    document.getElementById('meetingDeleteBtn').style.display = '';
+  } else {
+    document.getElementById('meetingType').value     = 'meeting';
+    document.getElementById('meetingStatus').value   = 'scheduled';
+    document.getElementById('meetingLead').value     = presetLeadId || '';
+    document.getElementById('meetingProp').value     = '';
+    document.getElementById('meetingDate').value     = new Date().toISOString().split('T')[0];
+    document.getElementById('meetingTime').value     = '';
+    document.getElementById('meetingLocation').value = '';
+    document.getElementById('meetingNotes').value    = '';
+    document.getElementById('meetingDeleteBtn').style.display = 'none';
+
+    // If pre-filled from a lead, auto-pick a sensible type (viewing if lead's stage suggests)
+    if (presetLeadId) {
+      const l = leads.find(x => x.id === presetLeadId);
+      if (l && (l.stage === 'meeting' || l.stage === 'qualified')) {
+        document.getElementById('meetingType').value = 'viewing';
+      }
+    }
+  }
+
+  renderMeetingPhotoGrid();
+  document.getElementById('meetingModalOverlay').classList.add('active');
+}
+
+function closeMeetingModal() {
+  document.getElementById('meetingModalOverlay').classList.remove('active');
+  _meetingPendingPhotos = [];
+  _meetingExistingPhotos = [];
+  _meetingRemovedPhotos = [];
+}
+
+function handleMeetingPhotos(e) {
+  const files = Array.from(e.target.files || []);
+  files.forEach(file => {
+    if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} too large (max 10 MB)`, 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      _meetingPendingPhotos.push({
+        tempId: 'tmp_' + Math.random().toString(36).slice(2),
+        dataUrl: ev.target.result,
+        name: file.name
+      });
+      renderMeetingPhotoGrid();
+    };
+    reader.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
+
+async function renderMeetingPhotoGrid() {
+  const grid = document.getElementById('meetingPhotoGrid');
+  const count = document.getElementById('meetingPhotoCount');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  // Existing photos: load from IDB
+  for (const ph of _meetingExistingPhotos) {
+    if (_meetingRemovedPhotos.includes(ph.id)) continue;
+    const rec = await idbGet(ph.id).catch(() => null);
+    if (!rec) continue;
+    const tile = document.createElement('div');
+    tile.className = 'meeting-photo-tile';
+    tile.innerHTML = `
+      <img src="${rec.data}" alt="${h(ph.name)}">
+      <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeMeetingPhoto('${ph.id}',true)">×</button>`;
+    grid.appendChild(tile);
+  }
+  // Pending photos
+  _meetingPendingPhotos.forEach(ph => {
+    const tile = document.createElement('div');
+    tile.className = 'meeting-photo-tile meeting-photo-tile-pending';
+    tile.innerHTML = `
+      <img src="${ph.dataUrl}" alt="${h(ph.name)}">
+      <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeMeetingPhoto('${ph.tempId}',false)">×</button>`;
+    grid.appendChild(tile);
+  });
+
+  const total = _meetingExistingPhotos.filter(p => !_meetingRemovedPhotos.includes(p.id)).length + _meetingPendingPhotos.length;
+  if (count) count.textContent = total ? `${total} photo${total>1?'s':''}` : 'No photos yet';
+}
+
+function _removeMeetingPhoto(id, existing) {
+  if (existing) {
+    _meetingRemovedPhotos.push(id);
+  } else {
+    _meetingPendingPhotos = _meetingPendingPhotos.filter(p => p.tempId !== id);
+  }
+  renderMeetingPhotoGrid();
+}
+
+async function saveMeeting() {
+  const sess = getSession();
+  const id = document.getElementById('meetingId').value;
+  const meetings = loadMeetings();
+  const existing = id ? meetings.find(m => m.id === id) : null;
+
+  const author = sess?.type === 'agent'
+    ? { id: sess.agentId, name: sess.name }
+    : { id: '', name: 'Admin' };
+
+  // Persist new photos to IndexedDB
+  const finalPhotos = (existing?.photos || []).filter(ph => !_meetingRemovedPhotos.includes(ph.id));
+  for (const tmp of _meetingPendingPhotos) {
+    const photoId = 'mtgph_' + Math.random().toString(36).slice(2);
+    // dataUrl → Blob
+    const resp = await fetch(tmp.dataUrl);
+    const blob = await resp.blob();
+    await idbPut(photoId, blob);
+    finalPhotos.push({ id: photoId, name: tmp.name });
+  }
+  // Delete removed photos from IDB
+  for (const removeId of _meetingRemovedPhotos) {
+    try { await idbDelete(removeId); } catch {}
+  }
+
+  const noteText = document.getElementById('meetingNotes').value.trim();
+  const notes = (existing?.notes || []).slice();
+  if (noteText) {
+    const lastNote = notes.length ? notes[notes.length-1] : null;
+    if (!lastNote || lastNote.text !== noteText) {
+      notes.push({ text: noteText, date: new Date().toISOString(), authorId: author.id, authorName: author.name });
+    }
+  }
+
+  const status = document.getElementById('meetingStatus').value;
+  const prevStatus = existing?.status;
+  const record = {
+    id: id || ('mtg_' + uid()),
+    type:     document.getElementById('meetingType').value,
+    status,
+    leadId:   document.getElementById('meetingLead').value || '',
+    propId:   document.getElementById('meetingProp').value || '',
+    date:     document.getElementById('meetingDate').value || '',
+    time:     document.getElementById('meetingTime').value || '',
+    location: document.getElementById('meetingLocation').value.trim(),
+    notes,
+    photos:   finalPhotos,
+    agentId:  existing?.agentId  || author.id || (sess?.agentId || ''),
+    agentName:existing?.agentName|| author.name,
+    createdAt:existing?.createdAt|| new Date().toISOString(),
+    updatedAt:new Date().toISOString()
+  };
+
+  const idx = meetings.findIndex(m => m.id === record.id);
+  if (idx > -1) meetings[idx] = record; else meetings.unshift(record);
+  saveMeetingsArr(meetings);
+
+  // Auto-log to linked lead's activity
+  if (record.leadId) {
+    const tm = MTG_TYPE_META[record.type] || MTG_TYPE_META.meeting;
+    const sm = MTG_STATUS_META[record.status] || MTG_STATUS_META.scheduled;
+    let activityNote;
+    if (!existing) {
+      activityNote = `${tm.label} scheduled for ${record.date || 'TBD'}${record.time?' '+record.time:''}${record.location?' at '+record.location:''}.`;
+    } else if (prevStatus !== status) {
+      activityNote = `${tm.label} marked ${sm.label.toLowerCase()}.${noteText ? ' Outcome: '+noteText : ''}`;
+    } else if (noteText && (!existing.notes?.length || existing.notes[existing.notes.length-1].text !== noteText)) {
+      activityNote = `${tm.label} update — ${noteText}`;
+    }
+    if (activityNote) {
+      const leads = loadLeads();
+      const lead = leads.find(l => l.id === record.leadId);
+      if (lead) {
+        if (!lead.activities) lead.activities = [];
+        lead.activities.push({
+          id: 'act_' + uid(),
+          type: record.type === 'viewing' ? 'meeting' : 'meeting',
+          note: activityNote,
+          date: new Date().toISOString(),
+          byAgentId:   author.id,
+          byAgentName: author.name,
+          authorType:  sess?.type || 'admin',
+          authorName:  author.name
+        });
+        lead.updatedAt = new Date().toISOString();
+        saveLeads(leads);
+      }
+    }
+  }
+
+  closeMeetingModal();
+  showToast(existing ? 'Updated' : 'Saved', 'success');
+  if (typeof renderAgentMeetings === 'function') renderAgentMeetings();
+  if (typeof updateAgentBadges === 'function') updateAgentBadges();
+  if (typeof renderTeamTab === 'function' && isAdminUser()) renderTeamTab();
+}
+
+async function deleteMeeting() {
+  const id = document.getElementById('meetingId').value;
+  if (!id) return;
+  if (!confirm('Delete this entry? Photos will also be removed.')) return;
+  const meetings = loadMeetings();
+  const m = meetings.find(x => x.id === id);
+  if (m) {
+    for (const ph of (m.photos || [])) {
+      try { await idbDelete(ph.id); } catch {}
+    }
+  }
+  saveMeetingsArr(meetings.filter(x => x.id !== id));
+  closeMeetingModal();
+  showToast('Deleted', 'success');
+  if (typeof renderAgentMeetings === 'function') renderAgentMeetings();
+  if (typeof updateAgentBadges === 'function') updateAgentBadges();
+}
+
+// idbDelete shim — uses existing idb infra; if missing, simulate via overwrite.
+async function idbDelete(key) {
+  try {
+    if (typeof idbDel === 'function') return idbDel(key);
+    if (typeof _idbDelete === 'function') return _idbDelete(key);
+  } catch {}
+  // Fallback: open db directly
+  return new Promise((resolve) => {
+    const req = indexedDB.open('asg_files', 1);
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('files', 'readwrite');
+      const store = tx.objectStore('files');
+      store.delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    };
+    req.onerror = () => resolve();
+  });
+}
+
+// Wire showAgentTab to render meetings + add to AGENT_TABS allowlist
+const _origShowAgentTab3 = (typeof showAgentTab === 'function') ? showAgentTab : null;
+if (_origShowAgentTab3) {
+  if (typeof AGENT_TABS !== 'undefined' && !AGENT_TABS.includes('meetings')) {
+    AGENT_TABS.push('meetings');
+  }
+  showAgentTab = function(tab) {
+    _origShowAgentTab3.apply(this, arguments);
+    if (tab === 'meetings') renderAgentMeetings();
+  };
+}
+
+// Update the agent meetings count badge
+const _origUpdateAgentBadges = (typeof updateAgentBadges === 'function') ? updateAgentBadges : null;
+if (_origUpdateAgentBadges) {
+  updateAgentBadges = function() {
+    _origUpdateAgentBadges.apply(this, arguments);
+    const sess = getSession();
+    if (!sess || sess.type !== 'agent') return;
+    const my = loadMeetings().filter(m => m.agentId === sess.agentId && m.status === 'scheduled');
+    const el = document.getElementById('agentMeetingCount');
+    if (el) el.textContent = my.length || '';
+  };
+}
+
+// Inject "Schedule Meeting / Viewing" buttons into the lead detail modal
+const _origOpenLeadDetail2 = (typeof openLeadDetail === 'function') ? openLeadDetail : null;
+if (_origOpenLeadDetail2) {
+  openLeadDetail = function(id) {
+    _origOpenLeadDetail2.apply(this, arguments);
+    setTimeout(() => {
+      const adminDiv = document.getElementById('leadDetailAdminActions');
+      if (!adminDiv) return;
+      // Avoid duplicate insertion
+      if (adminDiv.querySelector('[data-mtg-push]')) return;
+      const btn1 = document.createElement('button');
+      btn1.className = 'btn-sm btn-primary';
+      btn1.dataset.mtgPush = '1';
+      btn1.innerHTML = '🤝 Schedule Meeting';
+      btn1.onclick = () => { closeLeadDetail(); openMeetingModal(null, id); document.getElementById('meetingType').value = 'meeting'; };
+      const btn2 = document.createElement('button');
+      btn2.className = 'btn-sm btn-primary';
+      btn2.dataset.mtgPush = '1';
+      btn2.innerHTML = '🏗️ Schedule Viewing';
+      btn2.onclick = () => { closeLeadDetail(); openMeetingModal(null, id); document.getElementById('meetingType').value = 'viewing'; };
+      adminDiv.appendChild(btn1);
+      adminDiv.appendChild(btn2);
+    }, 50);
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+//  OFF-PLAN — UAE Developers & Projects catalog
+// ═══════════════════════════════════════════════════════
+
+const OFFPLAN_DEVS_KEY = 'asg_offplan_developers';
+const OFFPLAN_PROJ_KEY = 'asg_offplan_projects';
+
+function loadDevelopers()  { try { return JSON.parse(localStorage.getItem(OFFPLAN_DEVS_KEY)) || []; } catch { return []; } }
+function saveDevelopers(a) { localStorage.setItem(OFFPLAN_DEVS_KEY, JSON.stringify(a)); }
+function loadProjects()    { try { return JSON.parse(localStorage.getItem(OFFPLAN_PROJ_KEY)) || []; } catch { return []; } }
+function saveProjects(a)   { localStorage.setItem(OFFPLAN_PROJ_KEY, JSON.stringify(a)); }
+
+const PROJECT_STATUS_META = {
+  prelaunch:    { icon:'⏳', label:'Pre-launch',         cls:'op-st-prelaunch'    },
+  launched:     { icon:'🚀', label:'Launched',           cls:'op-st-launched'     },
+  construction: { icon:'🏗️', label:'Under Construction', cls:'op-st-construction' },
+  ready:        { icon:'✅', label:'Ready',              cls:'op-st-ready'        },
+  soldout:      { icon:'🔒', label:'Sold Out',           cls:'op-st-soldout'      }
+};
+const PROJECT_TYPE_META = {
+  apartments:  { icon:'🏢', label:'Apartments'  },
+  villas:      { icon:'🏠', label:'Villas'      },
+  townhouses:  { icon:'🏘️', label:'Townhouses'  },
+  offices:     { icon:'🏢', label:'Offices'     },
+  mixed:       { icon:'🏙️', label:'Mixed-use'   },
+  hotel:       { icon:'🏨', label:'Hotel/Branded'}
+};
+
+// Seed major UAE developers on first run (only if list is empty)
+(function seedDevelopers() {
+  if (loadDevelopers().length) return;
+  const seed = [
+    { name:'Emaar Properties',       region:'Dubai',     website:'https://www.emaar.com' },
+    { name:'DAMAC Properties',       region:'Dubai',     website:'https://www.damacproperties.com' },
+    { name:'Sobha Realty',           region:'Dubai',     website:'https://www.sobharealty.com' },
+    { name:'Nakheel',                region:'Dubai',     website:'https://www.nakheel.com' },
+    { name:'Meraas',                 region:'Dubai',     website:'https://www.meraas.com' },
+    { name:'Dubai Properties',       region:'Dubai',     website:'https://www.dp.ae' },
+    { name:'Aldar Properties',       region:'Abu Dhabi', website:'https://www.aldar.com' },
+    { name:'Azizi Developments',     region:'Dubai',     website:'https://www.azizidevelopments.com' },
+    { name:'Danube Properties',      region:'Dubai',     website:'https://www.danubeproperties.ae' },
+    { name:'Binghatti Developers',   region:'Dubai',     website:'https://www.binghatti.com' },
+    { name:'Ellington Properties',   region:'Dubai',     website:'https://www.ellingtonproperties.ae' },
+    { name:'Select Group',           region:'Dubai',     website:'https://www.select-group.ae' },
+    { name:'MAG Property Development',region:'Dubai',    website:'https://www.mag.ae' },
+    { name:'Omniyat',                region:'Dubai',     website:'https://www.omniyat.com' },
+    { name:'Wasl Properties',        region:'Dubai',     website:'https://www.wasl.ae' },
+    { name:'Deyaar Development',     region:'Dubai',     website:'https://www.deyaar.ae' },
+    { name:'Tiger Properties',       region:'Dubai',     website:'https://www.tigerproperties.com' },
+    { name:'Arada',                  region:'Sharjah',   website:'https://www.arada.com' },
+    { name:'RAK Properties',         region:'Ras Al Khaimah', website:'https://www.rakproperties.net' },
+    { name:'Iman Developers',        region:'Dubai',     website:'' }
+  ].map(d => ({
+    id: 'dev_' + Math.random().toString(36).slice(2),
+    name: d.name, region: d.region, website: d.website || '',
+    brief: '', logo: null,
+    dataSource: 'seed',
+    createdAt: new Date().toISOString()
+  }));
+  saveDevelopers(seed);
+})();
+
+// ─── Navigation state ─────────────────────────────
+let _opView = 'developers';        // 'developers' | 'projects' | 'project'
+let _opCurrentDevId = '';
+let _opCurrentProjectId = '';
+let _opSearch = '';
+
+// In-flight project edit state
+let _projectPendingPhotos = [];
+let _projectExistingPhotos = [];
+let _projectRemovedPhotos = [];
+let _projectPendingBrochure = null;
+let _projectExistingBrochure = null;
+
+function _opIsAgent()  { const s = getSession(); return s?.type === 'agent'; }
+function _opCanEdit()  { return isAdminUser(); } // Only admin can add/edit/delete; agents browse + share
+
+function _opMount() {
+  if (_opIsAgent()) return { content: document.getElementById('offplanContentAgent'), bc: document.getElementById('opBreadcrumbAgent') };
+  return { content: document.getElementById('offplanContent'), bc: document.getElementById('opBreadcrumb') };
+}
+
+function renderOffplan() {
+  const { content, bc } = _opMount();
+  if (!content || !bc) return;
+  // Breadcrumb
+  const devs = loadDevelopers();
+  const projects = loadProjects();
+  let crumb = `<a class="op-crumb-link" onclick="_opGo('developers')">Developers</a>`;
+  if (_opView === 'projects' || _opView === 'project') {
+    const dev = devs.find(d => d.id === _opCurrentDevId);
+    crumb += ` <span class="op-crumb-sep">›</span> <a class="op-crumb-link" onclick="_opGo('projects','${_opCurrentDevId}')">${h(dev?.name || 'Developer')}</a>`;
+  }
+  if (_opView === 'project') {
+    const p = projects.find(x => x.id === _opCurrentProjectId);
+    crumb += ` <span class="op-crumb-sep">›</span> <span class="op-crumb-current">${h(p?.name || 'Project')}</span>`;
+  }
+  bc.innerHTML = crumb;
+
+  if (_opView === 'developers')      _renderDevelopersGrid(content);
+  else if (_opView === 'projects')   _renderProjectsGrid(content);
+  else if (_opView === 'project')    _renderProjectDetail(content);
+}
+
+function _opGo(view, devId, projectId) {
+  _opView = view;
+  if (devId !== undefined) _opCurrentDevId = devId;
+  if (projectId !== undefined) _opCurrentProjectId = projectId;
+  renderOffplan();
+}
+
+// ─── Developers grid ──────────────────────────────
+function _renderDevelopersGrid(content) {
+  const devs = loadDevelopers();
+  const projects = loadProjects();
+  const search = (_opSearch || '').trim().toLowerCase();
+  const filtered = search ? devs.filter(d => d.name.toLowerCase().includes(search) || (d.region||'').toLowerCase().includes(search)) : devs;
+  filtered.sort((a,b) => a.name.localeCompare(b.name));
+
+  content.innerHTML = `
+    <div class="tab-page-header">
+      <div>
+        <h1 class="tab-page-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+          Off-Plan Developers
+        </h1>
+        <p class="tab-page-sub">Browse UAE developers and their off-plan project launches</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" class="filter-select" id="opSearch" placeholder="Search developers…" value="${h(_opSearch)}" oninput="_opSearch=this.value;_renderDevelopersGrid(_opMount().content);" style="width:220px;">
+        ${_opCanEdit() ? `
+          <button class="btn-ghost" onclick="openExcelImport('projects')">📥 Import Projects</button>
+          <button class="btn-primary" onclick="openDeveloperModal()">+ Add Developer</button>
+        ` : ''}
+      </div>
+    </div>
+
+    <div class="op-dev-grid">
+      ${filtered.length === 0 ? `<div class="team-empty"><div class="empty-icon">🏛️</div><p>No developers match "${h(_opSearch)}".</p></div>` : filtered.map(d => {
+        const projectCount = projects.filter(p => p.devId === d.id).length;
+        const initial = (d.name || '?').charAt(0).toUpperCase();
+        return `
+          <div class="op-dev-card" onclick="_opGo('projects','${d.id}')">
+            <div class="op-dev-logo">
+              ${d.logo ? `<img src="${d.logo}" alt="${h(d.name)}">` : `<span class="op-dev-initial">${initial}</span>`}
+            </div>
+            <div class="op-dev-body">
+              <div class="op-dev-name">${h(d.name)}</div>
+              <div class="op-dev-region">📍 ${h(d.region || 'UAE')}</div>
+              <div class="op-dev-count">${projectCount} project${projectCount===1?'':'s'}</div>
+            </div>
+            ${_opCanEdit() ? `<button class="op-edit-btn" onclick="event.stopPropagation();openDeveloperModal('${d.id}')">✏️</button>` : ''}
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// ─── Projects grid ────────────────────────────────
+function _renderProjectsGrid(content) {
+  const dev = loadDevelopers().find(d => d.id === _opCurrentDevId);
+  if (!dev) { _opGo('developers'); return; }
+  const projects = loadProjects().filter(p => p.devId === dev.id)
+    .sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  content.innerHTML = `
+    <div class="tab-page-header">
+      <div>
+        <h1 class="tab-page-title">${h(dev.name)} — Projects</h1>
+        <p class="tab-page-sub">${h(dev.region || 'UAE')}${dev.website ? ` · <a href="${dev.website}" target="_blank" style="color:var(--gold);">${h(dev.website.replace(/^https?:\/\//,''))}</a>` : ''}</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        ${_opCanEdit() ? `<button class="btn-primary" onclick="openProjectModal()">+ Add Project</button>` : ''}
+      </div>
+    </div>
+    ${dev.brief ? `<div class="op-dev-brief">${h(dev.brief)}</div>` : ''}
+
+    <div class="op-proj-grid">
+      ${projects.length === 0 ? `
+        <div class="team-empty">
+          <div class="empty-icon">🏗️</div>
+          <p>No projects yet for ${h(dev.name)}.</p>
+          ${_opCanEdit() ? '<p style="font-size:12px;">Click <strong>+ Add Project</strong> to add one.</p>' : ''}
+        </div>` : projects.map(p => {
+        const sm = PROJECT_STATUS_META[p.status] || PROJECT_STATUS_META.launched;
+        const tm = PROJECT_TYPE_META[p.type] || PROJECT_TYPE_META.apartments;
+        const cover = (p.photos && p.photos.length) ? p.photos[0].dataUrl : null;
+        return `
+          <div class="op-proj-card" onclick="_opGo('project',undefined,'${p.id}')">
+            <div class="op-proj-cover" ${cover ? `style="background-image:url('${cover}')"` : ''}>
+              ${!cover ? `<span class="op-proj-cover-placeholder">${tm.icon}</span>` : ''}
+              <span class="op-proj-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span>
+            </div>
+            <div class="op-proj-body">
+              <div class="op-proj-name">${h(p.name || 'Untitled')}</div>
+              <div class="op-proj-meta">${tm.icon} ${tm.label}${p.location ? ' · 📍 '+h(p.location) : ''}</div>
+              ${p.priceFrom ? `<div class="op-proj-price">From AED ${num(p.priceFrom)}${p.priceTo ? ' — '+num(p.priceTo) : ''}</div>` : ''}
+              ${p.handoverDate ? `<div class="op-proj-handover">Handover: ${fmtDate(p.handoverDate)}</div>` : ''}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// ─── Project detail ───────────────────────────────
+function _renderProjectDetail(content) {
+  const projects = loadProjects();
+  const p = projects.find(x => x.id === _opCurrentProjectId);
+  if (!p) { _opGo('projects', _opCurrentDevId); return; }
+  const dev = loadDevelopers().find(d => d.id === p.devId);
+  const sm = PROJECT_STATUS_META[p.status] || PROJECT_STATUS_META.launched;
+  const tm = PROJECT_TYPE_META[p.type] || PROJECT_TYPE_META.apartments;
+  const amenities = (p.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
+
+  content.innerHTML = `
+    <div class="op-detail">
+      <div class="op-detail-head">
+        <div>
+          <div class="op-detail-dev">${h(dev?.name || '')}</div>
+          <h1 class="op-detail-name">${h(p.name)}</h1>
+          <div class="op-detail-meta">
+            <span class="op-proj-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span>
+            <span>${tm.icon} ${tm.label}</span>
+            ${p.location ? `<span>📍 ${h(p.location)}</span>` : ''}
+          </div>
+        </div>
+        <div class="op-detail-actions">
+          <button class="btn-primary" onclick="downloadProjectPDF('${p.id}')">📄 Download PDF</button>
+          <button class="btn-ghost" onclick="shareProject('${p.id}')">📤 Share with Client</button>
+          ${_opCanEdit() ? `<button class="btn-ghost" onclick="openProjectModal('${p.id}')">✏️ Edit</button>` : ''}
+        </div>
+      </div>
+
+      ${p.photos && p.photos.length ? `
+        <div class="op-photo-gallery">
+          ${p.photos.map((ph, i) => `<div class="op-photo-tile" onclick="_opLightbox('${p.id}',${i})"><img src="${ph.dataUrl}" alt=""></div>`).join('')}
+        </div>` : ''}
+
+      <div class="op-detail-grid">
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">💰 Pricing</div>
+          <div class="op-detail-rows">
+            ${p.priceFrom ? `<div class="op-row"><span>Price From</span><strong>AED ${num(p.priceFrom)}</strong></div>` : ''}
+            ${p.priceTo   ? `<div class="op-row"><span>Price To</span><strong>AED ${num(p.priceTo)}</strong></div>` : ''}
+            ${p.unitMix   ? `<div class="op-row"><span>Unit Mix</span><strong>${h(p.unitMix)}</strong></div>` : ''}
+            ${p.paymentPlan ? `<div class="op-row op-row-multi"><span>Payment Plan</span><strong>${h(p.paymentPlan)}</strong></div>` : ''}
+          </div>
+        </div>
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">📅 Timeline</div>
+          <div class="op-detail-rows">
+            ${p.launchDate   ? `<div class="op-row"><span>Launch Date</span><strong>${fmtDate(p.launchDate)}</strong></div>` : ''}
+            ${p.handoverDate ? `<div class="op-row"><span>Handover</span><strong>${fmtDate(p.handoverDate)}</strong></div>` : ''}
+            ${dev?.website   ? `<div class="op-row op-row-multi"><span>Developer</span><strong><a href="${dev.website}" target="_blank" style="color:var(--gold);">${h(dev.name)} ↗</a></strong></div>` : ''}
+          </div>
+        </div>
+      </div>
+
+      ${p.description ? `
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">📝 About the Project</div>
+          <div class="op-detail-text">${h(p.description)}</div>
+        </div>` : ''}
+
+      ${amenities.length ? `
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">✨ Amenities</div>
+          <div class="op-amenity-grid">
+            ${amenities.map(a => `<span class="op-amenity">${h(a)}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+      ${p.brochure ? `
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">📁 Brochure</div>
+          <a href="${p.brochure.dataUrl}" target="_blank" download="${h(p.brochure.name)}" class="op-brochure-link">📄 ${h(p.brochure.name)}</a>
+        </div>` : ''}
+    </div>
+  `;
+}
+
+// ─── Developer modal ──────────────────────────────
+function openDeveloperModal(id) {
+  const dev = id ? loadDevelopers().find(d => d.id === id) : null;
+  document.getElementById('developerModalTitle').textContent = dev ? 'Edit Developer' : 'Add Developer';
+  document.getElementById('developerId').value     = dev ? dev.id : '';
+  document.getElementById('developerName').value   = dev ? dev.name    : '';
+  document.getElementById('developerRegion').value = dev ? (dev.region||'Dubai') : 'Dubai';
+  document.getElementById('developerWebsite').value= dev ? (dev.website||'') : '';
+  document.getElementById('developerBrief').value  = dev ? (dev.brief||'')   : '';
+  const preview = document.getElementById('developerLogoPreview');
+  preview.innerHTML = dev?.logo ? `<img src="${dev.logo}" style="max-width:80px;max-height:80px;border-radius:4px;border:1px solid var(--border);">` : '';
+  document.getElementById('developerLogo').value = '';
+  document.getElementById('developerDeleteBtn').style.display = dev ? '' : 'none';
+
+  // Logo preview on upload
+  document.getElementById('developerLogo').onchange = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader(); r.onload = ev => { preview.innerHTML = `<img src="${ev.target.result}" style="max-width:80px;max-height:80px;border-radius:4px;border:1px solid var(--border);">`; preview.dataset.dataUrl = ev.target.result; };
+    r.readAsDataURL(f);
+  };
+  preview.dataset.dataUrl = dev?.logo || '';
+  document.getElementById('developerModalOverlay').classList.add('active');
+}
+function closeDeveloperModal() { document.getElementById('developerModalOverlay').classList.remove('active'); }
+
+function saveDeveloper() {
+  const id    = document.getElementById('developerId').value;
+  const name  = document.getElementById('developerName').value.trim();
+  const region= document.getElementById('developerRegion').value;
+  const website = document.getElementById('developerWebsite').value.trim();
+  const brief = document.getElementById('developerBrief').value.trim();
+  const logo  = document.getElementById('developerLogoPreview').dataset.dataUrl || '';
+  if (!name) { showToast('Developer name is required', 'error'); return; }
+  const devs = loadDevelopers();
+  if (id) {
+    const idx = devs.findIndex(d => d.id === id);
+    if (idx > -1) devs[idx] = { ...devs[idx], name, region, website, brief, logo };
+  } else {
+    devs.unshift({
+      id: 'dev_' + Math.random().toString(36).slice(2),
+      name, region, website, brief, logo,
+      dataSource: 'manual',
+      createdAt: new Date().toISOString()
+    });
+  }
+  saveDevelopers(devs);
+  closeDeveloperModal();
+  showToast('Developer saved', 'success');
+  renderOffplan();
+}
+
+function deleteDeveloper() {
+  const id = document.getElementById('developerId').value;
+  if (!id) return;
+  const projectCount = loadProjects().filter(p => p.devId === id).length;
+  const msg = projectCount
+    ? `Delete this developer? ${projectCount} associated project${projectCount>1?'s':''} will also be deleted.`
+    : 'Delete this developer?';
+  if (!confirm(msg)) return;
+  saveDevelopers(loadDevelopers().filter(d => d.id !== id));
+  saveProjects(loadProjects().filter(p => p.devId !== id));
+  closeDeveloperModal();
+  if (_opCurrentDevId === id) _opGo('developers');
+  showToast('Developer deleted', 'success');
+  renderOffplan();
+}
+
+// ─── Project modal ────────────────────────────────
+function openProjectModal(id) {
+  const p = id ? loadProjects().find(x => x.id === id) : null;
+  const devs = loadDevelopers();
+  const dev = devs.find(d => d.id === (p ? p.devId : _opCurrentDevId));
+
+  document.getElementById('projectModalTitle').textContent = p ? 'Edit Project' : 'Add Project';
+  document.getElementById('projectModalSubtitle').textContent = dev ? `Under ${dev.name}` : 'Off-plan project details';
+  document.getElementById('projectId').value    = p ? p.id : '';
+  document.getElementById('projectDevId').value = p ? p.devId : (_opCurrentDevId || '');
+
+  document.getElementById('projectName').value         = p ? (p.name||'')         : '';
+  document.getElementById('projectStatus').value       = p ? (p.status||'launched'): 'launched';
+  document.getElementById('projectType').value         = p ? (p.type||'apartments'): 'apartments';
+  document.getElementById('projectLocation').value     = p ? (p.location||'')     : '';
+  document.getElementById('projectUnitMix').value      = p ? (p.unitMix||'')      : '';
+  document.getElementById('projectLaunchDate').value   = p ? (p.launchDate||'')   : '';
+  document.getElementById('projectHandoverDate').value = p ? (p.handoverDate||'') : '';
+  document.getElementById('projectPriceFrom').value    = p ? (p.priceFrom||'')    : '';
+  document.getElementById('projectPriceTo').value      = p ? (p.priceTo||'')      : '';
+  document.getElementById('projectPaymentPlan').value  = p ? (p.paymentPlan||'')  : '';
+  document.getElementById('projectAmenities').value    = p ? (p.amenities||'')    : '';
+  document.getElementById('projectDescription').value  = p ? (p.description||'')  : '';
+
+  _projectPendingPhotos = [];
+  _projectExistingPhotos = (p?.photos || []).slice();
+  _projectRemovedPhotos = [];
+  _projectPendingBrochure = null;
+  _projectExistingBrochure = p?.brochure || null;
+
+  renderProjectPhotoGrid();
+  document.getElementById('projectBrochureName').textContent = _projectExistingBrochure ? `Current: ${_projectExistingBrochure.name}` : '';
+  document.getElementById('projectBrochureInput').value = '';
+  document.getElementById('projectDeleteBtn').style.display = p ? '' : 'none';
+  document.getElementById('projectModalOverlay').classList.add('active');
+}
+function closeProjectModal() {
+  document.getElementById('projectModalOverlay').classList.remove('active');
+  _projectPendingPhotos = [];
+  _projectExistingPhotos = [];
+  _projectRemovedPhotos = [];
+  _projectPendingBrochure = null;
+}
+
+function handleProjectPhotos(e) {
+  const files = Array.from(e.target.files || []);
+  files.forEach(file => {
+    if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} too large (max 10 MB)`, 'error'); return; }
+    const r = new FileReader();
+    r.onload = ev => {
+      _projectPendingPhotos.push({ tempId: 'tmp_' + Math.random().toString(36).slice(2), dataUrl: ev.target.result, name: file.name });
+      renderProjectPhotoGrid();
+    };
+    r.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
+
+function renderProjectPhotoGrid() {
+  const grid = document.getElementById('projectPhotoGrid');
+  const count = document.getElementById('projectPhotoCount');
+  if (!grid) return;
+  const tiles = [];
+  _projectExistingPhotos.forEach((ph, i) => {
+    if (_projectRemovedPhotos.includes(i)) return;
+    tiles.push(`
+      <div class="meeting-photo-tile">
+        <img src="${ph.dataUrl}" alt="">
+        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeProjectPhoto(${i},true)">×</button>
+      </div>`);
+  });
+  _projectPendingPhotos.forEach(ph => {
+    tiles.push(`
+      <div class="meeting-photo-tile meeting-photo-tile-pending">
+        <img src="${ph.dataUrl}" alt="">
+        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeProjectPhoto('${ph.tempId}',false)">×</button>
+      </div>`);
+  });
+  grid.innerHTML = tiles.join('');
+  const total = _projectExistingPhotos.filter((_,i) => !_projectRemovedPhotos.includes(i)).length + _projectPendingPhotos.length;
+  if (count) count.textContent = total ? `${total} photo${total>1?'s':''}` : 'No photos yet';
+}
+function _removeProjectPhoto(idx, existing) {
+  if (existing) _projectRemovedPhotos.push(idx);
+  else _projectPendingPhotos = _projectPendingPhotos.filter(p => p.tempId !== idx);
+  renderProjectPhotoGrid();
+}
+function handleProjectBrochure(e) {
+  const f = e.target.files[0]; if (!f) return;
+  if (f.size > 30 * 1024 * 1024) { showToast('Brochure too large (max 30 MB)', 'error'); return; }
+  const r = new FileReader();
+  r.onload = ev => {
+    _projectPendingBrochure = { name: f.name, dataUrl: ev.target.result };
+    document.getElementById('projectBrochureName').textContent = `Selected: ${f.name}`;
+  };
+  r.readAsDataURL(f);
+}
+
+function saveProject() {
+  const id    = document.getElementById('projectId').value;
+  const devId = document.getElementById('projectDevId').value;
+  const name  = document.getElementById('projectName').value.trim();
+  const location = document.getElementById('projectLocation').value.trim();
+  if (!devId) { showToast('Pick a developer first', 'error'); return; }
+  if (!name)  { showToast('Project name is required', 'error'); return; }
+  if (!location){ showToast('Location is required', 'error'); return; }
+
+  const projects = loadProjects();
+  const existing = id ? projects.find(p => p.id === id) : null;
+
+  // Build final photos: keep existing minus removed, plus new pending
+  const finalPhotos = _projectExistingPhotos.filter((_, i) => !_projectRemovedPhotos.includes(i)).concat(
+    _projectPendingPhotos.map(ph => ({ name: ph.name, dataUrl: ph.dataUrl }))
+  );
+  const finalBrochure = _projectPendingBrochure || _projectExistingBrochure || null;
+
+  const record = {
+    id: id || ('proj_' + Math.random().toString(36).slice(2)),
+    devId,
+    name,
+    status:       document.getElementById('projectStatus').value,
+    type:         document.getElementById('projectType').value,
+    location,
+    unitMix:      document.getElementById('projectUnitMix').value.trim(),
+    launchDate:   document.getElementById('projectLaunchDate').value,
+    handoverDate: document.getElementById('projectHandoverDate').value,
+    priceFrom:    Number(document.getElementById('projectPriceFrom').value) || null,
+    priceTo:      Number(document.getElementById('projectPriceTo').value)   || null,
+    paymentPlan:  document.getElementById('projectPaymentPlan').value.trim(),
+    amenities:    document.getElementById('projectAmenities').value.trim(),
+    description:  document.getElementById('projectDescription').value.trim(),
+    photos:       finalPhotos,
+    brochure:     finalBrochure,
+    dataSource:   existing?.dataSource || 'manual',
+    createdAt:    existing?.createdAt  || new Date().toISOString(),
+    updatedAt:    new Date().toISOString()
+  };
+  const idx = projects.findIndex(p => p.id === record.id);
+  if (idx > -1) projects[idx] = record; else projects.unshift(record);
+  saveProjects(projects);
+  closeProjectModal();
+  showToast(existing ? 'Project updated' : 'Project added', 'success');
+  if (_opView === 'developers') _opGo('projects', devId);
+  else renderOffplan();
+}
+
+function deleteProject() {
+  const id = document.getElementById('projectId').value;
+  if (!id) return;
+  if (!confirm('Delete this project? Photos and brochure will also be removed.')) return;
+  saveProjects(loadProjects().filter(p => p.id !== id));
+  closeProjectModal();
+  if (_opCurrentProjectId === id) _opGo('projects', _opCurrentDevId);
+  showToast('Project deleted', 'success');
+  renderOffplan();
+}
+
+// ─── PDF export (uses ASG letterhead from proposals) ──
+function downloadProjectPDF(id) {
+  const p = loadProjects().find(x => x.id === id);
+  if (!p) return;
+  const dev = loadDevelopers().find(d => d.id === p.devId);
+  const sm = PROJECT_STATUS_META[p.status] || PROJECT_STATUS_META.launched;
+  const tm = PROJECT_TYPE_META[p.type] || PROJECT_TYPE_META.apartments;
+  const amenities = (p.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
+  const fa = n => n ? 'AED ' + Number(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
+  const fd = s => s ? new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const he = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>${he(p.name)} — ${he(dev?.name||'')}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:12.5px;line-height:1.55}
+.page{max-width:820px;margin:0 auto;padding:0 44px 110px;position:relative;min-height:1100px}
+.lh-header{position:relative;padding:22px 0 26px;margin-bottom:20px}
+.lh-header-frame{border:2px solid #c9a84c;border-bottom:none;border-radius:70px 70px 0 0;height:130px;position:absolute;top:0;left:-44px;right:-44px;pointer-events:none}
+.lh-logo-block{position:relative;padding:14px 0 0 6px;display:inline-block}
+.lh-logo-icon{display:flex;align-items:flex-end;gap:2px;height:42px;margin-bottom:2px}
+.lh-bar{background:#c9a84c;width:8px;border-radius:1px}
+.lh-bar.b1{height:24px}.lh-bar.b2{height:36px}.lh-bar.b3{height:30px}.lh-bar.b4{height:42px;width:10px}
+.lh-divider{height:2px;width:440px;background:#c9a84c;margin:8px 0 0}
+.lh-asg{font-size:34px;font-weight:900;letter-spacing:6px;color:#7a5d1e;line-height:1}
+.lh-sub{font-size:11.5px;letter-spacing:2.6px;color:#7a5d1e;font-weight:700;margin-top:3px}
+.lh-doc-meta{position:absolute;right:0;top:34px;text-align:right;max-width:320px}
+.doc-title{font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:#111}
+.doc-dates{font-size:11px;color:#555;margin-top:4px}
+.lh-watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:340px;font-weight:900;letter-spacing:30px;color:#f8efd5;z-index:0;pointer-events:none;user-select:none;white-space:nowrap}
+.page > *{position:relative;z-index:1}
+.lh-footer{position:fixed;left:0;right:0;bottom:0;background:#1a1f2e;color:#fff;padding:14px 44px;z-index:5}
+.lh-footer-grid{display:grid;grid-template-columns:1.1fr 1.1fr 1.6fr;gap:22px;max-width:820px;margin:0 auto;font-size:10.5px;line-height:1.4}
+.lh-fcol{display:flex;flex-direction:column;gap:6px}
+.lh-fitem{display:flex;align-items:center;gap:8px;color:#fff}
+.lh-icon{width:18px;height:18px;border:1.2px solid #c9a84c;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#c9a84c;font-size:9px;flex-shrink:0}
+
+.proj-hero{margin-bottom:20px}
+.proj-dev{font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:#7a5d1e;font-weight:700;margin-bottom:4px}
+.proj-name{font-size:28px;font-weight:900;color:#111;letter-spacing:-0.01em}
+.proj-meta-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:#555}
+.proj-status-pill{display:inline-block;padding:4px 12px;border-radius:99px;font-size:11px;font-weight:700;background:#fef3c7;color:#92400e}
+
+.proj-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
+.proj-photo{aspect-ratio:4/3;background-size:cover;background-position:center;border-radius:6px;border:1px solid #e5e7eb}
+
+.proj-block{margin-top:18px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden}
+.proj-block-h{background:#f9fafb;padding:10px 14px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;border-bottom:1px solid #e5e7eb}
+.proj-rows{padding:10px 14px}
+.proj-r{display:grid;grid-template-columns:160px 1fr;gap:14px;padding:5px 0;font-size:12.5px}
+.proj-r span:first-child{color:#6b7280;font-weight:600}
+.proj-r strong{color:#111}
+.proj-text{padding:12px 14px;font-size:12.5px;color:#374151;line-height:1.6;white-space:pre-wrap}
+.proj-amenities{display:flex;flex-wrap:wrap;gap:6px;padding:12px 14px}
+.proj-amenity{padding:5px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;font-size:11.5px;color:#92400e;font-weight:600}
+
+@media print{.page{padding:0 26px 110px}@page{size:A4;margin:10mm 10mm 0 10mm}}
+</style></head><body>
+
+<div class="lh-watermark">ASG</div>
+
+<div class="page">
+
+<div class="lh-header">
+  <div class="lh-header-frame"></div>
+  <div class="lh-logo-block">
+    <div class="lh-logo-icon">
+      <span class="lh-bar b1"></span><span class="lh-bar b2"></span><span class="lh-bar b3"></span><span class="lh-bar b4"></span>
+    </div>
+    <div class="lh-divider"></div>
+    <div class="lh-asg">ASG</div>
+    <div class="lh-sub">COMMERCIAL PROPERTIES L.L.C.</div>
+  </div>
+  <div class="lh-doc-meta">
+    <div class="doc-title">Project Brief</div>
+    <div class="doc-dates">${fd(new Date().toISOString().split('T')[0])}</div>
+  </div>
+</div>
+
+<div class="proj-hero">
+  ${dev ? `<div class="proj-dev">${he(dev.name)}</div>` : ''}
+  <div class="proj-name">${he(p.name)}</div>
+  <div class="proj-meta-row">
+    <span class="proj-status-pill">${sm.icon} ${he(sm.label)}</span>
+    <span>${tm.icon} ${he(tm.label)}</span>
+    ${p.location ? `<span>📍 ${he(p.location)}</span>` : ''}
+  </div>
+</div>
+
+${(p.photos && p.photos.length) ? `
+  <div class="proj-photos">
+    ${p.photos.slice(0,6).map(ph => `<div class="proj-photo" style="background-image:url('${ph.dataUrl}')"></div>`).join('')}
+  </div>` : ''}
+
+<div class="proj-block">
+  <div class="proj-block-h">Pricing</div>
+  <div class="proj-rows">
+    ${p.priceFrom ? `<div class="proj-r"><span>Price From</span><strong>${fa(p.priceFrom)}</strong></div>` : ''}
+    ${p.priceTo   ? `<div class="proj-r"><span>Price To</span><strong>${fa(p.priceTo)}</strong></div>`   : ''}
+    ${p.unitMix   ? `<div class="proj-r"><span>Unit Mix</span><strong>${he(p.unitMix)}</strong></div>` : ''}
+    ${p.paymentPlan ? `<div class="proj-r"><span>Payment Plan</span><strong>${he(p.paymentPlan)}</strong></div>` : ''}
+  </div>
+</div>
+
+<div class="proj-block">
+  <div class="proj-block-h">Timeline</div>
+  <div class="proj-rows">
+    ${p.launchDate   ? `<div class="proj-r"><span>Launch Date</span><strong>${fd(p.launchDate)}</strong></div>` : ''}
+    ${p.handoverDate ? `<div class="proj-r"><span>Handover</span><strong>${fd(p.handoverDate)}</strong></div>` : ''}
+  </div>
+</div>
+
+${p.description ? `
+  <div class="proj-block">
+    <div class="proj-block-h">About the Project</div>
+    <div class="proj-text">${he(p.description)}</div>
+  </div>` : ''}
+
+${amenities.length ? `
+  <div class="proj-block">
+    <div class="proj-block-h">Amenities</div>
+    <div class="proj-amenities">
+      ${amenities.map(a => `<span class="proj-amenity">${he(a)}</span>`).join('')}
+    </div>
+  </div>` : ''}
+
+</div>
+
+<div class="lh-footer">
+  <div class="lh-footer-grid">
+    <div class="lh-fcol">
+      <div class="lh-fitem"><span class="lh-icon">⌾</span>asg.commercial_properties</div>
+      <div class="lh-fitem"><span class="lh-icon">⊕</span>www.asgholdings.ae</div>
+    </div>
+    <div class="lh-fcol">
+      <div class="lh-fitem"><span class="lh-icon">✉</span>info@asggroup.ae</div>
+      <div class="lh-fitem"><span class="lh-icon">☏</span>+971 4 264 2899</div>
+    </div>
+    <div class="lh-fcol">
+      <div class="lh-fitem" style="align-items:flex-start;">
+        <span class="lh-icon" style="margin-top:1px;">◉</span>
+        <span>Office No. 1006, 10<sup>th</sup> Floor, Dubai National<br>Insurance Building, Port Saeed - Dubai</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Allow pop-ups to download the PDF', 'error'); return; }
+  win.document.write(doc); win.document.close(); win.focus();
+  setTimeout(() => win.print(), 600);
+}
+
+function shareProject(id) {
+  const p = loadProjects().find(x => x.id === id);
+  if (!p) return;
+  const dev = loadDevelopers().find(d => d.id === p.devId);
+  const msg = `${p.name}${dev ? ' by ' + dev.name : ''}${p.location ? ' — ' + p.location : ''}${p.priceFrom ? ' — Starting AED ' + Number(p.priceFrom).toLocaleString() : ''}.\n\nLet me know if you want the full brochure.\n\n— ASG Commercial Properties`;
+  // Open WhatsApp/email picker
+  const wa = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  const mail = `mailto:?subject=${encodeURIComponent(p.name + ' — Off-Plan Project')}&body=${encodeURIComponent(msg)}`;
+  if (confirm('Share this project?\n\nOK → WhatsApp\nCancel → Email')) window.open(wa, '_blank');
+  else window.open(mail, '_blank');
+  // Also open the PDF
+  setTimeout(() => downloadProjectPDF(id), 200);
+}
+
+function _opLightbox(projectId, idx) {
+  const p = loadProjects().find(x => x.id === projectId);
+  if (!p || !p.photos[idx]) return;
+  const photo = p.photos[idx];
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(`<html><head><title>${h(photo.name||p.name)}</title><style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}img{max-width:100%;max-height:100%}</style></head><body><img src="${photo.dataUrl}"></body></html>`);
+  w.document.close();
+}
+
+// ─── Excel import (projects) ──────────────────────
+function openExcelImport(kind) {
+  if (kind !== 'projects') return;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.xlsx,.xls,.csv';
+  inp.onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    if (typeof XLSX === 'undefined') { showToast('Excel library not loaded', 'error'); return; }
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    let added = 0;
+    const devs = loadDevelopers();
+    const projects = loadProjects();
+    for (const row of rows) {
+      const devName = String(row['Developer'] || row['developer'] || '').trim();
+      const name    = String(row['Project'] || row['Name'] || row['name'] || '').trim();
+      if (!devName || !name) continue;
+      let dev = devs.find(d => d.name.toLowerCase() === devName.toLowerCase());
+      if (!dev) {
+        dev = {
+          id:'dev_' + Math.random().toString(36).slice(2),
+          name: devName, region: String(row['Region']||'Dubai'), website:'',
+          brief:'', logo:null, dataSource:'import', createdAt:new Date().toISOString()
+        };
+        devs.push(dev);
+      }
+      projects.unshift({
+        id: 'proj_' + Math.random().toString(36).slice(2),
+        devId: dev.id,
+        name,
+        status:       String(row['Status']||'launched').toLowerCase(),
+        type:         String(row['Type']||'apartments').toLowerCase(),
+        location:     String(row['Location']||''),
+        unitMix:      String(row['Unit Mix']||row['UnitMix']||''),
+        launchDate:   String(row['Launch Date']||''),
+        handoverDate: String(row['Handover Date']||row['Handover']||''),
+        priceFrom:    Number(row['Price From']||row['PriceFrom']) || null,
+        priceTo:      Number(row['Price To']  ||row['PriceTo'])   || null,
+        paymentPlan:  String(row['Payment Plan']||''),
+        amenities:    String(row['Amenities']||''),
+        description:  String(row['Description']||''),
+        photos: [], brochure: null,
+        dataSource: 'import',
+        createdAt: new Date().toISOString()
+      });
+      added++;
+    }
+    saveDevelopers(devs);
+    saveProjects(projects);
+    showToast(`Imported ${added} project${added===1?'':'s'}`, 'success');
+    renderOffplan();
+  };
+  inp.click();
+}
+
+// ─── Wiring: showTab + showAgentTab ───────────────
+const _origShowTab2 = (typeof showTab === 'function') ? showTab : null;
+if (_origShowTab2) {
+  showTab = function(tab) {
+    _origShowTab2.apply(this, arguments);
+    const opEl = document.getElementById('offplanView');
+    if (opEl) opEl.style.display = tab === 'offplan' ? '' : 'none';
+    const btn = document.getElementById('tabOffplan');
+    if (btn) btn.classList.toggle('active', tab === 'offplan');
+    if (tab === 'offplan') { _opView = 'developers'; renderOffplan(); }
+  };
+}
+const _origShowAgentTab4 = (typeof showAgentTab === 'function') ? showAgentTab : null;
+if (_origShowAgentTab4) {
+  if (typeof AGENT_TABS !== 'undefined' && !AGENT_TABS.includes('offplan')) AGENT_TABS.push('offplan');
+  showAgentTab = function(tab) {
+    _origShowAgentTab4.apply(this, arguments);
+    if (tab === 'offplan') { _opView = 'developers'; renderOffplan(); }
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+//  SECONDARY (RESALE) LISTINGS
+//  Properties owned by 3rd parties, marketed by ASG team
+// ═══════════════════════════════════════════════════════
+
+const SECONDARY_KEY = 'asg_secondary_listings';
+function loadSecondary()  { try { return JSON.parse(localStorage.getItem(SECONDARY_KEY)) || []; } catch { return []; } }
+function saveSecondary(a) { localStorage.setItem(SECONDARY_KEY, JSON.stringify(a)); }
+
+const SEC_TYPE_META = {
+  apartment:  { icon:'🏢', label:'Apartment'  },
+  villa:      { icon:'🏠', label:'Villa'      },
+  townhouse:  { icon:'🏘️', label:'Townhouse'  },
+  warehouse:  { icon:'🏭', label:'Warehouse'  },
+  office:     { icon:'🏢', label:'Office'     },
+  retail:     { icon:'🏬', label:'Retail'     },
+  land:       { icon:'📐', label:'Land'       },
+  other:      { icon:'📌', label:'Other'      }
+};
+const SEC_STATUS_META = {
+  active:   { icon:'🟢', label:'Active',   cls:'sec-st-active'   },
+  reserved: { icon:'🟡', label:'Reserved', cls:'sec-st-reserved' },
+  sold:     { icon:'✅', label:'Sold',     cls:'sec-st-sold'     },
+  rented:   { icon:'✅', label:'Rented',   cls:'sec-st-rented'   },
+  inactive: { icon:'⚪', label:'Inactive', cls:'sec-st-inactive' }
+};
+const SEC_TXN_META = {
+  sale: 'For Sale',
+  rent: 'For Rent',
+  both: 'Sale or Rent'
+};
+
+let _secView = 'list';   // 'list' | 'detail'
+let _secCurrentId = '';
+let _secFilters = { search:'', type:'', txn:'', status:'active' };
+
+// In-flight modal photo state
+let _secPendingPhotos = [];
+let _secExistingPhotos = [];
+let _secRemovedPhotos = [];
+
+function _secMount() {
+  if (isAgentUser()) return {
+    list:   document.getElementById('secondaryListContentAgent'),
+    detail: document.getElementById('secondaryDetailContentAgent')
+  };
+  return {
+    list:   document.getElementById('secondaryListContent'),
+    detail: document.getElementById('secondaryDetailContent')
+  };
+}
+
+function _secCanEdit(listing) {
+  const sess = getSession();
+  if (!sess) return false;
+  if (sess.type === 'admin') return true;
+  return listing && listing.addedBy?.id === sess.agentId;
+}
+
+function renderSecondary() {
+  if (_secView === 'detail') return _renderSecondaryDetail();
+  return _renderSecondaryList();
+}
+
+// ─── List view ────────────────────────────────────
+function _renderSecondaryList() {
+  const { list, detail } = _secMount();
+  if (!list) return;
+  if (detail) detail.style.display = 'none';
+  list.style.display = '';
+
+  let items = loadSecondary();
+  const f = _secFilters;
+  if (f.type)   items = items.filter(x => x.type === f.type);
+  if (f.txn)    items = items.filter(x => x.transaction === f.txn || x.transaction === 'both');
+  if (f.status) items = items.filter(x => x.status === f.status);
+  if (f.search) {
+    const q = f.search.toLowerCase();
+    items = items.filter(x =>
+      (x.title||'').toLowerCase().includes(q) ||
+      (x.location||'').toLowerCase().includes(q) ||
+      (x.ownerName||'').toLowerCase().includes(q)
+    );
+  }
+  items.sort((a,b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+
+  const all = loadSecondary();
+  const counts = {
+    total:    all.length,
+    active:   all.filter(x => x.status === 'active').length,
+    sale:     all.filter(x => x.transaction === 'sale' || x.transaction === 'both').length,
+    rent:     all.filter(x => x.transaction === 'rent' || x.transaction === 'both').length
+  };
+
+  const typeOpts = Object.entries(SEC_TYPE_META).map(([k,m]) => `<option value="${k}"${f.type===k?' selected':''}>${m.icon} ${m.label}</option>`).join('');
+  const statusOpts = Object.entries(SEC_STATUS_META).map(([k,m]) => `<option value="${k}"${f.status===k?' selected':''}>${m.icon} ${m.label}</option>`).join('');
+
+  list.innerHTML = `
+    <div class="tab-page-header">
+      <div>
+        <h1 class="tab-page-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          Secondary Listings
+        </h1>
+        <p class="tab-page-sub">Resale properties listed on behalf of external owners — visible to the whole sales team</p>
+      </div>
+      <button class="btn-primary" onclick="openSecondaryModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Listing
+      </button>
+    </div>
+
+    <div class="sec-stat-row">
+      <span class="sec-stat-chip">📋 ${counts.total} total</span>
+      <span class="sec-stat-chip sec-stat-green">🟢 ${counts.active} active</span>
+      <span class="sec-stat-chip">💰 ${counts.sale} for sale</span>
+      <span class="sec-stat-chip">🔑 ${counts.rent} for rent</span>
+    </div>
+
+    <div class="sec-filter-bar">
+      <input type="text" class="filter-select" placeholder="Search title, location, owner…" value="${h(f.search)}" oninput="_secFilters.search=this.value;_renderSecondaryList();" style="flex:1;min-width:200px;">
+      <select class="filter-select" onchange="_secFilters.type=this.value;_renderSecondaryList();" style="width:160px;">
+        <option value="">All Types</option>${typeOpts}
+      </select>
+      <select class="filter-select" onchange="_secFilters.txn=this.value;_renderSecondaryList();" style="width:160px;">
+        <option value="">Sale &amp; Rent</option>
+        <option value="sale"${f.txn==='sale'?' selected':''}>For Sale</option>
+        <option value="rent"${f.txn==='rent'?' selected':''}>For Rent</option>
+      </select>
+      <select class="filter-select" onchange="_secFilters.status=this.value;_renderSecondaryList();" style="width:160px;">
+        <option value=""${f.status===''?' selected':''}>All Statuses</option>${statusOpts}
+      </select>
+    </div>
+
+    ${items.length === 0 ? `
+      <div class="team-empty">
+        <div class="empty-icon">🏷️</div>
+        <p>No listings match your filters. Click <strong>+ Add Listing</strong> to add one.</p>
+      </div>
+    ` : `
+      <div class="sec-grid">
+        ${items.map(x => {
+          const tm = SEC_TYPE_META[x.type]   || SEC_TYPE_META.apartment;
+          const sm = SEC_STATUS_META[x.status]|| SEC_STATUS_META.active;
+          const cover = (x.photos && x.photos.length) ? x.photos[0].dataUrl : null;
+          const priceLine = (() => {
+            if (x.transaction === 'rent' && x.rent) return 'AED ' + num(x.rent) + ' / yr';
+            if (x.transaction === 'sale' && x.price) return 'AED ' + num(x.price);
+            if (x.transaction === 'both') {
+              const a = x.price ? 'AED ' + num(x.price) : '';
+              const b = x.rent  ? 'AED ' + num(x.rent) + '/yr' : '';
+              return [a, b].filter(Boolean).join(' · ') || '—';
+            }
+            return x.price ? 'AED ' + num(x.price) : (x.rent ? 'AED ' + num(x.rent) + '/yr' : '—');
+          })();
+          return `
+            <div class="sec-card" onclick="openSecondaryDetail('${x.id}')">
+              <div class="sec-card-cover" ${cover ? `style="background-image:url('${cover}')"` : ''}>
+                ${!cover ? `<span class="sec-card-cover-placeholder">${tm.icon}</span>` : ''}
+                <span class="sec-card-status ${sm.cls}">${sm.icon} ${sm.label}</span>
+                <span class="sec-card-txn">${SEC_TXN_META[x.transaction] || ''}</span>
+              </div>
+              <div class="sec-card-body">
+                <div class="sec-card-title">${h(x.title || 'Untitled')}</div>
+                <div class="sec-card-meta">${tm.icon} ${tm.label}${x.location ? ' · 📍 '+h(x.location) : ''}</div>
+                <div class="sec-card-specs">
+                  ${x.size  ? `<span>📐 ${num(x.size)} sqft</span>` : ''}
+                  ${x.beds  ? `<span>🛏️ ${x.beds} BR</span>` : ''}
+                  ${x.baths ? `<span>🛁 ${x.baths} BA</span>` : ''}
+                </div>
+                <div class="sec-card-price">${priceLine}</div>
+                <div class="sec-card-foot">
+                  ${(x.photos?.length || 0) ? `<span>📷 ${x.photos.length}</span>` : ''}
+                  <span class="sec-card-by">by ${h(x.addedBy?.name || 'Admin')}</span>
+                </div>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    `}
+  `;
+}
+
+// ─── Detail view ──────────────────────────────────
+function openSecondaryDetail(id) {
+  _secView = 'detail';
+  _secCurrentId = id;
+  renderSecondary();
+}
+function _backToSecondaryList() {
+  _secView = 'list';
+  _secCurrentId = '';
+  renderSecondary();
+}
+
+function _renderSecondaryDetail() {
+  const { list, detail } = _secMount();
+  if (!detail) return;
+  const x = loadSecondary().find(p => p.id === _secCurrentId);
+  if (!x) { _backToSecondaryList(); return; }
+  if (list) list.style.display = 'none';
+  detail.style.display = '';
+
+  const tm = SEC_TYPE_META[x.type]   || SEC_TYPE_META.apartment;
+  const sm = SEC_STATUS_META[x.status]|| SEC_STATUS_META.active;
+  const amenities = (x.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
+  const canEdit = _secCanEdit(x);
+
+  detail.innerHTML = `
+    <div class="op-breadcrumb">
+      <a class="op-crumb-link" onclick="_backToSecondaryList()">Secondary Listings</a>
+      <span class="op-crumb-sep">›</span>
+      <span class="op-crumb-current">${h(x.title || 'Listing')}</span>
+    </div>
+
+    <div class="op-detail">
+      <div class="op-detail-head">
+        <div>
+          <div class="op-detail-dev">${SEC_TXN_META[x.transaction] || ''}</div>
+          <h1 class="op-detail-name">${h(x.title)}</h1>
+          <div class="op-detail-meta">
+            <span class="sec-card-status ${sm.cls}">${sm.icon} ${sm.label}</span>
+            <span>${tm.icon} ${tm.label}</span>
+            ${x.location ? `<span>📍 ${h(x.location)}</span>` : ''}
+          </div>
+        </div>
+        <div class="op-detail-actions">
+          <button class="btn-primary" onclick="downloadSecondaryPDF('${x.id}')">📄 Download PDF</button>
+          <button class="btn-ghost" onclick="shareSecondary('${x.id}')">📤 Share with Client</button>
+          ${canEdit ? `<button class="btn-ghost" onclick="openSecondaryModal('${x.id}')">✏️ Edit</button>` : ''}
+        </div>
+      </div>
+
+      ${x.photos && x.photos.length ? `
+        <div class="op-photo-gallery">
+          ${x.photos.map((ph, i) => `<div class="op-photo-tile" onclick="_secLightbox('${x.id}',${i})"><img src="${ph.dataUrl}" alt=""></div>`).join('')}
+        </div>` : ''}
+
+      <div class="op-detail-grid">
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">💰 Pricing &amp; Specs</div>
+          <div class="op-detail-rows">
+            ${x.price ? `<div class="op-row"><span>Sale Price</span><strong>AED ${num(x.price)}</strong></div>` : ''}
+            ${x.rent  ? `<div class="op-row"><span>Annual Rent</span><strong>AED ${num(x.rent)}</strong></div>` : ''}
+            ${x.size  ? `<div class="op-row"><span>Size</span><strong>${num(x.size)} sqft</strong></div>` : ''}
+            ${x.beds  ? `<div class="op-row"><span>Bedrooms</span><strong>${x.beds}</strong></div>` : ''}
+            ${x.baths ? `<div class="op-row"><span>Bathrooms</span><strong>${x.baths}</strong></div>` : ''}
+          </div>
+        </div>
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">👤 Owner</div>
+          <div class="op-detail-rows">
+            ${x.ownerName  ? `<div class="op-row"><span>Name</span><strong>${h(x.ownerName)}</strong></div>` : ''}
+            ${x.ownerPhone ? `<div class="op-row"><span>Phone</span><strong><a href="tel:${h(x.ownerPhone)}" style="color:var(--gold);">${h(x.ownerPhone)}</a></strong></div>` : ''}
+            ${x.ownerEmail ? `<div class="op-row"><span>Email</span><strong><a href="mailto:${h(x.ownerEmail)}" style="color:var(--gold);">${h(x.ownerEmail)}</a></strong></div>` : ''}
+            <div class="op-row"><span>Added by</span><strong>${h(x.addedBy?.name || 'Admin')}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      ${x.description ? `
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">📝 Description</div>
+          <div class="op-detail-text">${h(x.description)}</div>
+        </div>` : ''}
+
+      ${amenities.length ? `
+        <div class="op-detail-block">
+          <div class="op-detail-block-h">✨ Amenities</div>
+          <div class="op-amenity-grid">${amenities.map(a => `<span class="op-amenity">${h(a)}</span>`).join('')}</div>
+        </div>` : ''}
+    </div>
+  `;
+}
+
+// ─── Modal ────────────────────────────────────────
+function openSecondaryModal(id) {
+  const x = id ? loadSecondary().find(p => p.id === id) : null;
+  document.getElementById('secondaryModalTitle').textContent = x ? 'Edit Secondary Listing' : 'Add Secondary Listing';
+  document.getElementById('secondaryId').value = x ? x.id : '';
+
+  const set = (sel, v) => { const el = document.getElementById(sel); if (el) el.value = (v != null ? v : ''); };
+  set('secondaryTitle',       x?.title);
+  set('secondaryType',        x?.type        || 'apartment');
+  set('secondaryTransaction', x?.transaction || 'sale');
+  set('secondaryLocation',    x?.location);
+  set('secondaryStatus',      x?.status      || 'active');
+  set('secondarySize',        x?.size);
+  set('secondaryBeds',        x?.beds);
+  set('secondaryBaths',       x?.baths);
+  set('secondaryPrice',       x?.price);
+  set('secondaryRent',        x?.rent);
+  set('secondaryOwnerName',   x?.ownerName);
+  set('secondaryOwnerPhone',  x?.ownerPhone);
+  set('secondaryOwnerEmail',  x?.ownerEmail);
+  set('secondaryDescription', x?.description);
+  set('secondaryAmenities',   x?.amenities);
+
+  _secPendingPhotos = [];
+  _secExistingPhotos = (x?.photos || []).slice();
+  _secRemovedPhotos = [];
+  renderSecondaryPhotoGrid();
+
+  _secToggleFields();
+
+  document.getElementById('secondaryDeleteBtn').style.display = x ? '' : 'none';
+  document.getElementById('secondaryModalOverlay').classList.add('active');
+}
+
+function closeSecondaryModal() {
+  document.getElementById('secondaryModalOverlay').classList.remove('active');
+  _secPendingPhotos = [];
+  _secExistingPhotos = [];
+  _secRemovedPhotos = [];
+}
+
+function _secToggleFields() {
+  const txn = document.getElementById('secondaryTransaction')?.value || 'sale';
+  const saleLbl = document.getElementById('secondarySaleLabel');
+  const rentLbl = document.getElementById('secondaryRentLabel');
+  if (saleLbl) saleLbl.textContent = (txn === 'rent') ? '(not used)' : '';
+  if (rentLbl) rentLbl.textContent = (txn === 'sale') ? '(not used)' : '';
+  // Beds/baths only relevant for residential types
+  const type = document.getElementById('secondaryType')?.value;
+  const isRes = ['apartment','villa','townhouse'].includes(type);
+  const bg = document.getElementById('secondaryBedsGroup');
+  const bgB = document.getElementById('secondaryBathsGroup');
+  if (bg)  bg.style.display  = isRes ? '' : 'none';
+  if (bgB) bgB.style.display = isRes ? '' : 'none';
+}
+// Re-evaluate the residential-only fields when type changes
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'secondaryType') _secToggleFields();
+});
+
+function handleSecondaryPhotos(e) {
+  const files = Array.from(e.target.files || []);
+  files.forEach(file => {
+    if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} too large (max 10 MB)`, 'error'); return; }
+    const r = new FileReader();
+    r.onload = ev => {
+      _secPendingPhotos.push({ tempId: 'tmp_' + Math.random().toString(36).slice(2), dataUrl: ev.target.result, name: file.name });
+      renderSecondaryPhotoGrid();
+    };
+    r.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
+
+function renderSecondaryPhotoGrid() {
+  const grid = document.getElementById('secondaryPhotoGrid');
+  const count = document.getElementById('secondaryPhotoCount');
+  if (!grid) return;
+  const tiles = [];
+  _secExistingPhotos.forEach((ph, i) => {
+    if (_secRemovedPhotos.includes(i)) return;
+    tiles.push(`
+      <div class="meeting-photo-tile">
+        <img src="${ph.dataUrl}" alt="">
+        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeSecondaryPhoto(${i},true)">×</button>
+      </div>`);
+  });
+  _secPendingPhotos.forEach(ph => {
+    tiles.push(`
+      <div class="meeting-photo-tile meeting-photo-tile-pending">
+        <img src="${ph.dataUrl}" alt="">
+        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeSecondaryPhoto('${ph.tempId}',false)">×</button>
+      </div>`);
+  });
+  grid.innerHTML = tiles.join('');
+  const total = _secExistingPhotos.filter((_,i) => !_secRemovedPhotos.includes(i)).length + _secPendingPhotos.length;
+  if (count) count.textContent = total ? `${total} photo${total>1?'s':''}` : 'No photos yet';
+}
+function _removeSecondaryPhoto(idx, existing) {
+  if (existing) _secRemovedPhotos.push(idx);
+  else _secPendingPhotos = _secPendingPhotos.filter(p => p.tempId !== idx);
+  renderSecondaryPhotoGrid();
+}
+
+function saveSecondaryListing() {
+  const id = document.getElementById('secondaryId').value;
+  const title = document.getElementById('secondaryTitle').value.trim();
+  const location = document.getElementById('secondaryLocation').value.trim();
+  const ownerName = document.getElementById('secondaryOwnerName').value.trim();
+  const ownerPhone = document.getElementById('secondaryOwnerPhone').value.trim();
+  if (!title)      { showToast('Title is required', 'error'); return; }
+  if (!location)   { showToast('Location is required', 'error'); return; }
+  if (!ownerName)  { showToast('Owner name is required', 'error'); return; }
+  if (!ownerPhone) { showToast('Owner phone is required', 'error'); return; }
+
+  const items = loadSecondary();
+  const existing = id ? items.find(p => p.id === id) : null;
+  if (existing && !_secCanEdit(existing)) {
+    showToast('You can only edit your own listings', 'error');
+    return;
+  }
+
+  const finalPhotos = _secExistingPhotos.filter((_, i) => !_secRemovedPhotos.includes(i)).concat(
+    _secPendingPhotos.map(ph => ({ name: ph.name, dataUrl: ph.dataUrl }))
+  );
+
+  const sess = getSession();
+  const author = sess?.type === 'agent'
+    ? { id: sess.agentId, name: sess.name, type: 'agent' }
+    : { id: '', name: 'Admin', type: 'admin' };
+
+  const record = {
+    id: id || ('sec_' + Math.random().toString(36).slice(2)),
+    title,
+    type:        document.getElementById('secondaryType').value,
+    transaction: document.getElementById('secondaryTransaction').value,
+    location,
+    status:      document.getElementById('secondaryStatus').value,
+    size:        Number(document.getElementById('secondarySize').value)  || null,
+    beds:        Number(document.getElementById('secondaryBeds').value)  || null,
+    baths:       Number(document.getElementById('secondaryBaths').value) || null,
+    price:       Number(document.getElementById('secondaryPrice').value) || null,
+    rent:        Number(document.getElementById('secondaryRent').value)  || null,
+    ownerName,
+    ownerPhone,
+    ownerEmail:  document.getElementById('secondaryOwnerEmail').value.trim(),
+    description: document.getElementById('secondaryDescription').value.trim(),
+    amenities:   document.getElementById('secondaryAmenities').value.trim(),
+    photos:      finalPhotos,
+    addedBy:     existing?.addedBy || author,
+    createdAt:   existing?.createdAt || new Date().toISOString(),
+    updatedAt:   new Date().toISOString()
+  };
+  const idx = items.findIndex(p => p.id === record.id);
+  if (idx > -1) items[idx] = record; else items.unshift(record);
+  saveSecondary(items);
+  closeSecondaryModal();
+  showToast(existing ? 'Listing updated' : 'Listing added', 'success');
+  if (_secView === 'detail' && _secCurrentId === record.id) renderSecondary();
+  else { _secView = 'list'; renderSecondary(); }
+}
+
+function deleteSecondaryListing() {
+  const id = document.getElementById('secondaryId').value;
+  if (!id) return;
+  const x = loadSecondary().find(p => p.id === id);
+  if (x && !_secCanEdit(x)) { showToast('You can only delete your own listings', 'error'); return; }
+  if (!confirm('Delete this listing? Photos will also be removed.')) return;
+  saveSecondary(loadSecondary().filter(p => p.id !== id));
+  closeSecondaryModal();
+  if (_secCurrentId === id) _backToSecondaryList();
+  showToast('Listing deleted', 'success');
+}
+
+function _secLightbox(id, idx) {
+  const x = loadSecondary().find(p => p.id === id);
+  if (!x || !x.photos[idx]) return;
+  const photo = x.photos[idx];
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(`<html><head><title>${h(photo.name||x.title)}</title><style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}img{max-width:100%;max-height:100%}</style></head><body><img src="${photo.dataUrl}"></body></html>`);
+  w.document.close();
+}
+
+// ─── PDF export (ASG letterhead) ──────────────────
+function downloadSecondaryPDF(id) {
+  const x = loadSecondary().find(p => p.id === id);
+  if (!x) return;
+  const tm = SEC_TYPE_META[x.type]   || SEC_TYPE_META.apartment;
+  const sm = SEC_STATUS_META[x.status]|| SEC_STATUS_META.active;
+  const amenities = (x.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
+  const fa = n => n ? 'AED ' + Number(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
+  const fd = s => s ? new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const he = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>${he(x.title)} — Secondary Listing</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:12.5px;line-height:1.55}
+.page{max-width:820px;margin:0 auto;padding:0 44px 110px;position:relative;min-height:1100px}
+.lh-header{position:relative;padding:22px 0 26px;margin-bottom:20px}
+.lh-header-frame{border:2px solid #c9a84c;border-bottom:none;border-radius:70px 70px 0 0;height:130px;position:absolute;top:0;left:-44px;right:-44px;pointer-events:none}
+.lh-logo-block{position:relative;padding:14px 0 0 6px;display:inline-block}
+.lh-logo-icon{display:flex;align-items:flex-end;gap:2px;height:42px;margin-bottom:2px}
+.lh-bar{background:#c9a84c;width:8px;border-radius:1px}
+.lh-bar.b1{height:24px}.lh-bar.b2{height:36px}.lh-bar.b3{height:30px}.lh-bar.b4{height:42px;width:10px}
+.lh-divider{height:2px;width:440px;background:#c9a84c;margin:8px 0 0}
+.lh-asg{font-size:34px;font-weight:900;letter-spacing:6px;color:#7a5d1e;line-height:1}
+.lh-sub{font-size:11.5px;letter-spacing:2.6px;color:#7a5d1e;font-weight:700;margin-top:3px}
+.lh-doc-meta{position:absolute;right:0;top:34px;text-align:right;max-width:320px}
+.doc-title{font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:#111}
+.doc-dates{font-size:11px;color:#555;margin-top:4px}
+.lh-watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:340px;font-weight:900;letter-spacing:30px;color:#f8efd5;z-index:0;pointer-events:none;user-select:none;white-space:nowrap}
+.page > *{position:relative;z-index:1}
+.lh-footer{position:fixed;left:0;right:0;bottom:0;background:#1a1f2e;color:#fff;padding:14px 44px;z-index:5}
+.lh-footer-grid{display:grid;grid-template-columns:1.1fr 1.1fr 1.6fr;gap:22px;max-width:820px;margin:0 auto;font-size:10.5px;line-height:1.4}
+.lh-fcol{display:flex;flex-direction:column;gap:6px}
+.lh-fitem{display:flex;align-items:center;gap:8px;color:#fff}
+.lh-icon{width:18px;height:18px;border:1.2px solid #c9a84c;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#c9a84c;font-size:9px;flex-shrink:0}
+
+.proj-hero{margin-bottom:20px}
+.proj-dev{font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:#7a5d1e;font-weight:700;margin-bottom:4px}
+.proj-name{font-size:26px;font-weight:900;color:#111;letter-spacing:-0.01em}
+.proj-meta-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:#555}
+.proj-status-pill{display:inline-block;padding:4px 12px;border-radius:99px;font-size:11px;font-weight:700;background:#dcfce7;color:#166534}
+
+.proj-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
+.proj-photo{aspect-ratio:4/3;background-size:cover;background-position:center;border-radius:6px;border:1px solid #e5e7eb}
+
+.proj-block{margin-top:18px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden}
+.proj-block-h{background:#f9fafb;padding:10px 14px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;border-bottom:1px solid #e5e7eb}
+.proj-rows{padding:10px 14px}
+.proj-r{display:grid;grid-template-columns:160px 1fr;gap:14px;padding:5px 0;font-size:12.5px}
+.proj-r span:first-child{color:#6b7280;font-weight:600}
+.proj-r strong{color:#111}
+.proj-text{padding:12px 14px;font-size:12.5px;color:#374151;line-height:1.6;white-space:pre-wrap}
+.proj-amenities{display:flex;flex-wrap:wrap;gap:6px;padding:12px 14px}
+.proj-amenity{padding:5px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;font-size:11.5px;color:#92400e;font-weight:600}
+
+@media print{.page{padding:0 26px 110px}@page{size:A4;margin:10mm 10mm 0 10mm}}
+</style></head><body>
+
+<div class="lh-watermark">ASG</div>
+<div class="page">
+
+<div class="lh-header">
+  <div class="lh-header-frame"></div>
+  <div class="lh-logo-block">
+    <div class="lh-logo-icon">
+      <span class="lh-bar b1"></span><span class="lh-bar b2"></span><span class="lh-bar b3"></span><span class="lh-bar b4"></span>
+    </div>
+    <div class="lh-divider"></div>
+    <div class="lh-asg">ASG</div>
+    <div class="lh-sub">COMMERCIAL PROPERTIES L.L.C.</div>
+  </div>
+  <div class="lh-doc-meta">
+    <div class="doc-title">Property Listing</div>
+    <div class="doc-dates">${fd(new Date().toISOString().split('T')[0])}</div>
+  </div>
+</div>
+
+<div class="proj-hero">
+  <div class="proj-dev">${he(SEC_TXN_META[x.transaction] || '')}</div>
+  <div class="proj-name">${he(x.title)}</div>
+  <div class="proj-meta-row">
+    <span class="proj-status-pill">${sm.icon} ${he(sm.label)}</span>
+    <span>${tm.icon} ${he(tm.label)}</span>
+    ${x.location ? `<span>📍 ${he(x.location)}</span>` : ''}
+  </div>
+</div>
+
+${(x.photos && x.photos.length) ? `
+  <div class="proj-photos">
+    ${x.photos.slice(0,6).map(ph => `<div class="proj-photo" style="background-image:url('${ph.dataUrl}')"></div>`).join('')}
+  </div>` : ''}
+
+<div class="proj-block">
+  <div class="proj-block-h">Pricing &amp; Specs</div>
+  <div class="proj-rows">
+    ${x.price ? `<div class="proj-r"><span>Sale Price</span><strong>${fa(x.price)}</strong></div>` : ''}
+    ${x.rent  ? `<div class="proj-r"><span>Annual Rent</span><strong>${fa(x.rent)}</strong></div>` : ''}
+    ${x.size  ? `<div class="proj-r"><span>Size</span><strong>${num(x.size)} sqft</strong></div>` : ''}
+    ${x.beds  ? `<div class="proj-r"><span>Bedrooms</span><strong>${x.beds}</strong></div>` : ''}
+    ${x.baths ? `<div class="proj-r"><span>Bathrooms</span><strong>${x.baths}</strong></div>` : ''}
+  </div>
+</div>
+
+${x.description ? `
+  <div class="proj-block">
+    <div class="proj-block-h">About</div>
+    <div class="proj-text">${he(x.description)}</div>
+  </div>` : ''}
+
+${amenities.length ? `
+  <div class="proj-block">
+    <div class="proj-block-h">Amenities</div>
+    <div class="proj-amenities">${amenities.map(a => `<span class="proj-amenity">${he(a)}</span>`).join('')}</div>
+  </div>` : ''}
+
+</div>
+
+<div class="lh-footer">
+  <div class="lh-footer-grid">
+    <div class="lh-fcol">
+      <div class="lh-fitem"><span class="lh-icon">⌾</span>asg.commercial_properties</div>
+      <div class="lh-fitem"><span class="lh-icon">⊕</span>www.asgholdings.ae</div>
+    </div>
+    <div class="lh-fcol">
+      <div class="lh-fitem"><span class="lh-icon">✉</span>info@asggroup.ae</div>
+      <div class="lh-fitem"><span class="lh-icon">☏</span>+971 4 264 2899</div>
+    </div>
+    <div class="lh-fcol">
+      <div class="lh-fitem" style="align-items:flex-start;">
+        <span class="lh-icon" style="margin-top:1px;">◉</span>
+        <span>Office No. 1006, 10<sup>th</sup> Floor, Dubai National<br>Insurance Building, Port Saeed - Dubai</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Allow pop-ups to download the PDF', 'error'); return; }
+  win.document.write(doc); win.document.close(); win.focus();
+  setTimeout(() => win.print(), 600);
+}
+
+function shareSecondary(id) {
+  const x = loadSecondary().find(p => p.id === id);
+  if (!x) return;
+  const priceLine = x.price ? 'AED ' + Number(x.price).toLocaleString() : (x.rent ? 'AED ' + Number(x.rent).toLocaleString() + ' / yr' : '');
+  const msg = `${x.title}${x.location ? ' — ' + x.location : ''}${priceLine ? ' — ' + priceLine : ''}.\n\nLet me know if you want photos or a viewing.\n\n— ASG Commercial Properties`;
+  const wa = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  const mail = `mailto:?subject=${encodeURIComponent(x.title + ' — Listing')}&body=${encodeURIComponent(msg)}`;
+  if (confirm('Share this listing?\n\nOK → WhatsApp\nCancel → Email')) window.open(wa, '_blank');
+  else window.open(mail, '_blank');
+  setTimeout(() => downloadSecondaryPDF(id), 200);
+}
+
+// ─── Wiring: showTab + showAgentTab ───────────────
+const _origShowTab3 = (typeof showTab === 'function') ? showTab : null;
+if (_origShowTab3) {
+  showTab = function(tab) {
+    _origShowTab3.apply(this, arguments);
+    const v = document.getElementById('secondaryView');
+    if (v) v.style.display = tab === 'secondary' ? '' : 'none';
+    const btn = document.getElementById('tabSecondary');
+    if (btn) btn.classList.toggle('active', tab === 'secondary');
+    if (tab === 'secondary') { _secView = 'list'; renderSecondary(); }
+  };
+}
+const _origShowAgentTab5 = (typeof showAgentTab === 'function') ? showAgentTab : null;
+if (_origShowAgentTab5) {
+  if (typeof AGENT_TABS !== 'undefined' && !AGENT_TABS.includes('secondary')) AGENT_TABS.push('secondary');
+  showAgentTab = function(tab) {
+    _origShowAgentTab5.apply(this, arguments);
+    if (tab === 'secondary') { _secView = 'list'; renderSecondary(); }
+  };
+}
 
 // ─── Start ────────────────────────────────────────
 if (isLoggedIn()) {
