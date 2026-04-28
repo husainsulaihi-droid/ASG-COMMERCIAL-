@@ -16,14 +16,62 @@ function isLoggedIn()  { return getSession() !== null; }
 function isAdmin()     { const s = getSession(); return s && s.type === 'admin'; }
 function isAgentUser() { const s = getSession(); return s && s.type === 'agent'; }
 
-function doLogin() {
+// Maps a backend user record into the shape the rest of the app expects in sessionStorage.
+function _sessionFromApiUser(u) {
+  if (u.role === 'admin') {
+    return { type: 'admin', userId: u.id, name: u.name };
+  }
+  return {
+    type: 'agent',
+    agentId: u.id,
+    name: u.name,
+    role: u.agentRole || '',
+    perms: u.permissions || {},
+    isTeamLeader: !!u.isTeamLeader,
+    teamLeaderId: u.teamLeaderId || ''
+  };
+}
+
+// Phase C: doLogin now calls the backend /api/auth/login.
+// Falls back to legacy localStorage-only login when the API is unreachable
+// (e.g. opening the file directly via file:// or the backend is down).
+async function doLogin() {
   const user = document.getElementById('loginUser').value.trim();
   const pass = document.getElementById('loginPass').value;
   const err  = document.getElementById('loginError');
   err.style.display = 'none';
   if (!user || !pass) { err.textContent = 'Please enter your username and password.'; err.style.display = 'block'; return; }
 
-  // Check admin credentials
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ username: user, password: pass })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const session = _sessionFromApiUser(data.user);
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      document.getElementById('loginScreen').style.display = 'none';
+      boot();
+      return;
+    }
+    if (res.status === 401) {
+      err.textContent = 'Incorrect username or password.';
+      err.style.display = 'block';
+      document.getElementById('loginPass').value = '';
+      document.getElementById('loginPass').focus();
+      return;
+    }
+    throw new Error('HTTP ' + res.status);
+  } catch (netErr) {
+    console.warn('[doLogin] Backend unreachable, falling back to localStorage:', netErr.message);
+    return _legacyLocalStorageLogin(user, pass, err);
+  }
+}
+
+function _legacyLocalStorageLogin(user, pass, err) {
   const creds = getCredentials();
   if (user === creds.user && pass === creds.pass) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'admin' }));
@@ -31,25 +79,28 @@ function doLogin() {
     boot();
     return;
   }
-
-  // Check agent credentials
   const agents = loadAgents();
   const agent  = agents.find(a => a.active && a.username === user && a.password === pass);
   if (agent) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'agent', agentId: agent.id, name: agent.name, role: agent.role || '', perms: agent.permissions || {} }));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ type: 'agent', agentId: agent.id, name: agent.name, role: agent.role || '', perms: agent.permissions || {}, isTeamLeader: !!agent.isTeamLeader, teamLeaderId: agent.teamLeaderId || '' }));
     document.getElementById('loginScreen').style.display = 'none';
     boot();
     return;
   }
-
   err.textContent = 'Incorrect username or password. Please try again.';
   err.style.display = 'block';
   document.getElementById('loginPass').value = '';
   document.getElementById('loginPass').focus();
 }
 
-function doLogout() {
+async function doLogout() {
   if (!confirm('Sign out of ASG Commercial?')) return;
+  // Best-effort: tell the backend to destroy the session, but don't block on failure.
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (e) {
+    console.warn('[doLogout] Backend unreachable:', e.message);
+  }
   sessionStorage.removeItem(SESSION_KEY);
   location.reload();
 }
@@ -11036,8 +11087,53 @@ if (_origShowAgentTab5) {
   };
 }
 
-// ─── Start ────────────────────────────────────────
-if (isLoggedIn()) {
-  document.getElementById('loginScreen').style.display = 'none';
-  boot();
+// Probe backend health and update the status indicator on the login screen.
+async function _probeBackend() {
+  const el = document.getElementById('loginBackendStatus');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/health', { credentials: 'same-origin' });
+    if (res.ok) {
+      const data = await res.json();
+      el.style.display = 'block';
+      el.innerHTML = `<span class="lbs-dot lbs-ok"></span> Backend connected · v${data.version || '?'} · ${data.users || 0} user${data.users === 1 ? '' : 's'}`;
+      el.className = 'login-backend-status lbs-state-ok';
+    } else {
+      throw new Error('HTTP ' + res.status);
+    }
+  } catch (e) {
+    el.style.display = 'block';
+    el.innerHTML = `<span class="lbs-dot lbs-off"></span> Offline mode (backend unreachable — using localStorage)`;
+    el.className = 'login-backend-status lbs-state-off';
+  }
 }
+
+// ─── Start ────────────────────────────────────────
+// Phase C: try to resume session from backend cookie before showing login screen.
+// If sessionStorage already has a session (current tab), boot immediately.
+// If not, ask /api/auth/me — if a valid cookie exists from a previous tab/visit,
+// restore the session without making the user log in again.
+(async function bootGate() {
+  if (isLoggedIn()) {
+    document.getElementById('loginScreen').style.display = 'none';
+    boot();
+    return;
+  }
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.user) {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(_sessionFromApiUser(data.user)));
+        document.getElementById('loginScreen').style.display = 'none';
+        boot();
+        return;
+      }
+    }
+  } catch (e) {
+    // Backend unreachable — fine, just show the login screen.
+  }
+  // No session — show the login screen and tell the user about the backend status.
+  _probeBackend();
+})();
+

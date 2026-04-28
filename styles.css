@@ -3863,6 +3863,38 @@ body, button, input, select, textarea {
   padding:14px 16px;
 }
 
+/* Login screen — backend status indicator */
+.login-backend-status {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  text-align: center;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.login-backend-status.lbs-state-ok {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.login-backend-status.lbs-state-off {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.lbs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.lbs-dot.lbs-ok  { background: #16a34a; }
+.lbs-dot.lbs-off { background: #d97706; }
+
 /* ═══════════════════════════════════════════════════════
    BLUE-BOX TEXT — force all text inside blue cards to white
    (inner white-bg row tiles still get dark text via override)
