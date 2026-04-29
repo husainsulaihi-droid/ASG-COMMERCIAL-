@@ -31,6 +31,7 @@ const sheetsSync          = require('./sheets-sync');
 const backupRoutes        = require('./routes-backup');
 const disputeRoutes       = require('./routes-disputes');
 const constructionRoutes  = require('./routes-construction');
+const calendarRoutes      = require('./routes-calendar');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -102,6 +103,7 @@ app.use('/api/pending-properties',  pendingRoutes);
 app.use('/api/backup',              backupRoutes);
 app.use('/api/disputes',            disputeRoutes);
 app.use('/api/construction',        constructionRoutes);
+app.use('/api/calendar',            calendarRoutes);
 
 // Catch-all for unknown /api/* routes
 app.use('/api', (req, res) => {

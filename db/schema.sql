@@ -188,6 +188,18 @@ CREATE TABLE construction_projects (
 CREATE INDEX idx_construction_property ON construction_projects(property_id);
 CREATE INDEX idx_construction_status   ON construction_projects(status);
 
+-- ─── CALENDAR EVENTS ────────────────────────────────────────────
+CREATE TABLE calendar_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  date        DATE     NOT NULL,
+  title       TEXT     NOT NULL,
+  event_type  TEXT,
+  time        TEXT,
+  note        TEXT,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_calendar_date ON calendar_events(date);
+
 -- ─── PENDING SUBMISSIONS (agent-submitted, awaiting approval) ───
 CREATE TABLE pending_properties (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,

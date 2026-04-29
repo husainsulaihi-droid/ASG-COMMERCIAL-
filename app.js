@@ -288,6 +288,7 @@ const _api = {
   offplanProjects: makeApiList('/api/offplan/projects',        'projects'),
   secondary:       makeApiList('/api/secondary',               'listings'),
   users:           makeApiList('/api/users',                   'users'),
+  calendar:        makeApiList('/api/calendar',                'events'),
 };
 
 async function fetchAllEntities() {
@@ -4251,13 +4252,8 @@ let calYear  = new Date().getFullYear();
 let calMonth = new Date().getMonth();   // 0-indexed
 let selectedCalDate = null;             // 'YYYY-MM-DD'
 
-function loadCalendarEvents() {
-  try { return JSON.parse(localStorage.getItem(CAL_KEY)) || []; }
-  catch { return []; }
-}
-function persistCalendarEvents(evs) {
-  localStorage.setItem(CAL_KEY, JSON.stringify(evs));
-}
+function loadCalendarEvents()       { return _api.calendar.load(); }
+function persistCalendarEvents(evs) { _api.calendar.save(evs); }
 
 function isoDate(y, m, d) {
   return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
