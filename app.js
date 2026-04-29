@@ -7661,6 +7661,8 @@ function _finFmtPeriod(p) {
 }
 
 // ── Boot update for agent ──────────────────────────
+// NOTE: This monkey-patch overrides the original boot() at line 322.
+// Any boot-time additions (like fetchProperties) MUST be repeated here.
 const _origBoot = boot;
 boot = async function() {
   const session = getSession();
@@ -7671,6 +7673,7 @@ boot = async function() {
     document.getElementById('agentHeader').style.display    = 'none';
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
+    await fetchProperties();           // hydrate cache from backend before render
     bindUI();
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
@@ -7685,6 +7688,7 @@ boot = async function() {
     document.getElementById('appBody').style.display        = 'none';
     document.getElementById('agentHeader').style.display    = 'none'; // sidebar has profile
     document.getElementById('agentDashboard').style.display = '';
+    await fetchProperties();           // agents also need property cache
     showAgentTab('overview');
     updateAgentBadges();
   }
