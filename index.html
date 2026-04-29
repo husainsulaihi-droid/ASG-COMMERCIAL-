@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260429w">
+  <link rel="stylesheet" href="styles.css?v=20260429x">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -895,7 +895,7 @@
                 <input type="number" id="propRent" placeholder="e.g. 180,000" min="0" oninput="recalcVat()">
               </div>
             </div>
-            <div class="form-row three-col">
+            <div class="form-row">
               <div class="form-group">
                 <label>Service Charges (AED / year)</label>
                 <input type="number" id="propServiceCharges" placeholder="e.g. 12,000" min="0" oninput="recalcVat()">
@@ -904,10 +904,13 @@
                 <label>Annual Maintenance Fees (AED)</label>
                 <input type="number" id="propMaintenanceFees" placeholder="e.g. 6,000" min="0" oninput="recalcVat()">
               </div>
+            </div>
+            <div class="form-row">
               <div class="form-group">
-                <label>VAT (5%) <span class="optional-label">auto-calculated</span></label>
+                <label>VAT (5%) <span class="optional-label">auto-calculated from rent</span></label>
                 <input type="number" id="propVat" readonly placeholder="0" style="background:#f9fafb;cursor:not-allowed;">
               </div>
+              <div class="form-group"></div>
             </div>
 
             <!-- Tenant section — hidden when Vacant -->
@@ -3884,6 +3887,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260429w"></script>
+  <script src="app.js?v=20260429x"></script>
 </body>
 </html>
