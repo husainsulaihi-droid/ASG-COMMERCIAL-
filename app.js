@@ -236,39 +236,72 @@ function makeApiList(endpoint, pluralKey) {
         return cache;
       }
     },
-    save: (arr) => {
+    save: async (arr) => {
       const before = new Map(cache.map(x => [String(x.id), x]));
       const after  = new Map(arr.map(x => [String(x.id), x]));
       cache = arr;  // optimistic: subsequent loads see new state immediately
-      (async () => {
-        for (const [id] of before) {
-          if (!after.has(id) && /^\d+$/.test(id)) {
-            try { await fetch(`${endpoint}/${id}`, { method: 'DELETE', credentials: 'same-origin' }); }
-            catch (e) { console.warn(`[api-list ${endpoint}] delete ${id} failed:`, e.message); }
+
+      const errors = [];
+      // Deletes
+      for (const [id] of before) {
+        if (!after.has(id) && /^\d+$/.test(id)) {
+          try {
+            const r = await fetch(`${endpoint}/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+            if (!r.ok) {
+              const e = await r.json().catch(() => ({}));
+              errors.push(`Delete ${id} failed: ${e.error || 'HTTP ' + r.status}`);
+            }
+          } catch (e) {
+            errors.push(`Delete ${id} error: ${e.message}`);
           }
         }
-        for (const [id, item] of after) {
-          if (!before.has(id)) {
-            try {
-              await fetch(endpoint, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(item),
-              });
-            } catch (e) { console.warn(`[api-list ${endpoint}] create failed:`, e.message); }
-          } else if (/^\d+$/.test(id)) {
-            try {
-              await fetch(`${endpoint}/${id}`, {
-                method: 'PATCH',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(item),
-              });
-            } catch (e) { console.warn(`[api-list ${endpoint}] update ${id} failed:`, e.message); }
+      }
+      // Creates / updates
+      for (const [id, item] of after) {
+        if (!before.has(id)) {
+          try {
+            const r = await fetch(endpoint, {
+              method: 'POST', credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item),
+            });
+            if (!r.ok) {
+              const e = await r.json().catch(() => ({}));
+              errors.push(`Create failed: ${e.error || 'HTTP ' + r.status}`);
+            }
+          } catch (e) {
+            errors.push(`Create error: ${e.message}`);
+          }
+        } else if (/^\d+$/.test(id)) {
+          try {
+            const r = await fetch(`${endpoint}/${id}`, {
+              method: 'PATCH', credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item),
+            });
+            if (!r.ok) {
+              const e = await r.json().catch(() => ({}));
+              errors.push(`Update ${id} failed: ${e.error || 'HTTP ' + r.status}`);
+            }
+          } catch (e) {
+            errors.push(`Update ${id} error: ${e.message}`);
           }
         }
-      })();
+      }
+
+      if (errors.length) {
+        // Re-sync cache from server so UI reflects reality, not the optimistic state
+        try {
+          const r = await fetch(endpoint, { credentials: 'same-origin' });
+          if (r.ok) {
+            const d = await r.json();
+            cache = (d[pluralKey] || []).map(x => ({ ...x, id: x.id != null ? String(x.id) : x.id }));
+          }
+        } catch {}
+        const msg = `Save partially failed: ${errors[0]}${errors.length > 1 ? ` (+${errors.length-1} more)` : ''}`;
+        console.warn(`[api-list ${endpoint}]`, errors.join('; '));
+        if (typeof showToast === 'function') showToast(msg, 'error');
+      }
     },
   };
 }
