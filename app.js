@@ -1504,7 +1504,12 @@ async function renderMediaPreviews() {
 async function handleSave() {
   const name = $('propName').value.trim();
   const type = $('propType').value;
+  const status = getRadio('propStatus');
   if (!name || !type) { showToast('Property Name and Type are required', 'error'); return; }
+  if (!status || (status !== 'rented' && status !== 'vacant')) {
+    showToast('Pick a Rental Status (Rented or Vacant)', 'error');
+    return;
+  }
 
   const btn = $('savePropertyBtn');
   btn.disabled = true;

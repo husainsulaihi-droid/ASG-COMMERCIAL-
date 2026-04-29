@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260429j">
+  <link rel="stylesheet" href="styles.css?v=20260429k">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -872,7 +872,7 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>Rental Status</label>
+                <label>Rental Status <span style="color:var(--danger);">*</span></label>
                 <div class="status-toggle-group">
                   <label class="status-opt status-opt-rented" id="statusOptRented">
                     <input type="radio" name="propStatus" value="rented" onchange="toggleRentalSection()">
@@ -887,10 +887,6 @@
                       <span class="status-dot dot-vacant"></span>
                       Vacant
                     </span>
-                  </label>
-                  <label class="status-opt status-opt-none" id="statusOptNone">
-                    <input type="radio" name="propStatus" value="" checked onchange="toggleRentalSection()">
-                    <span class="status-opt-inner">Not Set</span>
                   </label>
                 </div>
               </div>
@@ -3888,6 +3884,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260429j"></script>
+  <script src="app.js?v=20260429k"></script>
 </body>
 </html>
