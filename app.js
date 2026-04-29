@@ -435,6 +435,38 @@ async function apiDeletePropertyFile(propertyId, fileId) {
   return res.ok;
 }
 
+// ─── Property Cheques API ─────────────────────────────
+async function apiListPropertyCheques(propertyId) {
+  const res = await fetch(`/api/properties/${propertyId}/cheques`, { credentials: 'same-origin' });
+  if (!res.ok) return [];
+  return (await res.json()).cheques || [];
+}
+
+// Replace ALL cheques for a property with the given list (as built by the form).
+// Form items: {n, date, amount, status}; API expects {chequeNum, chequeDate, amount, status}.
+async function apiSyncPropertyCheques(propertyId, formCheques) {
+  // 1) wipe existing
+  const existing = await apiListPropertyCheques(propertyId);
+  for (const c of existing) {
+    await fetch(`/api/properties/${propertyId}/cheques/${c.id}`, {
+      method: 'DELETE', credentials: 'same-origin',
+    }).catch(() => {});
+  }
+  // 2) create new from the form
+  for (const c of (formCheques || [])) {
+    await fetch(`/api/properties/${propertyId}/cheques`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chequeNum:  c.n,
+        chequeDate: c.date || null,
+        amount:     c.amount || null,
+        status:     c.status || 'pending',
+      }),
+    }).catch(() => {});
+  }
+}
+
 // Legacy persistProps shim. Some callers pass the entire mutated array.
 // We update the cache *immediately* (so the next loadProps() returns the new
 // state) and fire-and-forget the corresponding API calls in the background.
@@ -1737,6 +1769,13 @@ async function handleSave() {
     return;
   }
 
+  // Sync cheques sub-resource (these are dropped from the property body
+  // because they're a separate table). Replace all cheques to match the form.
+  if (property.cheques !== undefined) {
+    try { await apiSyncPropertyCheques(savedId, property.cheques); }
+    catch (e) { console.warn('cheque sync failed:', e); }
+  }
+
   // Upload pending document files (drec, ijari, ijari2, affection, tenancy)
   // Each one goes to /var/asg/uploads/<property>/<category>/.
   for (const key of ['drec', 'ijari', 'ijari2', 'affection', 'tenancy']) {
@@ -1837,6 +1876,18 @@ async function openDetailModal(id) {
         p.media = byCat.photos || [];
       }
     } catch (e) { console.warn('[openDetailModal] file fetch failed:', e); }
+
+    // Pull cheques from sub-resource and adapt to the {n, date, amount, status}
+    // shape the existing detail render uses.
+    try {
+      const apiCheques = await apiListPropertyCheques(id);
+      p.cheques = apiCheques.map(c => ({
+        n:      c.chequeNum,
+        date:   c.chequeDate,
+        amount: c.amount,
+        status: c.status,
+      }));
+    } catch (e) { console.warn('[openDetailModal] cheque fetch failed:', e); }
   }
 
   const typeIcon = p.type === 'warehouse' ? '🏭' : '🏢';
