@@ -7789,18 +7789,18 @@ function _finRenderBody(props) {
   const mgmtTotal = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
 
   // ── Additional charges (service + maintenance + VAT) ──
-  // Annual values × ownership share. Uses the explicit VAT field if filled,
-  // otherwise computes 5% of annual rent.
+  // Raw values exactly as entered on the property card. NOT scaled by
+  // ownership share — these are property-level charges, not personal share.
+  // VAT uses the explicit field if filled, else computes 5% of annual rent.
   const addRows = pool
     .filter(p => p.status === 'rented'
       && ((Number(p.serviceCharges)||0) || (Number(p.maintenanceFees)||0) || (Number(p.annualRent)||0)))
     .map(p => {
-      const months   = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
-      const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
-      const vatBase  = Number(p.vat) || (Number(p.annualRent)||0) * 0.05;
-      const service  = Math.round((Number(p.serviceCharges)||0)  * (sharePct/100));
-      const maint    = Math.round((Number(p.maintenanceFees)||0) * (sharePct/100));
-      const vat      = Math.round(vatBase * (sharePct/100));
+      const months  = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
+      const vatBase = Number(p.vat) || (Number(p.annualRent)||0) * 0.05;
+      const service = Math.round(Number(p.serviceCharges)  || 0);
+      const maint   = Math.round(Number(p.maintenanceFees) || 0);
+      const vat     = Math.round(vatBase);
       return { p, months, service, maint, vat, sub: service + maint + vat };
     })
     .filter(r => r.sub > 0)
