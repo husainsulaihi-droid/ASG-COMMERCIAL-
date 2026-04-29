@@ -26,6 +26,7 @@ const offplanRoutes       = require('./routes-offplan');
 const secondaryRoutes     = require('./routes-secondary');
 const proposalRoutes      = require('./routes-proposals');
 const pendingRoutes       = require('./routes-pending');
+const sheetsSync          = require('./sheets-sync');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -103,6 +104,9 @@ app.use('/api', (req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`[server] ASG backend listening on http://${HOST}:${PORT}`);
   console.log(`[server] Health: http://${HOST}:${PORT}/api/health`);
+  // Start Google Sheets ↔ DB sync poller (no-op if creds not present or disabled)
+  try { sheetsSync.startPoller(); }
+  catch (e) { console.warn('[server] sheets-sync startup failed:', e.message); }
 });
 
 // Graceful shutdown

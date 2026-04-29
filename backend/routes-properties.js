@@ -29,6 +29,7 @@ const express = require('express');
 const { getDb } = require('./db');
 const { requireAuth, requireAdmin } = require('./middleware');
 const { rowToApi, bodyToDb } = require('./utils');
+const { pushPropertyToSheetAsync } = require('./sheets-sync');
 
 const router = express.Router();
 
@@ -105,6 +106,7 @@ router.post('/', requireAdmin, (req, res) => {
     `INSERT INTO properties (${cols.join(', ')}) VALUES (${placeholders})`
   ).run(...values);
   const row = getDb().prepare('SELECT * FROM properties WHERE id = ?').get(result.lastInsertRowid);
+  pushPropertyToSheetAsync(row.id);
   res.status(201).json({ property: rowToApi(row) });
 });
 
@@ -123,6 +125,7 @@ router.patch('/:id', requireAdmin, (req, res) => {
   ).run(...values);
 
   const row = getDb().prepare('SELECT * FROM properties WHERE id = ?').get(id);
+  pushPropertyToSheetAsync(row.id);
   res.json({ property: rowToApi(row) });
 });
 
@@ -130,6 +133,7 @@ router.delete('/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const result = getDb().prepare('DELETE FROM properties WHERE id = ?').run(id);
   if (result.changes === 0) return res.status(404).json({ error: 'Property not found' });
+  pushPropertyToSheetAsync(id);
   res.json({ ok: true });
 });
 
