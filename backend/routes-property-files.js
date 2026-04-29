@@ -69,10 +69,28 @@ router.get('/:fileId/download', requireAuth, (req, res) => {
     'SELECT * FROM property_files WHERE id = ? AND property_id = ?'
   ).get(fileId, propId);
   if (!row || !row.local_path) return res.status(404).json({ error: 'file not found' });
-  if (!fs.existsSync(row.local_path)) return res.status(404).json({ error: 'file missing on disk' });
+
+  let actualPath = row.local_path;
+  // Fallback: if stored path is stale (e.g. property folder was renamed
+  // before this column was kept in sync), look up the current folder name
+  // and rebuild the path. Then persist for next time.
+  if (!fs.existsSync(actualPath)) {
+    const prop = getDb().prepare('SELECT folder_name FROM properties WHERE id = ?').get(propId);
+    if (prop && prop.folder_name) {
+      // Strip everything before the property folder, then prepend new folder
+      const tail = row.local_path.split('/uploads/').pop().split('/').slice(1).join('/');
+      const candidate = `${UPLOAD_ROOT}/${prop.folder_name}/${tail}`;
+      if (fs.existsSync(candidate)) {
+        actualPath = candidate;
+        getDb().prepare('UPDATE property_files SET local_path = ? WHERE id = ?').run(candidate, fileId);
+      }
+    }
+  }
+
+  if (!fs.existsSync(actualPath)) return res.status(404).json({ error: 'file missing on disk' });
   res.setHeader('Content-Type', row.mime || 'application/octet-stream');
   res.setHeader('Content-Disposition', `inline; filename="${(row.filename || 'file').replace(/"/g, '')}"`);
-  fs.createReadStream(row.local_path).pipe(res);
+  fs.createReadStream(actualPath).pipe(res);
 });
 
 // ─── Upload a file ────────────────────────────────────────────────
