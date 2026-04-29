@@ -323,6 +323,12 @@ async function pollSheetIntoDb() {
       // Skip rows with no holding_company AND no unit_no — empty data row
       if (!parsed.holding_company && !parsed.unit_no) continue;
 
+      // Skip section header "COMMERCIAL FREEHOLD" (no rent, no tenant — clearly a divider)
+      if (parsed.holding_company && /^COMMERCIAL\s+FREEHOLD$/i.test(parsed.holding_company)
+          && !parsed.unit_no && !parsed.annual_rent && !parsed.tenant_name) {
+        continue;
+      }
+
       // Compose name as "{holding} — {unit}" if both, or whichever exists
       if (parsed.holding_company && parsed.unit_no) {
         parsed.name = `${parsed.holding_company} — ${parsed.unit_no}`;
