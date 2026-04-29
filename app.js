@@ -190,12 +190,113 @@ function idbDel(id) {
 }
 
 // ─── LocalStorage (property data) ────────────────
-function loadProps()       { return JSON.parse(localStorage.getItem('asg_props') || '[]'); }
+// ─── Properties: API-backed with sync cache ───────────────
+// Properties are now stored server-side in the SQLite DB and fetched via the
+// REST API. We keep an in-memory cache so existing sync callers (loadProps()
+// in 45+ places) keep working without each one becoming async. The cache is
+// populated by fetchProperties() at boot and after every write.
+let _propsCache = [];
+
+async function fetchProperties() {
+  try {
+    const res = await fetch('/api/properties', { credentials: 'same-origin' });
+    if (!res.ok) {
+      console.warn('[fetchProperties] HTTP', res.status);
+      return _propsCache;
+    }
+    const data = await res.json();
+    _propsCache = (data.properties || []).map(p => ({
+      ...p,
+      // Frontend uses camelCase already; rowToApi converts snake_case → camelCase.
+      // Ensure id is always a string so existing string-comparison code keeps working.
+      id: p.id != null ? String(p.id) : p.id,
+    }));
+    return _propsCache;
+  } catch (err) {
+    console.error('[fetchProperties] failed:', err);
+    return _propsCache;
+  }
+}
+
+function loadProps() { return _propsCache; }
+
+// API write helpers. Each one updates the backend, then refreshes the cache
+// so subsequent loadProps() reflects the change.
+async function apiCreateProperty(prop) {
+  const res = await fetch('/api/properties', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(prop),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Create failed: HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  await fetchProperties();
+  return data.property;
+}
+
+async function apiUpdateProperty(id, updates) {
+  const res = await fetch(`/api/properties/${id}`, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Update failed: HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  await fetchProperties();
+  return data.property;
+}
+
+async function apiDeleteProperty(id) {
+  const res = await fetch(`/api/properties/${id}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Delete failed: HTTP ${res.status}`);
+  }
+  await fetchProperties();
+}
+
+// Legacy persistProps shim. Some callers pass the entire mutated array.
+// We update the cache *immediately* (so the next loadProps() returns the new
+// state) and fire-and-forget the corresponding API calls in the background.
+// Errors are logged but not rolled back — this matches the previous
+// localStorage behavior, which also never failed.
 function persistProps(arr) {
-  localStorage.setItem('asg_props', JSON.stringify(arr));
-  // Two-way Excel sync: push back to the spreadsheet whenever the dashboard
-  // mutates properties — but never while we're ingesting an Excel-driven
-  // update (would cause a sync loop).
+  const before = new Map(_propsCache.map(p => [String(p.id), p]));
+  const after  = new Map(arr.map(p => [String(p.id), p]));
+  _propsCache = arr;  // optimistic update — loadProps reflects new state immediately
+
+  // Background sync to API
+  (async () => {
+    // Deletes
+    for (const [id, _p] of before) {
+      if (!after.has(id) && /^\d+$/.test(id)) {
+        try { await apiDeleteProperty(id); }
+        catch (e) { console.warn('persistProps: delete failed', id, e.message); }
+      }
+    }
+    // Creates / updates
+    for (const [id, p] of after) {
+      if (!before.has(id)) {
+        try { await apiCreateProperty(p); }
+        catch (e) { console.warn('persistProps: create failed', e.message); }
+      } else if (/^\d+$/.test(id)) {
+        try { await apiUpdateProperty(id, p); }
+        catch (e) { console.warn('persistProps: update failed', id, e.message); }
+      }
+    }
+  })();
+
   if (typeof xlsyncQueueWrite === 'function' && !window._xlsyncIngesting) {
     xlsyncQueueWrite();
   }
@@ -232,6 +333,7 @@ async function boot() {
     document.getElementById('agentHeader').style.display    = 'none';
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
+    await fetchProperties();   // hydrate cache from backend before first render
     bindUI();
     showTab('home');
     renderNavCounts(loadProps());
@@ -244,6 +346,7 @@ async function boot() {
     document.getElementById('appBody').style.display        = 'none';
     document.getElementById('agentHeader').style.display    = '';
     document.getElementById('agentDashboard').style.display = '';
+    await fetchProperties();   // agents also need property cache
     showAgentTab('overview');
     updateAgentBadges();
   }
