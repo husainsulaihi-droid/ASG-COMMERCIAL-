@@ -457,6 +457,104 @@ async function apiDeletePropertyFile(propertyId, fileId) {
   return res.ok;
 }
 
+// ─── Cheque-only edit modal (used by Rentals tab) ─────
+let _chequeEditPropertyId = null;
+
+async function openChequeEditModal(propertyId) {
+  _chequeEditPropertyId = String(propertyId);
+  const p = loadProps().find(x => String(x.id) === _chequeEditPropertyId);
+  if (!p) { showToast('Property not found', 'error'); return; }
+
+  document.getElementById('chequeEditPropName').textContent = p.name || '';
+  const cheques = (p.cheques || []).slice();
+  document.getElementById('chequeEditCount').value = cheques.length || (Number(p.numCheques) || 0);
+  renderChequeEditFields(cheques);
+  const ov = document.getElementById('chequeEditOverlay');
+  ov.style.display = '';
+  ov.classList.add('active');
+}
+
+function closeChequeEditModal() {
+  const ov = document.getElementById('chequeEditOverlay');
+  ov.classList.remove('active');
+  ov.style.display = 'none';
+  _chequeEditPropertyId = null;
+}
+
+function renderChequeEditFields(prefill) {
+  const n = parseInt(document.getElementById('chequeEditCount').value, 10) || 0;
+  const container = document.getElementById('chequeEditFields');
+  if (!container) return;
+
+  // Capture existing values before re-rendering
+  const existing = [];
+  container.querySelectorAll('.cheque-row').forEach((row, i) => {
+    existing[i] = {
+      date:   row.querySelector('.cheque-date')?.value   || '',
+      amount: row.querySelector('.cheque-amount')?.value || '',
+      status: row.querySelector('.cheque-status')?.value || 'pending',
+    };
+  });
+  if (prefill && prefill.length) {
+    prefill.forEach((c, i) => {
+      existing[i] = {
+        date:   c.date   || '',
+        amount: c.amount != null ? String(c.amount) : '',
+        status: c.status || 'pending',
+      };
+    });
+  }
+
+  if (!n) { container.innerHTML = '<p style="color:var(--text-3);font-size:13px;">No cheques. Increase the count above to add rows.</p>'; return; }
+  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
+  for (let i = 0; i < n; i++) {
+    const prev = existing[i] || {};
+    html += `<div class="cheque-row">
+      <span class="cheque-num">${i + 1}</span>
+      <input type="date" class="cheque-date" value="${prev.date || ''}">
+      <input type="number" class="cheque-amount" placeholder="e.g. 10,000" min="0" value="${prev.amount || ''}">
+      <select class="cheque-status">
+        <option value="pending"  ${(!prev.status || prev.status==='pending')  ? 'selected':''}>⏳ Pending</option>
+        <option value="received" ${prev.status==='received' ? 'selected':''}>✅ Received</option>
+        <option value="bounced"  ${prev.status==='bounced'  ? 'selected':''}>❌ Bounced</option>
+      </select>
+    </div>`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+async function saveChequeEdit() {
+  const propId = _chequeEditPropertyId;
+  if (!propId) return;
+
+  // Build cheques array from the form rows
+  const rows = [];
+  document.getElementById('chequeEditFields').querySelectorAll('.cheque-row').forEach((row, i) => {
+    rows.push({
+      n:      i + 1,
+      date:   row.querySelector('.cheque-date')?.value           || null,
+      amount: Number(row.querySelector('.cheque-amount')?.value) || null,
+      status: row.querySelector('.cheque-status')?.value         || 'pending',
+    });
+  });
+
+  // Update num_cheques on the property + sync the cheque sub-resource
+  try {
+    await apiUpdateProperty(propId, { numCheques: rows.length });
+    await apiSyncPropertyCheques(propId, rows);
+    await fetchProperties();
+    closeChequeEditModal();
+    if (activeTab === 'payment') renderPayments();
+    else if (activeTab === 'home') renderHome();
+    else if (activeTab === 'financials') renderFinancials();
+    else refresh();
+    showToast('Cheques updated', 'success');
+  } catch (e) {
+    showToast(`Save failed: ${e.message}`, 'error');
+  }
+}
+
 // ─── Property Cheques API ─────────────────────────────
 async function apiListPropertyCheques(propertyId) {
   const res = await fetch(`/api/properties/${propertyId}/cheques`, { credentials: 'same-origin' });
@@ -2539,7 +2637,7 @@ function renderPayments() {
         <span class="pmt-prop-name">${h(g.prop.name)}</span>
         ${g.prop.tenantName ? `<span class="pmt-tenant">👤 ${h(g.prop.tenantName)}</span>` : ''}
         ${g.prop.annualRent ? `<span class="pmt-rent">AED ${num(g.prop.annualRent)} / yr</span>` : ''}
-        <button class="pmt-edit-btn" onclick="openEditModal('${g.prop.id}')">Edit</button>
+        <button class="pmt-edit-btn" onclick="openChequeEditModal('${g.prop.id}')">Edit Cheques</button>
       </div>
       <div class="pmt-table">
         <div class="pmt-thead">

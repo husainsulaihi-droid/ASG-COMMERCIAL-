@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260429z">
+  <link rel="stylesheet" href="styles.css?v=20260430a">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1474,6 +1474,29 @@
     </div>
   </div>
 
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CHEQUE-ONLY EDIT MODAL (from Rentals)  -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="chequeEditOverlay" style="display:none;" onclick="if(event.target===this)closeChequeEditModal()">
+    <div class="modal" style="max-width:700px;">
+      <div class="modal-header">
+        <h3>💳 Edit Cheques — <span id="chequeEditPropName"></span></h3>
+        <button class="modal-close" onclick="closeChequeEditModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label>Number of Cheques</label>
+          <input type="number" id="chequeEditCount" min="0" max="24" oninput="renderChequeEditFields()">
+        </div>
+        <div id="chequeEditFields"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeChequeEditModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveChequeEdit()">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ═══════════════════════════════════════ -->
   <!-- PAYMENT STRUCTURE VIEW                 -->
@@ -3883,6 +3906,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260429z"></script>
+  <script src="app.js?v=20260430a"></script>
 </body>
 </html>
