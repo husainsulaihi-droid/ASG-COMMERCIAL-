@@ -190,6 +190,23 @@ function idbDel(id) {
 }
 
 // ─── LocalStorage (property data) ────────────────
+// ─── Income helpers: account for partnership share ────────
+// Returns YOUR share of the annual rent for a property:
+//   - own:        100% of annualRent
+//   - partnership: ourShare% of annualRent
+//   - management:  0 (you don't earn rent on managed; mgmtFee instead)
+//   - unknown:    100% (legacy/unmigrated rows)
+function ourRentShare(p) {
+  const rent = Number(p && p.annualRent) || 0;
+  if (!p) return 0;
+  if (p.ownership === 'management') return 0;
+  if (p.ownership === 'partnership') {
+    const share = Number(p.ourShare) || 0;
+    return rent * share / 100;
+  }
+  return rent;
+}
+
 // ─── Properties: API-backed with sync cache ───────────────
 // Properties are now stored server-side in the SQLite DB and fetched via the
 // REST API. We keep an in-memory cache so existing sync callers (loadProps()
@@ -335,7 +352,7 @@ function persistProps(arr) {
 function uid()             { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ─── State ────────────────────────────────────────
-let pendingFiles      = { ijari: null, affection: null, tenancy: null };
+let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null };
 let pendingMedia      = [];           // new File objects to add
 let existingMediaMeta = [];           // { id, name, mime } already saved
 let removedMediaIds   = [];           // IDB ids to delete on save
@@ -888,7 +905,7 @@ function applyFilters(props) {
 function renderStats(props) {
   const tf      = activeTypeFilter;
   const typed   = tf ? props.filter(p => p.type === tf) : props;
-  const revenue = typed.filter(p => p.status === 'rented').reduce((s, p) => s + (Number(p.annualRent)||0), 0);
+  const revenue = typed.filter(p => p.status === 'rented').reduce((s, p) => s + ourRentShare(p), 0);
   const area    = typed.reduce((s, p) => s + (Number(p.size)||0), 0);
   const icons   = { warehouse: '🏭', office: '🏢', residential: '🏠' };
   const labels  = { warehouse: 'Warehouses', office: 'Offices', residential: 'Residential' };
@@ -1137,7 +1154,7 @@ function openAddModal() {
   $('modalTitle').textContent = 'Add New Property';
   $('saveBtnText').textContent = 'Save Property';
   $('propertyForm').reset();
-  pendingFiles = { drec: null, ijari: null, affection: null, tenancy: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null };
   pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
   resetFileZones();
   renderMediaPreviews();
@@ -1170,7 +1187,7 @@ async function openEditModal(id) {
   $('editPropertyId').value = id;
   $('modalTitle').textContent = 'Edit Property';
   $('saveBtnText').textContent = 'Save Changes';
-  pendingFiles = { drec: null, ijari: null, affection: null, tenancy: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null };
   pendingMedia = [];
   existingMediaMeta = p.media ? [...p.media] : [];
   removedMediaIds   = [];
@@ -1247,6 +1264,7 @@ async function openEditModal(id) {
 
   showExisting('drec',      p.files?.drec);
   showExisting('ijari',     p.files?.ijari);
+  showExisting('ijari2',    p.files?.ijari2);
   showExisting('affection', p.files?.affection);
   showExisting('tenancy',   p.files?.tenancy);
 
@@ -1358,8 +1376,8 @@ function showExisting(key, info) {
 }
 
 function resetFileZones() {
-  const labels = { drec: 'Upload DREC', ijari: 'Upload Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract' };
-  ['drec', 'ijari', 'affection', 'tenancy'].forEach(key => {
+  const labels = { drec: 'Upload DREC', ijari: 'Upload Owner Ijari', ijari2: 'Upload Tenancy Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract' };
+  ['drec', 'ijari', 'ijari2', 'affection', 'tenancy'].forEach(key => {
     // Reset every <input type=file> tied to this key (e.g. fileIjari and fileIjari2)
     document.querySelectorAll(`.file-zone[data-doc-key="${key}"] input[type="file"]`).forEach(inp => { inp.value = ''; });
     document.querySelectorAll(`.file-zone[data-doc-key="${key}"]`).forEach(zone => {
@@ -1571,9 +1589,9 @@ async function handleSave() {
     return;
   }
 
-  // Upload pending document files (drec, ijari, affection, tenancy)
-  // Each one goes to /var/asg/uploads + Google Drive in the matching subfolder.
-  for (const key of ['drec', 'ijari', 'affection', 'tenancy']) {
+  // Upload pending document files (drec, ijari, ijari2, affection, tenancy)
+  // Each one goes to /var/asg/uploads/<property>/<category>/.
+  for (const key of ['drec', 'ijari', 'ijari2', 'affection', 'tenancy']) {
     const file = pendingFiles[key];
     if (file) {
       try { await apiUploadPropertyFile(savedId, key, file); }
@@ -1664,6 +1682,7 @@ async function openDetailModal(id) {
         p.files = {
           drec:      byCat.drec,
           ijari:     byCat.ijari,
+          ijari2:    byCat.ijari2,
           affection: byCat.affection,
           tenancy:   byCat.tenancy,
         };
@@ -1790,7 +1809,8 @@ async function openDetailModal(id) {
         <div class="detail-block-header">📁 Documents & Attachments</div>
         <div class="docs-grid">
           ${docTile('DREC Certificate', p.files?.drec)}
-          ${docTile('Ijari Document', p.files?.ijari)}
+          ${docTile('Ijari (Owner)', p.files?.ijari)}
+          ${docTile('Ijari (Tenancy)', p.files?.ijari2)}
           ${docTile('Affection Plan', p.files?.affection)}
           ${docTile('Tenancy Contract', p.files?.tenancy)}
         </div>
@@ -7191,7 +7211,7 @@ function renderHome() {
   const residential= props.filter(p => p.type === 'residential').length;
   const rented     = props.filter(p => p.status === 'rented').length;
   const vacant     = props.filter(p => p.status === 'vacant').length;
-  const totalRent  = props.filter(p => p.status === 'rented').reduce((s,p)=>s+(Number(p.annualRent)||0),0);
+  const totalRent  = props.filter(p => p.status === 'rented').reduce((s,p) => s + ourRentShare(p), 0);
 
   // Lease alerts
   const today = new Date();

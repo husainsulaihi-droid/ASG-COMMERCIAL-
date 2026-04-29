@@ -22,7 +22,7 @@ const driveUploader = require('./drive-uploader');
 const folderExport = require('./property-folder-export');
 
 const UPLOAD_ROOT = process.env.ASG_UPLOAD_ROOT || '/var/asg/uploads';
-const ALLOWED_CATS = new Set(['ijari', 'tenancy', 'affection', 'drec', 'photo', 'other']);
+const ALLOWED_CATS = new Set(['ijari', 'ijari2', 'tenancy', 'affection', 'drec', 'photo', 'other']);
 const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
 
 // ─── Multer setup: drop the file into <property folder>/<category>/ ──

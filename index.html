@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260429i">
+  <link rel="stylesheet" href="styles.css?v=20260429j">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -852,11 +852,11 @@
                 <div class="existing-file-tag" id="existingDrec" data-existing-key="drec"></div>
               </div>
               <div class="form-group">
-                <label>Ijari Document</label>
+                <label>Ijari Document (Owner)</label>
                 <div class="file-zone" data-doc-key="ijari" onclick="document.getElementById('fileIjari').click()">
                   <input type="file" id="fileIjari" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'ijari')">
                   <div class="file-zone-icon">📄</div>
-                  <div class="file-zone-text">Upload Ijari</div>
+                  <div class="file-zone-text">Upload Owner Ijari</div>
                   <div class="file-zone-sub">PDF, DOC, Image</div>
                 </div>
                 <div class="existing-file-tag" data-existing-key="ijari"></div>
@@ -992,14 +992,14 @@
             </div>
             <div class="form-row three-col">
               <div class="form-group">
-                <label>Ijari Document</label>
-                <div class="file-zone" data-doc-key="ijari" onclick="document.getElementById('fileIjari2').click()">
-                  <input type="file" id="fileIjari2" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'ijari')">
+                <label>Ijari Document (Tenancy)</label>
+                <div class="file-zone" data-doc-key="ijari2" onclick="document.getElementById('fileIjari2').click()">
+                  <input type="file" id="fileIjari2" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'ijari2')">
                   <div class="file-zone-icon">📄</div>
-                  <div class="file-zone-text">Upload Ijari</div>
-                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                  <div class="file-zone-text">Upload Tenancy Ijari</div>
+                  <div class="file-zone-sub">Different from Owner Ijari above</div>
                 </div>
-                <div class="existing-file-tag" data-existing-key="ijari"></div>
+                <div class="existing-file-tag" data-existing-key="ijari2"></div>
               </div>
               <div class="form-group">
                 <label>Affection Plan</label>
@@ -3888,6 +3888,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260429i"></script>
+  <script src="app.js?v=20260429j"></script>
 </body>
 </html>
