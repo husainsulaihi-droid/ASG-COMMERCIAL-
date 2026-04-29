@@ -1264,10 +1264,17 @@ function cardHTML(p) {
 
 async function loadCardMedia(p) {
   for (let i = 0; i < Math.min(p.media.length, 3); i++) {
-    const rec = await idbGet(p.media[i].id).catch(() => null);
-    if (!rec) continue;
+    const meta = p.media[i];
     const el = $(`strip-${p.id}-${i}`);
-    if (el) el.src = rec.data;
+    if (!el) continue;
+    if (meta.propertyId && meta.id) {
+      // API-backed photo: stream from the backend
+      el.src = `/api/properties/${meta.propertyId}/files/${meta.id}/download`;
+    } else if (meta.id) {
+      // Legacy IDB photo
+      const rec = await idbGet(meta.id).catch(() => null);
+      if (rec) el.src = rec.data;
+    }
   }
 }
 
@@ -1533,18 +1540,31 @@ async function renderMediaPreviews() {
   if (!grid) return;
   grid.innerHTML = '';
 
-  // Existing media (already saved)
+  // Existing media (already saved). Source can be either an API-backed
+  // photo (has propertyId, served via /download) or a legacy IDB blob.
   for (let i = 0; i < existingMediaMeta.length; i++) {
     const meta = existingMediaMeta[i];
-    const rec  = await idbGet(meta.id).catch(() => null);
-    if (!rec) continue;
+    let dataUrl, mime, name;
+    if (meta.propertyId && meta.id) {
+      dataUrl = `/api/properties/${meta.propertyId}/files/${meta.id}/download`;
+      mime    = meta.mime || '';
+      name    = meta.filename || 'photo';
+    } else if (meta.id) {
+      const rec = await idbGet(meta.id).catch(() => null);
+      if (!rec) continue;
+      dataUrl = rec.data;
+      mime    = meta.mime || '';
+      name    = meta.name || 'photo';
+    } else {
+      continue;
+    }
 
     const thumb = document.createElement('div');
     thumb.className = 'media-thumb';
 
-    if (isVideo(meta.mime)) {
+    if (isVideo(mime)) {
       const vid = document.createElement('video');
-      vid.src = rec.data; vid.muted = true;
+      vid.src = dataUrl; vid.muted = true;
       vid.style.cssText = 'width:100%;height:100%;object-fit:cover;';
       thumb.appendChild(vid);
       const icon = document.createElement('div');
@@ -1552,7 +1572,7 @@ async function renderMediaPreviews() {
       thumb.appendChild(icon);
     } else {
       const img = document.createElement('img');
-      img.src = rec.data; img.alt = meta.name;
+      img.src = dataUrl; img.alt = name;
       thumb.appendChild(img);
     }
 
@@ -1973,30 +1993,46 @@ async function loadDetailMedia(p) {
 
   for (let i = 0; i < p.media.length; i++) {
     const meta = p.media[i];
-    const rec  = await idbGet(meta.id).catch(() => null);
-    if (!rec) continue;
-    mediaItems.push({ data: rec.data, mime: meta.mime, name: meta.name });
+    let dataUrl, mime, name;
+
+    if (meta.propertyId && meta.id) {
+      // API-backed photo — stream from /api/properties/:id/files/:fid/download
+      dataUrl = `/api/properties/${meta.propertyId}/files/${meta.id}/download`;
+      mime    = meta.mime || '';
+      name    = meta.filename || 'photo';
+    } else if (meta.id) {
+      // Legacy IDB photo
+      const rec = await idbGet(meta.id).catch(() => null);
+      if (!rec) continue;
+      dataUrl = rec.data;
+      mime    = meta.mime || rec.mime || '';
+      name    = meta.name || 'photo';
+    } else {
+      continue;
+    }
+
+    mediaItems.push({ data: dataUrl, mime, name });
 
     const item = document.createElement('div');
     item.className = 'detail-media-item';
     const idx = mediaItems.length - 1;
     item.onclick = () => openLightbox(mediaItems, idx);
 
-    if (isVideo(meta.mime)) {
+    if (isVideo(mime)) {
       const vid = document.createElement('video');
-      vid.src = rec.data; vid.muted = true;
+      vid.src = dataUrl; vid.muted = true;
       item.appendChild(vid);
       const badge = document.createElement('div');
       badge.className = 'detail-media-video-badge'; badge.textContent = '▶';
       item.appendChild(badge);
     } else {
       const img = document.createElement('img');
-      img.src = rec.data; img.alt = meta.name;
+      img.src = dataUrl; img.alt = name;
       item.appendChild(img);
     }
 
     const nameBadge = document.createElement('div');
-    nameBadge.className = 'media-thumb-name'; nameBadge.textContent = meta.name;
+    nameBadge.className = 'media-thumb-name'; nameBadge.textContent = name;
     item.appendChild(nameBadge);
 
     gallery.appendChild(item);
