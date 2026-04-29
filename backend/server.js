@@ -17,6 +17,7 @@ const { clearExpiredSessions } = require('./auth');
 const authRoutes          = require('./routes-auth');
 const userRoutes          = require('./routes-users');
 const propertyRoutes      = require('./routes-properties');
+const propertyFileRoutes  = require('./routes-property-files');
 const leadRoutes          = require('./routes-leads');
 const taskRoutes          = require('./routes-tasks');
 const meetingRoutes       = require('./routes-meetings');
@@ -85,6 +86,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth',                authRoutes);
 app.use('/api/users',               userRoutes);
 app.use('/api/properties',          propertyRoutes);
+app.use('/api/properties/:id/files', propertyFileRoutes);
 app.use('/api/leads',               leadRoutes);
 app.use('/api/tasks',               taskRoutes);
 app.use('/api/meetings',            meetingRoutes);

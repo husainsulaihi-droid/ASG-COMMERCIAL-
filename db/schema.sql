@@ -100,6 +100,11 @@ CREATE TABLE properties (
 CREATE INDEX idx_properties_type   ON properties(type);
 CREATE INDEX idx_properties_status ON properties(status);
 
+-- drive_folder_id is added by ALTER TABLE for existing databases
+-- (see deploy/add-files-schema.sql); included here so fresh installs
+-- get the column from the start.
+-- ALTER TABLE properties ADD COLUMN drive_folder_id TEXT;
+
 -- ─── PROPERTY CHEQUES ────────────────────────────────────────────
 CREATE TABLE property_cheques (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +116,28 @@ CREATE TABLE property_cheques (
   FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_cheques_property ON property_cheques(property_id);
+
+-- ─── PROPERTY FILES (Drive-mirrored attachments) ─────────────────
+-- Files uploaded for each property: Ejari, tenancy contract, affection
+-- plan, photos, etc. Each file is stored under /var/asg/uploads/ AND
+-- mirrored to a Google Drive folder so the user has a backup view.
+CREATE TABLE property_files (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id     INTEGER NOT NULL,
+  category        TEXT,        -- 'ijari' | 'tenancy' | 'affection' | 'drec' | 'photo' | 'other'
+  filename        TEXT,        -- original upload filename
+  local_path      TEXT,        -- '/var/asg/uploads/property-N/uuid-original.pdf'
+  drive_id        TEXT,        -- Google Drive file id
+  drive_url       TEXT,        -- web URL to view in Drive
+  mime            TEXT,
+  size            INTEGER,
+  uploaded_by_id  INTEGER,
+  uploaded_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (property_id)    REFERENCES properties(id) ON DELETE CASCADE,
+  FOREIGN KEY (uploaded_by_id) REFERENCES users(id)
+);
+CREATE INDEX idx_property_files_property ON property_files(property_id);
+CREATE INDEX idx_property_files_category ON property_files(category);
 
 -- ─── PENDING SUBMISSIONS (agent-submitted, awaiting approval) ───
 CREATE TABLE pending_properties (
