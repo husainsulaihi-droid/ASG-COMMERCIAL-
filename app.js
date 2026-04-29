@@ -1866,15 +1866,15 @@ function docTile(label, info) {
   const ext  = (info.filename || info.name || '').split('.').pop().toLowerCase();
   const icon = ['jpg','jpeg','png','gif','webp'].includes(ext) ? '🖼️' : ext === 'pdf' ? '📄' : '📋';
 
-  // API file: has driveUrl/drive_url → open in new tab
-  if (info.driveUrl || info.drive_url) {
-    const url = info.driveUrl || info.drive_url;
+  // API-tracked file: serve from /api/properties/:id/files/:fileId/download
+  if (info.id && info.propertyId) {
+    const url = `/api/properties/${info.propertyId}/files/${info.id}/download`;
     return `
       <a class="doc-tile" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;">
         <div class="doc-tile-icon">${icon}</div>
         <div class="doc-tile-title">${label}</div>
         <div class="doc-tile-name">${h(safeName)}</div>
-        <div class="doc-tile-action">↗ Open in Drive</div>
+        <div class="doc-tile-action">⬇ View / Download</div>
       </a>`;
   }
 

@@ -61,6 +61,20 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ files: rows.map(rowToApi) });
 });
 
+// ─── Download a file (streams from disk) ──────────────────────────
+router.get('/:fileId/download', requireAuth, (req, res) => {
+  const propId = parseInt(req.params.id, 10);
+  const fileId = parseInt(req.params.fileId, 10);
+  const row = getDb().prepare(
+    'SELECT * FROM property_files WHERE id = ? AND property_id = ?'
+  ).get(fileId, propId);
+  if (!row || !row.local_path) return res.status(404).json({ error: 'file not found' });
+  if (!fs.existsSync(row.local_path)) return res.status(404).json({ error: 'file missing on disk' });
+  res.setHeader('Content-Type', row.mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${(row.filename || 'file').replace(/"/g, '')}"`);
+  fs.createReadStream(row.local_path).pipe(res);
+});
+
 // ─── Upload a file ────────────────────────────────────────────────
 router.post('/', requireAdmin, upload.single('file'), async (req, res) => {
   const propId = parseInt(req.params.id, 10);
