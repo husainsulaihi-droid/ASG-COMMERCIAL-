@@ -1580,10 +1580,10 @@ async function renderMediaPreviews() {
     badge.className = 'media-thumb-badge'; badge.textContent = 'Saved';
     thumb.appendChild(badge);
 
-    const name = document.createElement('div');
-    name.className = 'media-thumb-name';
-    name.textContent = meta.name;
-    thumb.appendChild(name);
+    const nameEl = document.createElement('div');
+    nameEl.className = 'media-thumb-name';
+    nameEl.textContent = name;
+    thumb.appendChild(nameEl);
 
     const rmBtn = document.createElement('button');
     rmBtn.className = 'media-thumb-remove'; rmBtn.textContent = '×';
