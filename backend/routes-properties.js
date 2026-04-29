@@ -164,6 +164,15 @@ router.delete('/:id', requireAdmin, (req, res) => {
 
 // ─── Cheques (sub-resource) ──────────────────
 
+// Bulk: every cheque across every property. Used by the dashboard cache so
+// the Rentals tab can render without making one API call per property.
+router.get('/cheques/all', requireAdmin, (req, res) => {
+  const rows = getDb().prepare(
+    'SELECT * FROM property_cheques ORDER BY property_id, cheque_num'
+  ).all();
+  res.json({ cheques: rows.map(rowToApi) });
+});
+
 router.get('/:id/cheques', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const rows = getDb().prepare(

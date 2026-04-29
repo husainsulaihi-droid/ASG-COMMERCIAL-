@@ -349,6 +349,28 @@ async function fetchProperties() {
       // Ensure id is always a string so existing string-comparison code keeps working.
       id: p.id != null ? String(p.id) : p.id,
     }));
+    // Hydrate cheques into the cache so the Rentals tab and other places that
+    // read p.cheques have data without one fetch per property.
+    try {
+      const cr = await fetch('/api/properties/cheques/all', { credentials: 'same-origin' });
+      if (cr.ok) {
+        const { cheques } = await cr.json();
+        const byProp = new Map();
+        for (const c of (cheques || [])) {
+          const pid = String(c.propertyId);
+          if (!byProp.has(pid)) byProp.set(pid, []);
+          byProp.get(pid).push({
+            n:      c.chequeNum,
+            date:   c.chequeDate,
+            amount: c.amount,
+            status: c.status,
+          });
+        }
+        _propsCache.forEach(p => { p.cheques = byProp.get(String(p.id)) || []; });
+      }
+    } catch (e) {
+      console.warn('[fetchProperties] cheque hydration failed:', e.message);
+    }
     return _propsCache;
   } catch (err) {
     console.error('[fetchProperties] failed:', err);
