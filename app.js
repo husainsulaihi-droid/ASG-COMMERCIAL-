@@ -207,6 +207,93 @@ function ourRentShare(p) {
   return rent;
 }
 
+// ─── Generic API-backed list factory ──────────────────────
+// Replaces localStorage list-of-objects storage with a backend API while
+// keeping the same sync interface (load/save) for legacy callers. Each
+// `save(arr)` call diffs against the previous cache and fires the right
+// CRUD operations against the API in the background.
+//
+//   const x = makeApiList('/api/leads', 'leads');
+//   x.load()                   → cached array (sync)
+//   await x.fetch()            → refresh cache from server
+//   x.save(arr)                → optimistic cache update + background sync
+function makeApiList(endpoint, pluralKey) {
+  let cache = [];
+  return {
+    load: () => cache,
+    fetch: async () => {
+      try {
+        const r = await fetch(endpoint, { credentials: 'same-origin' });
+        if (!r.ok) return cache;
+        const d = await r.json();
+        cache = (d[pluralKey] || []).map(x => ({
+          ...x,
+          id: x.id != null ? String(x.id) : x.id,
+        }));
+        return cache;
+      } catch (e) {
+        console.warn(`[api-list ${endpoint}] fetch failed:`, e.message);
+        return cache;
+      }
+    },
+    save: (arr) => {
+      const before = new Map(cache.map(x => [String(x.id), x]));
+      const after  = new Map(arr.map(x => [String(x.id), x]));
+      cache = arr;  // optimistic: subsequent loads see new state immediately
+      (async () => {
+        for (const [id] of before) {
+          if (!after.has(id) && /^\d+$/.test(id)) {
+            try { await fetch(`${endpoint}/${id}`, { method: 'DELETE', credentials: 'same-origin' }); }
+            catch (e) { console.warn(`[api-list ${endpoint}] delete ${id} failed:`, e.message); }
+          }
+        }
+        for (const [id, item] of after) {
+          if (!before.has(id)) {
+            try {
+              await fetch(endpoint, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(item),
+              });
+            } catch (e) { console.warn(`[api-list ${endpoint}] create failed:`, e.message); }
+          } else if (/^\d+$/.test(id)) {
+            try {
+              await fetch(`${endpoint}/${id}`, {
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(item),
+              });
+            } catch (e) { console.warn(`[api-list ${endpoint}] update ${id} failed:`, e.message); }
+          }
+        }
+      })();
+    },
+  };
+}
+
+// All API-backed lists. Each replaces a previous localStorage entity.
+const _api = {
+  disputes:        makeApiList('/api/disputes',                'disputes'),
+  construction:    makeApiList('/api/construction',            'projects'),
+  leads:           makeApiList('/api/leads',                   'leads'),
+  tasks:           makeApiList('/api/tasks',                   'tasks'),
+  pending:         makeApiList('/api/pending-properties',      'submissions'),
+  announcements:   makeApiList('/api/announcements',           'announcements'),
+  leaves:          makeApiList('/api/leaves',                  'leaves'),
+  proposals:       makeApiList('/api/proposals',               'proposals'),
+  meetings:        makeApiList('/api/meetings',                'meetings'),
+  offplanDevs:     makeApiList('/api/offplan/developers',      'developers'),
+  offplanProjects: makeApiList('/api/offplan/projects',        'projects'),
+  secondary:       makeApiList('/api/secondary',               'listings'),
+  users:           makeApiList('/api/users',                   'users'),
+};
+
+async function fetchAllEntities() {
+  await Promise.all(Object.values(_api).map(api => api.fetch().catch(() => null)));
+}
+
 // ─── Properties: API-backed with sync cache ───────────────
 // Properties are now stored server-side in the SQLite DB and fetched via the
 // REST API. We keep an in-memory cache so existing sync callers (loadProps()
@@ -382,6 +469,7 @@ async function boot() {
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
     await fetchProperties();   // hydrate cache from backend before first render
+    await fetchAllEntities();
     bindUI();
     showTab('home');
     renderNavCounts(loadProps());
@@ -395,6 +483,7 @@ async function boot() {
     document.getElementById('agentHeader').style.display    = '';
     document.getElementById('agentDashboard').style.display = '';
     await fetchProperties();   // agents also need property cache
+    await fetchAllEntities();
     showAgentTab('overview');
     updateAgentBadges();
   }
@@ -2200,8 +2289,8 @@ function daysClass(leaseEnd, reminderDays) {
 // ═══════════════════════════════════════════════════
 // DISPUTES
 // ═══════════════════════════════════════════════════
-function loadDisputes()        { return JSON.parse(localStorage.getItem('asg_disputes') || '[]'); }
-function persistDisputes(arr)  { localStorage.setItem('asg_disputes', JSON.stringify(arr)); }
+function loadDisputes()        { return _api.disputes.load(); }
+function persistDisputes(arr)  { _api.disputes.save(arr); }
 
 const DISPUTE_TYPES = {
   'court':          '⚖️ Court Case',
@@ -3097,8 +3186,8 @@ function quickDeleteDispute(id) {
 // ═══════════════════════════════════════════════════
 // CONSTRUCTION PROJECTS
 // ═══════════════════════════════════════════════════
-function loadConstructionProjects()       { return JSON.parse(localStorage.getItem('asg_projects') || '[]'); }
-function persistConstructionProjects(arr) { localStorage.setItem('asg_projects', JSON.stringify(arr)); }
+function loadConstructionProjects()       { return _api.construction.load(); }
+function persistConstructionProjects(arr) { _api.construction.save(arr); }
 
 const PROJECT_TYPES = {
   'new-warehouse':  '🏗️ New Warehouse',
@@ -3508,10 +3597,10 @@ const AGENT_ROLES = {
 };
 function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; }
 
-function loadAgents() { try { return JSON.parse(localStorage.getItem(AGENTS_KEY)) || []; } catch { return []; } }
-function saveAgents(a) { localStorage.setItem(AGENTS_KEY, JSON.stringify(a)); }
-function loadTasks()   { try { return JSON.parse(localStorage.getItem(TASKS_KEY))  || []; } catch { return []; } }
-function saveTasks(t)  { localStorage.setItem(TASKS_KEY,  JSON.stringify(t)); }
+function loadAgents()  { return _api.users.load().filter(u => u.role !== 'admin'); }
+function saveAgents(a) { _api.users.save(a); }
+function loadTasks()   { return _api.tasks.load(); }
+function saveTasks(t)  { _api.tasks.save(t); }
 
 const TASK_TYPE_META = {
   'find-tenant':  { icon: '🔍', label: 'Find Tenant' },
@@ -5134,10 +5223,10 @@ function updateApiStatusUI() {
 const LEADS_KEY   = 'asg_leads';
 const PENDING_KEY = 'asg_pending_props';
 
-function loadLeads()        { try { return JSON.parse(localStorage.getItem(LEADS_KEY))   || []; } catch { return []; } }
-function saveLeads(l)       { localStorage.setItem(LEADS_KEY,   JSON.stringify(l)); }
-function loadPendingProps()  { try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch { return []; } }
-function savePendingProps(p) { localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }
+function loadLeads()         { return _api.leads.load(); }
+function saveLeads(l)        { _api.leads.save(l); }
+function loadPendingProps()  { return _api.pending.load(); }
+function savePendingProps(p) { _api.pending.save(p); }
 
 const LEAD_STAGES = {
   new:         { label:'New',            icon:'🆕', cls:'ls-new' },
@@ -7783,6 +7872,7 @@ boot = async function() {
     document.getElementById('agentDashboard').style.display = 'none';
     await openIDB();
     await fetchProperties();           // hydrate cache from backend before render
+    await fetchAllEntities();          // hydrate every other entity (leads, tasks, leaves, etc.)
     bindUI();
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
@@ -7798,6 +7888,7 @@ boot = async function() {
     document.getElementById('agentHeader').style.display    = 'none'; // sidebar has profile
     document.getElementById('agentDashboard').style.display = '';
     await fetchProperties();           // agents also need property cache
+    await fetchAllEntities();          // and every other entity
     showAgentTab('overview');
     updateAgentBadges();
   }
@@ -7817,10 +7908,10 @@ boot = async function() {
 const ANNOUNCEMENTS_KEY = 'asg_announcements';
 const LEAVES_KEY        = 'asg_leaves';
 
-function loadAnnouncements()  { try { return JSON.parse(localStorage.getItem(ANNOUNCEMENTS_KEY)) || []; } catch { return []; } }
-function saveAnnouncements(a) { localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(a)); }
-function loadLeaves()         { try { return JSON.parse(localStorage.getItem(LEAVES_KEY))        || []; } catch { return []; } }
-function saveLeaves(l)        { localStorage.setItem(LEAVES_KEY, JSON.stringify(l)); }
+function loadAnnouncements()  { return _api.announcements.load(); }
+function saveAnnouncements(a) { _api.announcements.save(a); }
+function loadLeaves()         { return _api.leaves.load(); }
+function saveLeaves(l)        { _api.leaves.save(l); }
 
 const AVAILABILITY_META = {
   available:  { icon:'🟢', label:'Available',     cls:'av-available' },
@@ -9351,8 +9442,8 @@ renderAgentOverview = function() {
 // ═══════════════════════════════════════════════════════
 
 const PROPOSALS_KEY = 'asg_proposals';
-function loadProposals()  { try { return JSON.parse(localStorage.getItem(PROPOSALS_KEY)) || []; } catch { return []; } }
-function saveProposalsArr(a) { localStorage.setItem(PROPOSALS_KEY, JSON.stringify(a)); }
+function loadProposals()    { return _api.proposals.load(); }
+function saveProposalsArr(a) { _api.proposals.save(a); }
 
 function saveProposalRecord(data) {
   const items = loadProposals();
@@ -9520,8 +9611,8 @@ if (_origShowAgentTab2) {
 // ═══════════════════════════════════════════════════════
 
 const MEETINGS_KEY = 'asg_meetings';
-function loadMeetings()  { try { return JSON.parse(localStorage.getItem(MEETINGS_KEY)) || []; } catch { return []; } }
-function saveMeetingsArr(a) { localStorage.setItem(MEETINGS_KEY, JSON.stringify(a)); }
+function loadMeetings()    { return _api.meetings.load(); }
+function saveMeetingsArr(a) { _api.meetings.save(a); }
 
 const MTG_TYPE_META = {
   meeting: { icon:'🤝', label:'Meeting' },
@@ -9926,10 +10017,10 @@ if (_origOpenLeadDetail2) {
 const OFFPLAN_DEVS_KEY = 'asg_offplan_developers';
 const OFFPLAN_PROJ_KEY = 'asg_offplan_projects';
 
-function loadDevelopers()  { try { return JSON.parse(localStorage.getItem(OFFPLAN_DEVS_KEY)) || []; } catch { return []; } }
-function saveDevelopers(a) { localStorage.setItem(OFFPLAN_DEVS_KEY, JSON.stringify(a)); }
-function loadProjects()    { try { return JSON.parse(localStorage.getItem(OFFPLAN_PROJ_KEY)) || []; } catch { return []; } }
-function saveProjects(a)   { localStorage.setItem(OFFPLAN_PROJ_KEY, JSON.stringify(a)); }
+function loadDevelopers()  { return _api.offplanDevs.load(); }
+function saveDevelopers(a) { _api.offplanDevs.save(a); }
+function loadProjects()    { return _api.offplanProjects.load(); }
+function saveProjects(a)   { _api.offplanProjects.save(a); }
 
 const PROJECT_STATUS_META = {
   prelaunch:    { icon:'⏳', label:'Pre-launch',         cls:'op-st-prelaunch'    },
@@ -10691,8 +10782,8 @@ if (_origShowAgentTab4) {
 // ═══════════════════════════════════════════════════════
 
 const SECONDARY_KEY = 'asg_secondary_listings';
-function loadSecondary()  { try { return JSON.parse(localStorage.getItem(SECONDARY_KEY)) || []; } catch { return []; } }
-function saveSecondary(a) { localStorage.setItem(SECONDARY_KEY, JSON.stringify(a)); }
+function loadSecondary()  { return _api.secondary.load(); }
+function saveSecondary(a) { _api.secondary.save(a); }
 
 const SEC_TYPE_META = {
   apartment:  { icon:'🏢', label:'Apartment'  },
