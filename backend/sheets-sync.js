@@ -405,8 +405,15 @@ let pollTimer = null;
 function startPoller() {
   if (DISABLED || pollTimer) return;
   if (!sheetsClient()) return;
+  // Pull direction is opt-in. The matching logic still has a bug where
+  // subsequent polls can re-insert rows whose ID writeback didn't stick.
+  // Until that's fixed, dashboard remains the source of truth and only
+  // DB→sheet push is active (triggered from property routes).
+  if (process.env.ASG_SHEETS_PULL !== '1') {
+    console.log('[sheets-sync] poller DISABLED (set ASG_SHEETS_PULL=1 to enable)');
+    return;
+  }
   console.log(`[sheets-sync] starting poller every ${POLL_INTERVAL_MS}ms (sheet=${SHEET_ID})`);
-  // Run once on startup, then on interval
   pollSheetIntoDb();
   pollTimer = setInterval(pollSheetIntoDb, POLL_INTERVAL_MS);
 }
