@@ -507,8 +507,8 @@ async function boot() {
     bindUI();
     showTab('home');
     renderNavCounts(loadProps());
-    setInterval(checkLeaseAlerts, 60000);
-    checkLeaseAlerts();
+    setInterval(() => renderAlerts(loadProps()), 60000);
+    renderAlerts(loadProps());
     updateApiStatusUI();
     setupMetaAutoSync();
   } else if (session.type === 'agent') {
@@ -7965,8 +7965,8 @@ boot = async function() {
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
     showTab('home');
     renderNavCounts(loadProps());
-    setInterval(checkLeaseAlerts, 60000);
-    checkLeaseAlerts();
+    setInterval(() => renderAlerts(loadProps()), 60000);
+    renderAlerts(loadProps());
     updateApiStatusUI();
     setupMetaAutoSync();
   } else if (session.type === 'agent') {
@@ -10126,7 +10126,12 @@ const PROJECT_TYPE_META = {
 };
 
 // Seed major UAE developers on first run (only if list is empty)
-(function seedDevelopers() {
+// DISABLED — seedDevelopers used to fire at page-load before auth, causing
+// 20 401 POSTs every time the cache was empty. Developers are now created
+// via the dashboard or directly in the DB. To re-enable seeding, do it as
+// an admin-only one-shot button in the Off-plan tab.
+(function seedDevelopers_DISABLED() {
+  return;
   if (loadDevelopers().length) return;
   const seed = [
     { name:'Emaar Properties',       region:'Dubai',     website:'https://www.emaar.com' },
@@ -11544,11 +11549,9 @@ async function _probeBackend() {
 // If not, ask /api/auth/me — if a valid cookie exists from a previous tab/visit,
 // restore the session without making the user log in again.
 (async function bootGate() {
-  if (isLoggedIn()) {
-    document.getElementById('loginScreen').style.display = 'none';
-    boot();
-    return;
-  }
+  // Always validate the cookie against the backend, even if sessionStorage
+  // claims we're logged in. Without this, an expired cookie + still-cached
+  // sessionStorage shows the dashboard but every API call returns 401.
   try {
     const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
     if (res.ok) {
@@ -11560,10 +11563,18 @@ async function _probeBackend() {
         return;
       }
     }
+    // 401 / no user → cookie is stale. Clear sessionStorage so we don't loop.
+    sessionStorage.removeItem(SESSION_KEY);
   } catch (e) {
-    // Backend unreachable — fine, just show the login screen.
+    // Backend unreachable. If sessionStorage has a session, do a best-effort
+    // boot (probably read-only since API calls will fail too).
+    if (isLoggedIn()) {
+      document.getElementById('loginScreen').style.display = 'none';
+      boot();
+      return;
+    }
   }
-  // No session — show the login screen and tell the user about the backend status.
+  // No valid session — show login screen.
   _probeBackend();
 })();
 
