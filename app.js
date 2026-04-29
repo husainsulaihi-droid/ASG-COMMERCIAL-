@@ -3151,6 +3151,10 @@ function initMapTab() {
     renderMapMarkers();
   });
 
+  // Defensive: ensure canvas matches container after the layout settles.
+  // On mobile the drawer-close animation can run while the map is initializing.
+  requestAnimationFrame(() => mlMap && mlMap.resize());
+
   renderMapSidebar();
 }
 

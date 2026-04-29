@@ -4252,6 +4252,29 @@ body, button, input, select, textarea {
 
   /* Make sure pre/code/long text blocks wrap */
   pre, code { white-space: pre-wrap; word-break: break-word; }
+
+  /* Map view: parent .app-body is now display:block with no fixed height,
+     so the cascade of height:100% collapses to 0. Give the map an explicit
+     viewport-relative height and stack map + sidebar vertically so neither
+     gets squeezed. Without this the map renders as a tiny fragment. */
+  #mapView { height: auto; overflow: visible; }
+  .map-page {
+    flex-direction: column;
+    height: auto;
+  }
+  .map-container {
+    width: 100%;
+    height: 55vh;
+    min-height: 320px;
+    flex: none;
+  }
+  .map-sidebar {
+    width: 100%;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+  .map-sidebar-header { position: static; }
 }
 
 /* Very small phones — extra trims */
