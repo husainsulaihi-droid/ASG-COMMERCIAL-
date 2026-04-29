@@ -140,6 +140,54 @@ CREATE TABLE property_files (
 CREATE INDEX idx_property_files_property ON property_files(property_id);
 CREATE INDEX idx_property_files_category ON property_files(category);
 
+-- ─── DISPUTES (legal cases / disputes per property) ─────────────
+CREATE TABLE disputes (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  title             TEXT     NOT NULL,
+  property_id       INTEGER,
+  type              TEXT,
+  status            TEXT,
+  case_no           TEXT,
+  court             TEXT,
+  opponent          TEXT,
+  filing_date       DATE,
+  next_hearing_date DATE,
+  amount_disputed   REAL,
+  lawyer            TEXT,
+  lawyer_phone      TEXT,
+  notes             TEXT,
+  folder_name       TEXT,
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_disputes_property ON disputes(property_id);
+CREATE INDEX idx_disputes_status   ON disputes(status);
+
+-- ─── CONSTRUCTION PROJECTS ──────────────────────────────────────
+CREATE TABLE construction_projects (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  name                TEXT     NOT NULL,
+  property_id         INTEGER,
+  location            TEXT,
+  type                TEXT,
+  status              TEXT,
+  contractor          TEXT,
+  contractor_phone    TEXT,
+  start_date          DATE,
+  expected_completion DATE,
+  budget              REAL,
+  spent_to_date       REAL,
+  progress            INTEGER,
+  notes               TEXT,
+  folder_name         TEXT,
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_construction_property ON construction_projects(property_id);
+CREATE INDEX idx_construction_status   ON construction_projects(status);
+
 -- ─── PENDING SUBMISSIONS (agent-submitted, awaiting approval) ───
 CREATE TABLE pending_properties (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
