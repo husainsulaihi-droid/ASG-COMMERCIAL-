@@ -222,6 +222,10 @@ async function boot() {
   const session = getSession();
   if (!session) { location.reload(); return; }
 
+  // Tag the body so CSS can scope mobile-specific rules per user type
+  document.body.classList.toggle('user-admin', session.type === 'admin');
+  document.body.classList.toggle('user-agent', session.type === 'agent');
+
   if (session.type === 'admin') {
     document.getElementById('adminHeader').style.display    = '';
     document.getElementById('appBody').style.display        = '';

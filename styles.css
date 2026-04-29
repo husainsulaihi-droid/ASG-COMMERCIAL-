@@ -3928,9 +3928,10 @@ body, button, input, select, textarea {
   /* Show hamburger */
   .sidebar-toggle { display: flex; align-items: center; justify-content: center; }
 
-  /* Force agent header visible on mobile (it's normally hidden because agents
-     navigate via the sidebar — but on mobile we need a header for the hamburger) */
-  #agentHeader { display: flex !important; }
+  /* Show the agent header ONLY when an agent is logged in. (Admin gets the
+     admin header; we must not show both — the body class is set in boot().) */
+  body.user-agent #agentHeader { display: flex !important; }
+  body.user-admin #agentHeader { display: none !important; }
 
   /* Header cleanup */
   .header { padding: 0 12px; gap: 8px; height: 60px; }
