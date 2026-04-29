@@ -7746,16 +7746,17 @@ function _finRenderBody(props) {
   let pool = props;
   if (_finType !== 'all') pool = props.filter(p => p.type === _finType);
 
-  // ── Rental income (rented properties, our share, prorated by months in year) ──
+  // ── Rental income (annualized, our share) ──
+  // Using FULL annual values (no months proration) so the figures match
+  // what the home tile shows. Lease dates are still informational on each row.
   const rentRows = pool
-    .filter(p => p.status === 'rented' && (p.annualRent||0) > 0 && _finActiveInYear(p, _finYear))
+    .filter(p => p.status === 'rented' && (p.annualRent||0) > 0)
     .map(p => {
-      const months = _finMonthsActive(p, _finYear);
+      const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const annual = Number(p.annualRent) || 0;
-      const incomeYr = Math.round(annual * (months/12));
       const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
-      const ourIncome = Math.round(incomeYr * (sharePct/100));
-      return { p, months, annual, incomeYr, sharePct, ourIncome };
+      const ourIncome = Math.round(annual * (sharePct/100));
+      return { p, months, annual, incomeYr: annual, sharePct, ourIncome };
     })
     .sort((a,b) => b.ourIncome - a.ourIncome);
 
@@ -7767,29 +7768,31 @@ function _finRenderBody(props) {
     p.status === 'vacant' && (p.ownership === 'own' || p.ownership === 'partnership')
   );
 
-  // ── Management fee income (managed properties only) ──
+  // ── Management fee income (managed properties — full annual fee) ──
   const mgmtRows = pool
-    .filter(p => p.ownership === 'management' && (p.mgmtFee||0) > 0 && _finActiveInYear(p, _finYear))
+    .filter(p => p.ownership === 'management' && (p.mgmtFee||0) > 0)
     .map(p => {
-      const months = _finMonthsActive(p, _finYear);
+      const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const annual = Number(p.mgmtFee) || 0;
-      const feeYr  = Math.round(annual * (months/12));
-      return { p, months, annual, feeYr };
+      return { p, months, annual, feeYr: annual };
     })
     .sort((a,b) => b.feeYr - a.feeYr);
 
   const mgmtTotal = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
 
-  // ── Additional charges (service, maintenance, VAT) — only on rented properties active in year ──
+  // ── Additional charges (service + maintenance + VAT) ──
+  // Annual values × ownership share. Uses the explicit VAT field if filled,
+  // otherwise computes 5% of annual rent.
   const addRows = pool
-    .filter(p => p.status === 'rented' && _finActiveInYear(p, _finYear)
+    .filter(p => p.status === 'rented'
       && ((Number(p.serviceCharges)||0) || (Number(p.maintenanceFees)||0) || (Number(p.annualRent)||0)))
     .map(p => {
-      const months = _finMonthsActive(p, _finYear);
+      const months   = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
-      const service = Math.round((Number(p.serviceCharges)||0)  * (months/12) * (sharePct/100));
-      const maint   = Math.round((Number(p.maintenanceFees)||0) * (months/12) * (sharePct/100));
-      const vat     = Math.round((Number(p.annualRent)||0) * 0.05 * (months/12) * (sharePct/100));
+      const vatBase  = Number(p.vat) || (Number(p.annualRent)||0) * 0.05;
+      const service  = Math.round((Number(p.serviceCharges)||0)  * (sharePct/100));
+      const maint    = Math.round((Number(p.maintenanceFees)||0) * (sharePct/100));
+      const vat      = Math.round(vatBase * (sharePct/100));
       return { p, months, service, maint, vat, sub: service + maint + vat };
     })
     .filter(r => r.sub > 0)
