@@ -1828,6 +1828,14 @@ async function handleSave() {
   await fetchProperties();
   closeAddModal();
   refresh();
+  // Re-render whatever tab the user came from — Rentals/Financials/Home all
+  // read from the property cache and need to redraw with the new cheque /
+  // financial state. Without this they stay stale until a full page reload.
+  if (typeof activeTab !== 'undefined' && activeTab) {
+    if (activeTab === 'payment')         renderPayments();
+    else if (activeTab === 'financials') renderFinancials();
+    else if (activeTab === 'home')       renderHome();
+  }
   showToast(editId ? 'Property updated' : 'Property added', 'success');
 
   btn.disabled = false;
