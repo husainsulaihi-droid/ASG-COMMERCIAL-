@@ -14,11 +14,18 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const { initDb, getDb } = require('./db');
 const { clearExpiredSessions } = require('./auth');
-const authRoutes        = require('./routes-auth');
-const userRoutes        = require('./routes-users');
-const propertyRoutes    = require('./routes-properties');
-const leadRoutes        = require('./routes-leads');
-const taskRoutes        = require('./routes-tasks');
+const authRoutes          = require('./routes-auth');
+const userRoutes          = require('./routes-users');
+const propertyRoutes      = require('./routes-properties');
+const leadRoutes          = require('./routes-leads');
+const taskRoutes          = require('./routes-tasks');
+const meetingRoutes       = require('./routes-meetings');
+const announcementRoutes  = require('./routes-announcements');
+const leaveRoutes         = require('./routes-leaves');
+const offplanRoutes       = require('./routes-offplan');
+const secondaryRoutes     = require('./routes-secondary');
+const proposalRoutes      = require('./routes-proposals');
+const pendingRoutes       = require('./routes-pending');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -70,15 +77,22 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     db: dbReachable,
     users: userCount,
-    version: '0.3.0'
+    version: '0.4.0'
   });
 });
 
-app.use('/api/auth',       authRoutes);
-app.use('/api/users',      userRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/leads',      leadRoutes);
-app.use('/api/tasks',      taskRoutes);
+app.use('/api/auth',                authRoutes);
+app.use('/api/users',               userRoutes);
+app.use('/api/properties',          propertyRoutes);
+app.use('/api/leads',               leadRoutes);
+app.use('/api/tasks',               taskRoutes);
+app.use('/api/meetings',            meetingRoutes);
+app.use('/api/announcements',       announcementRoutes);
+app.use('/api/leaves',              leaveRoutes);
+app.use('/api/offplan',             offplanRoutes);
+app.use('/api/secondary',           secondaryRoutes);
+app.use('/api/proposals',           proposalRoutes);
+app.use('/api/pending-properties',  pendingRoutes);
 
 // Catch-all for unknown /api/* routes
 app.use('/api', (req, res) => {

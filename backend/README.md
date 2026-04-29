@@ -46,7 +46,7 @@ backend/
 - ✅ Phase 1 — Skeleton: `/api/health` works, DB initializes from schema
 - ✅ Phase 2 — Auth: login, sessions, password hashing, user CRUD
 - ✅ Phase 3 — Core endpoints (properties, leads, tasks)
-- ⏳ Phase 4 — Remaining endpoints (meetings, announcements, leaves, off-plan, secondary, proposals)
+- ✅ Phase 4 — Remaining endpoints (meetings, announcements, leaves, off-plan, secondary, proposals, pending submissions)
 - ⏳ Phase 5 — File upload (photos, documents)
 - ⏳ Phase 6 — Frontend rewire (replace localStorage with `fetch`)
 - ⏳ Phase 7 — Multi-user testing & polish
