@@ -3896,6 +3896,227 @@ body, button, input, select, textarea {
 .lbs-dot.lbs-off { background: #d97706; }
 
 /* ═══════════════════════════════════════════════════════
+   MOBILE / RESPONSIVE
+   ═══════════════════════════════════════════════════════ */
+
+/* Hamburger button — hidden on desktop, shown on mobile */
+.sidebar-toggle {
+  display: none;
+  background: transparent;
+  border: 0;
+  color: #fff;
+  cursor: pointer;
+  padding: 8px;
+  margin-right: 4px;
+  border-radius: 6px;
+}
+.sidebar-toggle:hover { background: rgba(255,255,255,0.1); }
+
+/* Sidebar backdrop — invisible on desktop, shown on mobile when open */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 199;
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  /* Show hamburger */
+  .sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+
+  /* Force agent header visible on mobile (it's normally hidden because agents
+     navigate via the sidebar — but on mobile we need a header for the hamburger) */
+  #agentHeader { display: flex !important; }
+
+  /* Header cleanup */
+  .header { padding: 0 12px; gap: 8px; height: 60px; }
+  .logo-title { font-size: 14px; }
+  .logo-sub   { display: none; }
+  .header-right { gap: 6px; }
+
+  /* Hide non-essential header buttons on mobile to save space */
+  .header-right .excel-sync-pill,
+  .header-right .agent-role-badge { display: none; }
+  .header-right .btn-logout span,
+  .header-right .btn-primary { font-size: 0; padding: 8px; }
+  .header-right .btn-logout svg,
+  .header-right .btn-primary svg { font-size: initial; }
+  .btn-icon-hdr { padding: 8px; }
+
+  /* Sidebar becomes a slide-in drawer */
+  .app-body { display: block; height: auto; min-height: calc(100vh - 60px); overflow: visible; }
+  .sidebar {
+    position: fixed;
+    left: 0; top: 60px;
+    height: calc(100vh - 60px);
+    width: 260px;
+    z-index: 250;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    box-shadow: 2px 0 16px rgba(0,0,0,0.4);
+  }
+  body.sidebar-open .sidebar { transform: translateX(0); }
+  body.sidebar-open .sidebar-backdrop {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .main-content { width: 100%; padding-bottom: 24px; }
+
+  /* Tab pages — tighter padding on mobile */
+  .tab-page,
+  .agent-tab-page,
+  .team-page,
+  .fin-page,
+  .cal-page { padding: 16px 14px 32px; }
+
+  /* Tab page headers stack on mobile */
+  .tab-page-header,
+  .agent-tab-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .tab-page-title { font-size: 18px; }
+  .tab-page-sub { font-size: 12.5px; }
+
+  /* Stats bar (warehouses/offices/residential) — wraps and shrinks */
+  .stats-bar {
+    flex-wrap: wrap; gap: 8px; padding: 14px 14px 0;
+  }
+  .stat-card { flex: 1 0 calc(50% - 8px); padding: 12px 14px; }
+  .stat-value { font-size: 18px; }
+  .stat-icon { font-size: 22px; }
+
+  /* Property card grid — single column */
+  .grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    padding: 14px;
+  }
+
+  /* Filters bar wraps */
+  .filters,
+  .pmt-filter-group { flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+  .filter-select { min-width: 0; flex: 1 1 auto; }
+
+  /* Modals: full-width, full-height side panel becomes full-screen */
+  .modal-overlay { padding: 0; }
+  .modal {
+    width: 100%; max-width: 100%;
+    height: 100vh; max-height: 100vh;
+    border-left: none;
+    border-radius: 0;
+  }
+  .modal-xl { max-width: 100%; }
+  .modal-header { padding: 14px 16px; }
+  .modal-header h2 { font-size: 16px; }
+  .modal-body { padding: 18px 16px 8px; }
+  .modal-footer { padding: 12px 16px; flex-wrap: wrap; }
+  .modal-footer .btn-primary,
+  .modal-footer .btn-ghost,
+  .modal-footer .btn-delete { flex: 1; min-width: 100px; }
+
+  /* Form rows stack */
+  .form-row,
+  .form-row.three-col { grid-template-columns: 1fr !important; gap: 10px !important; }
+
+  /* Team module — single-column on mobile, sub-nav becomes pill row */
+  .team-page { flex-direction: column; gap: 14px; }
+  .team-subnav {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    position: static;
+    padding: 8px;
+    gap: 6px;
+    border-radius: 4px;
+  }
+  .team-subnav-label { display: none; }
+  .team-subnav-btn { padding: 10px 14px; white-space: nowrap; flex-shrink: 0; }
+  .team-section { padding: 18px 16px; border-radius: 4px; }
+  .team-section-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .team-section-title { font-size: 16px; }
+
+  /* Tables: enable horizontal scroll for the wide ones */
+  .leaderboard-table,
+  .pmt-table,
+  .fin-tbl-wrap,
+  .mtg-admin-table,
+  .proposals-table { overflow-x: auto; }
+  .lb-head, .lb-row,
+  .pmt-thead, .pmt-trow,
+  .mtg-row, .prop-row {
+    min-width: 720px;  /* force horizontal scroll on narrow screens */
+  }
+
+  /* KPI strips reflow */
+  .overview-kpi-strip { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .okpi { padding: 14px 10px; }
+  .okpi-num { font-size: 24px; }
+  .okpi-lbl { font-size: 10px; letter-spacing: .06em; margin-top: 6px; }
+
+  /* Overview cards single-column */
+  .overview-grid { grid-template-columns: 1fr; gap: 10px; }
+  .overview-quick-actions { gap: 6px; }
+  .qaction { font-size: 12.5px; padding: 8px 12px; }
+
+  /* Agent dashboard panel */
+  .dash-grid { grid-template-columns: 1fr; gap: 10px; }
+  .dash-card-pipe, .dash-card-alerts { grid-column: auto; }
+  .dash-metrics { grid-template-columns: repeat(2, 1fr); }
+
+  /* Off-plan and Secondary grids */
+  .op-dev-grid,
+  .op-proj-grid,
+  .sec-grid { grid-template-columns: 1fr; gap: 10px; }
+  .op-detail-grid { grid-template-columns: 1fr; }
+  .op-detail-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .op-detail-actions { width: 100%; flex-wrap: wrap; }
+  .op-detail-actions button { flex: 1; min-width: 100px; }
+  .op-detail-name,
+  .sec-card-title { font-size: 18px; }
+  .op-row { grid-template-columns: 1fr; gap: 4px; padding: 8px 0; }
+  .op-row span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+
+  /* Meetings cards */
+  .meeting-card-top { flex-direction: column; gap: 10px; }
+  .meeting-type-icon { width: 36px; height: 36px; }
+
+  /* Schedule grid single column */
+  .schedule-grid { grid-template-columns: 1fr; }
+
+  /* Login screen narrower */
+  .login-box { width: calc(100% - 32px); padding: 28px 22px; }
+
+  /* Lightbox / detail media — smaller tiles */
+  .detail-media-gallery,
+  .op-photo-gallery,
+  .meeting-photo-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+
+  /* Activity timeline */
+  .timeline-item { flex-direction: row; gap: 10px; }
+  .timeline-icon { width: 28px; height: 28px; font-size: 14px; }
+  .timeline-text { font-size: 12.5px; }
+
+  /* Footer pages */
+  .fin-grand-row { font-size: 13px; }
+  .fin-grand-total { font-size: 15px; }
+}
+
+/* Very small phones — extra trims */
+@media (max-width: 420px) {
+  .logo-mark { width: 34px; height: 34px; font-size: 11px; }
+  .logo-title { font-size: 13px; }
+  .header-right .btn-icon-hdr,
+  .header-right .btn-logout { padding: 6px; }
+  .overview-kpi-strip { grid-template-columns: 1fr; }
+  .dash-metrics { grid-template-columns: 1fr; }
+  .stat-card { flex: 1 0 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════
    BLUE-BOX TEXT — force all text inside blue cards to white
    (inner white-bg row tiles still get dark text via override)
    ═══════════════════════════════════════════════════════ */

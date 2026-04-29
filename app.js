@@ -11087,6 +11087,23 @@ if (_origShowAgentTab5) {
   };
 }
 
+// ─── Mobile sidebar toggle ────────────────────────
+function toggleSidebar() {
+  document.body.classList.toggle('sidebar-open');
+}
+function closeSidebar() {
+  document.body.classList.remove('sidebar-open');
+}
+// Auto-close the sidebar after a tab is selected on mobile (better UX)
+(function autoCloseSidebarOnNavigation() {
+  document.addEventListener('click', (e) => {
+    const navItem = e.target.closest('.nav-item');
+    if (!navItem) return;
+    if (window.innerWidth > 900) return;  // desktop: don't auto-close
+    closeSidebar();
+  });
+})();
+
 // Probe backend health and update the status indicator on the login screen.
 async function _probeBackend() {
   const el = document.getElementById('loginBackendStatus');
