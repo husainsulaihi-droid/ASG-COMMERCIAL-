@@ -3599,7 +3599,65 @@ const AGENT_ROLES = {
 function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; }
 
 function loadAgents()  { return _api.users.load().filter(u => u.role !== 'admin'); }
-function saveAgents(a) { _api.users.save(a); }
+
+// Custom saveAgents: the generic factory would diff against the FULL users
+// cache (which includes admin) and try to DELETE admin every time we mutate
+// agents. Scope the diff to the agent subset, and translate the frontend's
+// `role` field (sub-role like 'sales') to the backend's `agentRole`.
+function saveAgents(arr) {
+  const before = new Map(loadAgents().map(x => [String(x.id), x]));
+  const after  = new Map(arr.map(x => [String(x.id), x]));
+
+  (async () => {
+    // Deletes (only numeric backend IDs)
+    for (const [id] of before) {
+      if (!after.has(id) && /^\d+$/.test(id)) {
+        try { await fetch(`/api/users/${id}`, { method: 'DELETE', credentials: 'same-origin' }); }
+        catch (e) { console.warn('saveAgents delete failed:', e.message); }
+      }
+    }
+    // Creates / updates
+    for (const [id, item] of after) {
+      const payload = {
+        username:     item.username,
+        password:     item.password,
+        name:         item.name,
+        role:         'agent',
+        agentRole:    item.role,
+        email:        item.email,
+        phone:        item.phone,
+        permissions:  item.permissions,
+        isTeamLeader: item.isTeamLeader,
+        teamLeaderId: item.teamLeaderId,
+      };
+      if (!before.has(id)) {
+        try {
+          const r = await fetch('/api/users', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            console.warn('saveAgents create failed:', err.error || r.status);
+            if (typeof showToast === 'function') showToast(`Agent create failed: ${err.error || 'HTTP ' + r.status}`, 'error');
+          }
+        } catch (e) { console.warn('saveAgents create error:', e.message); }
+      } else if (/^\d+$/.test(id)) {
+        // Don't send password on update unless it changed
+        if (!item.password) delete payload.password;
+        try {
+          await fetch(`/api/users/${id}`, {
+            method: 'PATCH', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch (e) { console.warn('saveAgents update error:', e.message); }
+      }
+    }
+    await _api.users.fetch();   // re-sync the full users cache (includes admin)
+  })();
+}
 function loadTasks()   { return _api.tasks.load(); }
 function saveTasks(t)  { _api.tasks.save(t); }
 
