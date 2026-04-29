@@ -266,6 +266,37 @@ async function apiDeleteProperty(id) {
   await fetchProperties();
 }
 
+// ─── Property Files API helpers ───────────────────────
+async function apiUploadPropertyFile(propertyId, category, file) {
+  const fd = new FormData();
+  fd.append('category', category);
+  fd.append('file', file);
+  const res = await fetch(`/api/properties/${propertyId}/files`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: fd,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Upload failed: HTTP ${res.status}`);
+  }
+  return (await res.json()).file;
+}
+
+async function apiListPropertyFiles(propertyId) {
+  const res = await fetch(`/api/properties/${propertyId}/files`, { credentials: 'same-origin' });
+  if (!res.ok) return [];
+  return (await res.json()).files || [];
+}
+
+async function apiDeletePropertyFile(propertyId, fileId) {
+  const res = await fetch(`/api/properties/${propertyId}/files/${fileId}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  return res.ok;
+}
+
 // Legacy persistProps shim. Some callers pass the entire mutated array.
 // We update the cache *immediately* (so the next loadProps() returns the new
 // state) and fire-and-forget the corresponding API calls in the background.
@@ -1523,46 +1554,51 @@ async function handleSave() {
     updatedAt:     iso(),
   };
 
-  // Carry over existing docs
-  if (editId) {
-    const existing = props.find(p => p.id === editId);
-    if (existing?.files) property.files = { ...existing.files };
+  // ─── Save property to backend, then upload pending files via API ─
+  let savedId;
+  try {
+    if (editId && /^\d+$/.test(editId)) {
+      const updated = await apiUpdateProperty(editId, property);
+      savedId = updated.id;
+    } else {
+      const created = await apiCreateProperty(property);
+      savedId = created.id;
+    }
+  } catch (e) {
+    showToast(`Save failed: ${e.message}`, 'error');
+    btn.disabled = false;
+    $('saveBtnText').textContent = 'Save Property';
+    return;
   }
 
-  // Save new doc files
+  // Upload pending document files (drec, ijari, affection, tenancy)
+  // Each one goes to /var/asg/uploads + Google Drive in the matching subfolder.
   for (const key of ['drec', 'ijari', 'affection', 'tenancy']) {
     const file = pendingFiles[key];
     if (file) {
-      const fileId = `${property.id}_${key}`;
-      await idbPut(fileId, file);
-      property.files[key] = { name: file.name, id: fileId };
+      try { await apiUploadPropertyFile(savedId, key, file); }
+      catch (e) { console.warn(`upload ${key} failed:`, e); showToast(`Upload of ${key} failed`, 'error'); }
     }
   }
 
-  // Delete removed media
+  // Delete media flagged for removal
   for (const id of removedMediaIds) {
-    await idbDel(id).catch(() => {});
+    if (typeof id === 'number' || /^\d+$/.test(String(id))) {
+      try { await apiDeletePropertyFile(savedId, id); } catch (e) {}
+    } else {
+      // legacy IDB id
+      await idbDel(id).catch(() => {});
+    }
   }
 
-  // Carry over existing (non-removed) media
-  property.media = [...existingMediaMeta];
-
-  // Save new media
+  // Upload pending media (photos / videos)
   for (let i = 0; i < pendingMedia.length; i++) {
-    const file   = pendingMedia[i];
-    const fileId = `${property.id}_media_${uid()}`;
-    await idbPut(fileId, file);
-    property.media.push({ id: fileId, name: file.name, mime: file.type });
+    const file = pendingMedia[i];
+    try { await apiUploadPropertyFile(savedId, 'photo', file); }
+    catch (e) { console.warn('upload photo failed:', e); }
   }
 
-  if (editId) {
-    const idx = props.findIndex(p => p.id === editId);
-    if (idx >= 0) props[idx] = property;
-  } else {
-    props.push(property);
-  }
-
-  persistProps(props);
+  await fetchProperties();
   closeAddModal();
   refresh();
   showToast(editId ? 'Property updated' : 'Property added', 'success');
@@ -1607,6 +1643,34 @@ async function openDetailModal(id) {
   currentDetailId = id;
   const p = loadProps().find(x => x.id === id);
   if (!p) return;
+
+  // Pull API-tracked files (Drive-mirrored uploads) and group by category.
+  // Falls back to p.files / p.media (legacy IDB) if the API has nothing.
+  if (/^\d+$/.test(String(id))) {
+    try {
+      const files = await apiListPropertyFiles(id);
+      if (files && files.length) {
+        const byCat = {};
+        for (const f of files) {
+          const cat = f.category || 'other';
+          if (cat === 'photo') {
+            byCat.photos = byCat.photos || [];
+            byCat.photos.push(f);
+          } else {
+            byCat[cat] = f; // last one wins per doc category
+          }
+        }
+        // Overwrite legacy fields so the existing render uses API data.
+        p.files = {
+          drec:      byCat.drec,
+          ijari:     byCat.ijari,
+          affection: byCat.affection,
+          tenancy:   byCat.tenancy,
+        };
+        p.media = byCat.photos || [];
+      }
+    } catch (e) { console.warn('[openDetailModal] file fetch failed:', e); }
+  }
 
   const typeIcon = p.type === 'warehouse' ? '🏭' : '🏢';
   $('detailTypeIcon').textContent = typeIcon;
@@ -1798,15 +1862,29 @@ function docTile(label, info) {
       <div class="doc-tile-title">${label}</div>
       <div class="doc-tile-name">Not uploaded</div>
     </div>`;
-  const safeId   = info.id.replace(/'/g, "\\'");
-  const safeName = info.name.replace(/'/g, "\\'");
-  const ext  = info.name.split('.').pop().toLowerCase();
+  const safeName = (info.filename || info.name || 'file').replace(/'/g, "\\'");
+  const ext  = (info.filename || info.name || '').split('.').pop().toLowerCase();
   const icon = ['jpg','jpeg','png','gif','webp'].includes(ext) ? '🖼️' : ext === 'pdf' ? '📄' : '📋';
+
+  // API file: has driveUrl/drive_url → open in new tab
+  if (info.driveUrl || info.drive_url) {
+    const url = info.driveUrl || info.drive_url;
+    return `
+      <a class="doc-tile" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;">
+        <div class="doc-tile-icon">${icon}</div>
+        <div class="doc-tile-title">${label}</div>
+        <div class="doc-tile-name">${h(safeName)}</div>
+        <div class="doc-tile-action">↗ Open in Drive</div>
+      </a>`;
+  }
+
+  // Legacy IDB file
+  const safeId = (info.id || '').toString().replace(/'/g, "\\'");
   return `
     <div class="doc-tile" onclick="downloadFile('${safeId}','${safeName}')">
       <div class="doc-tile-icon">${icon}</div>
       <div class="doc-tile-title">${label}</div>
-      <div class="doc-tile-name">${h(info.name)}</div>
+      <div class="doc-tile-name">${h(safeName)}</div>
       <div class="doc-tile-action">⬇ Download</div>
     </div>`;
 }
