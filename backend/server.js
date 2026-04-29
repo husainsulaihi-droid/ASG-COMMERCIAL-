@@ -28,6 +28,7 @@ const secondaryRoutes     = require('./routes-secondary');
 const proposalRoutes      = require('./routes-proposals');
 const pendingRoutes       = require('./routes-pending');
 const sheetsSync          = require('./sheets-sync');
+const backupRoutes        = require('./routes-backup');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -96,6 +97,7 @@ app.use('/api/offplan',             offplanRoutes);
 app.use('/api/secondary',           secondaryRoutes);
 app.use('/api/proposals',           proposalRoutes);
 app.use('/api/pending-properties',  pendingRoutes);
+app.use('/api/backup',              backupRoutes);
 
 // Catch-all for unknown /api/* routes
 app.use('/api', (req, res) => {

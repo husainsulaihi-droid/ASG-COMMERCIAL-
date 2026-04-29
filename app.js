@@ -7290,6 +7290,12 @@ function renderHome() {
           <div class="home-greet">${_homeGreeting()}</div>
           <h1 class="home-welcome">Welcome back, <span>${h(username)}</span></h1>
           <p class="home-tagline">Your complete portfolio at a glance — pick a section below to dive in.</p>
+          <a href="/api/backup/all"
+             style="display:inline-flex;align-items:center;gap:8px;margin-top:14px;padding:10px 18px;background:rgba(201,168,76,0.15);border:1px solid var(--gold);border-radius:8px;color:var(--gold);text-decoration:none;font-size:13px;font-weight:600;"
+             title="Downloads /var/asg/uploads + the SQLite DB as a single .tar.gz">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Full Backup
+          </a>
         </div>
         <div class="home-hero-stats">
           <div class="home-stat">
