@@ -19,19 +19,27 @@ const { getDb } = require('./db');
 const { requireAuth, requireAdmin } = require('./middleware');
 const { rowToApi } = require('./utils');
 const driveUploader = require('./drive-uploader');
+const folderExport = require('./property-folder-export');
 
 const UPLOAD_ROOT = process.env.ASG_UPLOAD_ROOT || '/var/asg/uploads';
 const ALLOWED_CATS = new Set(['ijari', 'tenancy', 'affection', 'drec', 'photo', 'other']);
 const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
 
-// ─── Multer setup: write directly to per-property folder ──────────
+// ─── Multer setup: drop the file into <property folder>/<category>/ ──
+// Note: req.body fields parsed before file upload only when the form is
+// submitted with category appended BEFORE file (frontend follows this).
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const propId = parseInt(req.params.id, 10);
-    if (!propId) return cb(new Error('invalid property id'));
-    const dir = path.join(UPLOAD_ROOT, `property-${propId}`);
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
+    try {
+      const propId = parseInt(req.params.id, 10);
+      const property = getDb().prepare('SELECT * FROM properties WHERE id = ?').get(propId);
+      if (!property) return cb(new Error('property not found'));
+      const propDir = folderExport.ensurePropertyFolder(property);
+      const category = (req.body.category || 'other').toLowerCase();
+      const catDir = path.join(propDir, ALLOWED_CATS.has(category) ? category : 'other');
+      fs.mkdirSync(catDir, { recursive: true });
+      cb(null, catDir);
+    } catch (e) { cb(e); }
   },
   filename: (req, file, cb) => {
     // Prefix with a uuid so two files with the same name don't collide

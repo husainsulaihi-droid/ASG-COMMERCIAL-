@@ -100,10 +100,11 @@ CREATE TABLE properties (
 CREATE INDEX idx_properties_type   ON properties(type);
 CREATE INDEX idx_properties_status ON properties(status);
 
--- drive_folder_id is added by ALTER TABLE for existing databases
--- (see deploy/add-files-schema.sql); included here so fresh installs
--- get the column from the start.
+-- drive_folder_id and folder_name are added by ALTER TABLE on existing
+-- databases (see deploy migration scripts). Listed here as comments for
+-- documentation; the live schema includes them.
 -- ALTER TABLE properties ADD COLUMN drive_folder_id TEXT;
+-- ALTER TABLE properties ADD COLUMN folder_name TEXT;
 
 -- ─── PROPERTY CHEQUES ────────────────────────────────────────────
 CREATE TABLE property_cheques (

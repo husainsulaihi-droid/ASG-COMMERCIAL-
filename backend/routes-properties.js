@@ -30,6 +30,7 @@ const { getDb } = require('./db');
 const { requireAuth, requireAdmin } = require('./middleware');
 const { rowToApi, bodyToDb } = require('./utils');
 const { pushPropertyToSheetAsync } = require('./sheets-sync');
+const folderExport = require('./property-folder-export');
 
 const router = express.Router();
 
@@ -93,9 +94,23 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ property: shapeForViewer(row, req.user) });
 });
 
+// Reject duplicate names so each property gets a unique on-disk folder.
+function nameTakenBy(name, exceptId) {
+  if (!name) return null;
+  const sql = exceptId == null
+    ? 'SELECT id FROM properties WHERE name = ? COLLATE NOCASE LIMIT 1'
+    : 'SELECT id FROM properties WHERE name = ? COLLATE NOCASE AND id != ? LIMIT 1';
+  const args = exceptId == null ? [name] : [name, exceptId];
+  const row = getDb().prepare(sql).get(...args);
+  return row ? row.id : null;
+}
+
 router.post('/', requireAdmin, (req, res) => {
   const data = bodyToDb(req.body, PROP_FIELDS);
   if (!data.name) return res.status(400).json({ error: 'name required' });
+  if (nameTakenBy(data.name)) {
+    return res.status(409).json({ error: `A property named "${data.name}" already exists. Pick a different name.` });
+  }
   data.added_by_id   = req.user.id;
   data.added_by_name = req.user.name;
 
@@ -106,6 +121,7 @@ router.post('/', requireAdmin, (req, res) => {
     `INSERT INTO properties (${cols.join(', ')}) VALUES (${placeholders})`
   ).run(...values);
   const row = getDb().prepare('SELECT * FROM properties WHERE id = ?').get(result.lastInsertRowid);
+  folderExport.writePropertyFolder(row.id);
   pushPropertyToSheetAsync(row.id);
   res.status(201).json({ property: rowToApi(row) });
 });
@@ -117,6 +133,9 @@ router.patch('/:id', requireAdmin, (req, res) => {
 
   const data = bodyToDb(req.body, PROP_FIELDS);
   if (!Object.keys(data).length) return res.json({ property: rowToApi(existing) });
+  if (data.name && nameTakenBy(data.name, id)) {
+    return res.status(409).json({ error: `A property named "${data.name}" already exists. Pick a different name.` });
+  }
 
   const sets   = Object.keys(data).map(k => `${k} = ?`).join(', ');
   const values = [...Object.values(data), id];
@@ -125,14 +144,20 @@ router.patch('/:id', requireAdmin, (req, res) => {
   ).run(...values);
 
   const row = getDb().prepare('SELECT * FROM properties WHERE id = ?').get(id);
+  if (data.name && data.name !== existing.name) {
+    folderExport.renameFolderIfNameChanged(id);
+  }
+  folderExport.writePropertyFolder(id);
   pushPropertyToSheetAsync(row.id);
   res.json({ property: rowToApi(row) });
 });
 
 router.delete('/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
+  const existing = getDb().prepare('SELECT folder_name FROM properties WHERE id = ?').get(id);
   const result = getDb().prepare('DELETE FROM properties WHERE id = ?').run(id);
   if (result.changes === 0) return res.status(404).json({ error: 'Property not found' });
+  if (existing) folderExport.deletePropertyFolder(existing.folder_name);
   pushPropertyToSheetAsync(id);
   res.json({ ok: true });
 });
@@ -154,6 +179,7 @@ router.post('/:id/cheques', requireAdmin, (req, res) => {
     'INSERT INTO property_cheques (property_id, cheque_num, cheque_date, amount, status) VALUES (?, ?, ?, ?, ?)'
   ).run(id, b.chequeNum || null, b.chequeDate || null, b.amount || null, b.status || 'pending');
   const row = getDb().prepare('SELECT * FROM property_cheques WHERE id = ?').get(result.lastInsertRowid);
+  folderExport.writePropertyFolder(id);
   res.status(201).json({ cheque: rowToApi(row) });
 });
 
@@ -173,12 +199,16 @@ router.patch('/:id/cheques/:cid', requireAdmin, (req, res) => {
   values.push(cid);
   getDb().prepare(`UPDATE property_cheques SET ${updates.join(', ')} WHERE id = ?`).run(...values);
   const row = getDb().prepare('SELECT * FROM property_cheques WHERE id = ?').get(cid);
+  const propId = parseInt(req.params.id, 10);
+  folderExport.writePropertyFolder(propId);
   res.json({ cheque: rowToApi(row) });
 });
 
 router.delete('/:id/cheques/:cid', requireAdmin, (req, res) => {
   const cid = parseInt(req.params.cid, 10);
+  const propId = parseInt(req.params.id, 10);
   getDb().prepare('DELETE FROM property_cheques WHERE id = ?').run(cid);
+  folderExport.writePropertyFolder(propId);
   res.json({ ok: true });
 });
 
