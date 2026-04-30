@@ -1,17 +1,79 @@
-// One-shot migration: add columns that may be missing on older databases.
-// Idempotent — re-running is safe (errors are caught and skipped).
+// Idempotent migration: ensures every column the backend code expects
+// exists on the production DB. Re-running is safe.
 const db = require('better-sqlite3')('/var/asg/data/asg.db');
-const stmts = [
-  'ALTER TABLE property_cheques ADD COLUMN late_fees REAL',
-  'ALTER TABLE property_cheques ADD COLUMN cheque_no_text TEXT',
-  'ALTER TABLE properties ADD COLUMN brokerage_amount REAL',
-  'ALTER TABLE properties ADD COLUMN cash_amount REAL',
+
+// (table, column, type)
+const cols = [
+  // property_cheques
+  ['property_cheques', 'late_fees',          'REAL'],
+  ['property_cheques', 'cheque_no_text',     'TEXT'],
+
+  // properties — every camelCase field the routes accept
+  ['properties', 'unit_no',              'TEXT'],
+  ['properties', 'trade_license',        'TEXT'],
+  ['properties', 'usage',                'TEXT'],
+  ['properties', 'map_link',             'TEXT'],
+  ['properties', 'compound',             'TEXT'],
+  ['properties', 'mezzanine',            'TEXT'],
+  ['properties', 'premise_number',       'TEXT'],
+  ['properties', 'dewa_number',          'TEXT'],
+  ['properties', 'partner_name',         'TEXT'],
+  ['properties', 'our_share',            'REAL'],
+  ['properties', 'owner_name',           'TEXT'],
+  ['properties', 'owner_phone',          'TEXT'],
+  ['properties', 'owner_email',          'TEXT'],
+  ['properties', 'partners',             'TEXT'],
+  ['properties', 'mgmt_fee',             'REAL'],
+  ['properties', 'mgmt_date',            'TEXT'],
+  ['properties', 'mgmt_maintenance',     'REAL'],
+  ['properties', 'mgmt_admin_fee',       'REAL'],
+  ['properties', 'purchase_price',       'REAL'],
+  ['properties', 'purchase_date',        'TEXT'],
+  ['properties', 'market_value',         'REAL'],
+  ['properties', 'land_charges',         'REAL'],
+  ['properties', 'license_fees',         'REAL'],
+  ['properties', 'sub_lease_fees',       'REAL'],
+  ['properties', 'dewa_charges',         'REAL'],
+  ['properties', 'ejari_fees',           'REAL'],
+  ['properties', 'civil_defense_charges','REAL'],
+  ['properties', 'legal_fee',            'REAL'],
+  ['properties', 'corporate_tax',        'REAL'],
+  ['properties', 'security_deposit',     'REAL'],
+  ['properties', 'cash_amount',          'REAL'],
+  ['properties', 'brokerage_amount',     'REAL'],
+  ['properties', 'tenant_name',          'TEXT'],
+  ['properties', 'tenant_phone',         'TEXT'],
+  ['properties', 'tenant_email',         'TEXT'],
+  ['properties', 'reminder_days',        'INTEGER'],
+  ['properties', 'lease_start',          'TEXT'],
+  ['properties', 'lease_end',            'TEXT'],
+  ['properties', 'num_cheques',          'INTEGER'],
+  ['properties', 'notes',                'TEXT'],
+  ['properties', 'coords',               'TEXT'],
+  ['properties', 'holding_company',      'TEXT'],
+  ['properties', 'plot_no',              'TEXT'],
+  ['properties', 'ejari_number',         'TEXT'],
+  ['properties', 'deposit',              'REAL'],
+  ['properties', 'service_charges',      'REAL'],
+  ['properties', 'maintenance_fees',     'REAL'],
+  ['properties', 'vat',                  'REAL'],
+  ['properties', 'annual_rent',          'REAL'],
+
+  // tasks
+  ['tasks',           'created_by_id',   'INTEGER'],
+  ['tasks',           'created_by_name', 'TEXT'],
 ];
-for (const s of stmts) {
-  try { db.exec(s); console.log('OK:  ', s); }
-  catch (e) { console.log('SKIP:', e.message); }
+
+let added = 0, skipped = 0;
+for (const [table, col, type] of cols) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    console.log('OK:  ', table, col);
+    added++;
+  } catch (e) {
+    if (/duplicate column/.test(e.message)) skipped++;
+    else console.log('FAIL:', table, col, '-', e.message);
+  }
 }
-const cols = db.prepare('PRAGMA table_info(property_cheques)').all()
-  .filter(c => /late_fees|cheque_no_text/.test(c.name))
-  .map(c => c.name);
-console.log('property_cheques has:', cols.join(', ') || '(none — failed)');
+console.log(`---\nadded=${added} skipped(already-present)=${skipped}`);
+console.log('properties columns:', db.prepare('PRAGMA table_info(properties)').all().map(c => c.name).length, 'total');
