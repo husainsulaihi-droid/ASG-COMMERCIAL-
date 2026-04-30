@@ -1406,13 +1406,32 @@ body, button, input, select, textarea {
   padding:1px 7px; border-radius:9px; min-width:18px; text-align:center;
 }
 .mt-tab.active .mt-tab-count { background:#c9a84c; color:#1a1f2e; }
+.mt-toolbar-right {
+  display:flex; align-items:center; gap:10px; margin-left:auto;
+  flex-wrap:wrap;
+}
 .mt-search {
-  flex:1; min-width:160px; max-width:280px; margin-left:auto;
+  width:220px; min-width:140px;
   padding:8px 12px; border:1px solid #e5e7eb; border-radius:9px;
   background:#fff; font-size:13px; font-family:inherit; outline:none;
   transition:border-color 0.15s;
 }
 .mt-search:focus { border-color:#c9a84c; }
+.mt-new-btn {
+  display:inline-flex; align-items:center; gap:6px;
+  background:#1a1f2e; color:#c9a84c; border:1px solid #1a1f2e;
+  padding:8px 14px; border-radius:9px; cursor:pointer;
+  font-family:inherit; font-size:13px; font-weight:600;
+  transition:background 0.15s, transform 0.05s;
+}
+.mt-new-btn:hover { background:#2a3142; }
+.mt-new-btn:active { transform:scale(0.98); }
+.mt-new-btn svg { color:#c9a84c; }
+@media (max-width:520px) {
+  .mt-search { width:100%; }
+  .mt-new-btn span { display:none; }
+  .mt-new-btn { padding:8px 10px; }
+}
 
 .mt-filters {
   display:flex; gap:8px; padding:0 4px 14px;
