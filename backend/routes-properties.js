@@ -39,6 +39,7 @@ const PROP_FIELDS = [
   'size', 'area', 'compound', 'mezzanine',
   'ownership', 'partner_name', 'our_share', 'owner_name', 'owner_phone',
   'mgmt_fee', 'mgmt_date', 'purchase_price', 'purchase_date', 'market_value',
+  'land_charges', 'license_fees',
   'status', 'annual_rent', 'service_charges', 'maintenance_fees', 'vat',
   'tenant_name', 'tenant_phone', 'tenant_email', 'reminder_days',
   'lease_start', 'lease_end', 'num_cheques', 'notes', 'coords',
@@ -48,7 +49,7 @@ const PROP_FIELDS = [
 const FINANCIAL_FIELDS = [
   'annualRent', 'purchasePrice', 'marketValue', 'serviceCharges',
   'maintenanceFees', 'vat', 'mgmtFee', 'purchaseDate', 'mgmtDate',
-  'ourShare', 'partnerName'
+  'ourShare', 'partnerName', 'landCharges', 'licenseFees'
 ];
 const TENANT_FIELDS = [
   'tenantName', 'tenantPhone', 'tenantEmail', 'leaseStart', 'leaseEnd', 'numCheques'

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260430a">
+  <link rel="stylesheet" href="styles.css?v=20260430b">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -835,6 +835,16 @@
               <div class="form-group">
                 <label>Current Market Value (AED)</label>
                 <input type="number" id="propMarketValue" placeholder="Optional estimate" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Land Charges (AED / year) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propLandCharges" placeholder="e.g. 8,000" min="0">
+              </div>
+              <div class="form-group">
+                <label>License Fees (AED / year) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propLicenseFees" placeholder="e.g. 5,000" min="0">
               </div>
             </div>
 
@@ -3906,6 +3916,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260430a"></script>
+  <script src="app.js?v=20260430b"></script>
 </body>
 </html>

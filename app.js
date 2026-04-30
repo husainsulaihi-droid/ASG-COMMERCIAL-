@@ -190,21 +190,25 @@ function idbDel(id) {
 }
 
 // ─── LocalStorage (property data) ────────────────
-// ─── Income helpers: account for partnership share ────────
-// Returns YOUR share of the annual rent for a property:
-//   - own:        100% of annualRent
-//   - partnership: ourShare% of annualRent
+// ─── Income helpers: account for partnership share & deductions ────
+// Returns YOUR share of the NET annual rent for a property.
+// Net = annualRent − landCharges − licenseFees (floored at 0).
+//   - own:        100% of net
+//   - partnership: ourShare% of net
 //   - management:  0 (you don't earn rent on managed; mgmtFee instead)
 //   - unknown:    100% (legacy/unmigrated rows)
 function ourRentShare(p) {
-  const rent = Number(p && p.annualRent) || 0;
   if (!p) return 0;
+  const rent = Number(p.annualRent) || 0;
+  const land = Number(p.landCharges) || 0;
+  const lic  = Number(p.licenseFees) || 0;
+  const net  = Math.max(0, rent - land - lic);
   if (p.ownership === 'management') return 0;
   if (p.ownership === 'partnership') {
     const share = Number(p.ourShare) || 0;
-    return rent * share / 100;
+    return net * share / 100;
   }
-  return rent;
+  return net;
 }
 
 // ─── Generic API-backed list factory ──────────────────────
@@ -1512,6 +1516,8 @@ async function openEditModal(id) {
   $('propMgmtDate').value      = p.mgmtDate      || '';
   $('propPurchaseDate').value  = p.purchaseDate  || '';
   $('propMarketValue').value   = p.marketValue   || '';
+  $('propLandCharges').value   = p.landCharges   || '';
+  $('propLicenseFees').value   = p.licenseFees   || '';
   $('propRent').value          = p.annualRent    || '';
   $('propServiceCharges').value = p.serviceCharges || '';
   $('propMaintenanceFees').value = p.maintenanceFees || '';
@@ -1840,6 +1846,8 @@ async function handleSave() {
     purchasePrice: Number($('propPurchasePrice').value) || null,
     purchaseDate:  $('propPurchaseDate').value          || null,
     marketValue:   Number($('propMarketValue').value)   || null,
+    landCharges:   Number($('propLandCharges').value)   || null,
+    licenseFees:   Number($('propLicenseFees').value)   || null,
     status:        getRadio('propStatus')               || null,
     annualRent:    Number($('propRent').value)          || null,
     serviceCharges:  Number($('propServiceCharges').value)  || null,
@@ -2076,6 +2084,9 @@ async function openDetailModal(id) {
             ${p.purchaseDate  ? `<div class="detail-row"><span class="dr-label">Purchase Date</span><span class="dr-value">${fmtDate(p.purchaseDate)}</span></div>` : ''}
             ${p.marketValue   ? `<div class="detail-row"><span class="dr-label">Market Value</span><span class="dr-value">AED ${num(p.marketValue)}</span></div>` : ''}
             ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span><span class="dr-value big">AED ${num(p.annualRent)}</span></div>` : ''}
+            ${p.landCharges   ? `<div class="detail-row"><span class="dr-label">Land Charges</span><span class="dr-value red">− AED ${num(p.landCharges)} / yr</span></div>` : ''}
+            ${p.licenseFees   ? `<div class="detail-row"><span class="dr-label">License Fees</span><span class="dr-value red">− AED ${num(p.licenseFees)} / yr</span></div>` : ''}
+            ${p.annualRent && (Number(p.landCharges)||Number(p.licenseFees)) ? `<div class="detail-row"><span class="dr-label">Net Annual Rent</span><span class="dr-value big green">AED ${num(Math.max(0, Number(p.annualRent) - (Number(p.landCharges)||0) - (Number(p.licenseFees)||0)))}</span></div>` : ''}
             ${p.serviceCharges  ? `<div class="detail-row"><span class="dr-label">Service Charges</span><span class="dr-value">AED ${num(p.serviceCharges)} / yr</span></div>` : ''}
             ${p.maintenanceFees ? `<div class="detail-row"><span class="dr-label">Annual Maintenance</span><span class="dr-value">AED ${num(p.maintenanceFees)} / yr</span></div>` : ''}
             ${p.annualRent ? `<div class="detail-row"><span class="dr-label">VAT (5%)</span><span class="dr-value">AED ${num(Math.round(Number(p.annualRent) * 0.05))}</span></div>` : ''}
@@ -7852,21 +7863,29 @@ function _finRenderBody(props) {
   let pool = props;
   if (_finType !== 'all') pool = props.filter(p => p.type === _finType);
 
-  // ── Rental income (annualized, our share) ──
+  // ── Rental income (annualized, our share, net of deductions) ──
   // Using FULL annual values (no months proration) so the figures match
-  // what the home tile shows. Lease dates are still informational on each row.
+  // what the home tile shows. Land charges + license fees are deducted
+  // from the gross rent BEFORE applying ownership share.
   const rentRows = pool
     .filter(p => p.status === 'rented' && (p.annualRent||0) > 0)
     .map(p => {
       const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const annual = Number(p.annualRent) || 0;
+      const land   = Number(p.landCharges) || 0;
+      const lic    = Number(p.licenseFees) || 0;
+      const net    = Math.max(0, annual - land - lic);
       const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
-      const ourIncome = Math.round(annual * (sharePct/100));
-      return { p, months, annual, incomeYr: annual, sharePct, ourIncome };
+      const ourIncome = Math.round(net * (sharePct/100));
+      return { p, months, annual, land, lic, net, incomeYr: net, sharePct, ourIncome };
     })
     .sort((a,b) => b.ourIncome - a.ourIncome);
 
-  const rentTotalGross = rentRows.reduce((s,r)=>s+r.incomeYr, 0);
+  const rentTotalGross = rentRows.reduce((s,r)=>s+r.annual, 0);
+  const rentTotalLand  = rentRows.reduce((s,r)=>s+r.land,   0);
+  const rentTotalLic   = rentRows.reduce((s,r)=>s+r.lic,    0);
+  const rentTotalNet   = rentRows.reduce((s,r)=>s+r.net,    0);
+  const deductionsTotal = rentTotalLand + rentTotalLic;
   const rentTotalOurs  = rentRows.reduce((s,r)=>s+r.ourIncome, 0);
 
   // Vacant in year (warehouses we own/partner with that aren't generating)
@@ -7923,10 +7942,16 @@ function _finRenderBody(props) {
         <div class="fin-kpi-sub">Rental + Management fees</div>
       </div>
       <div class="fin-kpi">
-        <div class="fin-kpi-label">Rental Income</div>
+        <div class="fin-kpi-label">Rental Income (Net)</div>
         <div class="fin-kpi-value">AED ${rentTotalOurs.toLocaleString()}</div>
-        <div class="fin-kpi-sub">${rentRows.length} active rental${rentRows.length===1?'':'s'}</div>
+        <div class="fin-kpi-sub">${rentRows.length} active rental${rentRows.length===1?'':'s'} · after deductions, our share</div>
       </div>
+      ${deductionsTotal ? `
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">Deductions</div>
+        <div class="fin-kpi-value fin-kpi-warn">− AED ${deductionsTotal.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()}</div>
+      </div>` : ''}
       <div class="fin-kpi">
         <div class="fin-kpi-label">Management Fees</div>
         <div class="fin-kpi-value">AED ${mgmtTotal.toLocaleString()}</div>
@@ -7972,8 +7997,9 @@ function _finRenderBody(props) {
                 <th>Tenant</th>
                 <th>Ownership</th>
                 <th class="ta-r">Annual Rent</th>
-                <th class="ta-c">Months Active</th>
-                <th class="ta-r">Year Income</th>
+                <th class="ta-r">Land Charges</th>
+                <th class="ta-r">License Fees</th>
+                <th class="ta-r">Net Rent</th>
                 <th class="ta-c">Our Share</th>
                 <th class="ta-r">Our Income</th>
                 <th>Contract Period</th>
@@ -7993,8 +8019,9 @@ function _finRenderBody(props) {
                   <td>${h(r.p.tenantName||'—')}</td>
                   <td>${ownChip}</td>
                   <td class="ta-r">AED ${r.annual.toLocaleString()}</td>
-                  <td class="ta-c">${r.months}/12</td>
-                  <td class="ta-r">AED ${r.incomeYr.toLocaleString()}</td>
+                  <td class="ta-r" style="color:${r.land?'var(--danger)':'#9ca3af'};">${r.land?'− AED '+r.land.toLocaleString():'—'}</td>
+                  <td class="ta-r" style="color:${r.lic?'var(--danger)':'#9ca3af'};">${r.lic?'− AED '+r.lic.toLocaleString():'—'}</td>
+                  <td class="ta-r"><strong>AED ${r.net.toLocaleString()}</strong></td>
                   <td class="ta-c">${r.sharePct}%</td>
                   <td class="ta-r fin-our">AED ${r.ourIncome.toLocaleString()}</td>
                   <td class="fin-period">${_finFmtPeriod(r.p)}</td>
@@ -8004,9 +8031,10 @@ function _finRenderBody(props) {
             <tfoot>
               <tr>
                 <td colspan="4" class="ta-r"><strong>TOTAL</strong></td>
-                <td class="ta-r"><strong>AED ${rentRows.reduce((s,r)=>s+r.annual,0).toLocaleString()}</strong></td>
-                <td></td>
                 <td class="ta-r"><strong>AED ${rentTotalGross.toLocaleString()}</strong></td>
+                <td class="ta-r" style="color:var(--danger);"><strong>${rentTotalLand?'− AED '+rentTotalLand.toLocaleString():'—'}</strong></td>
+                <td class="ta-r" style="color:var(--danger);"><strong>${rentTotalLic?'− AED '+rentTotalLic.toLocaleString():'—'}</strong></td>
+                <td class="ta-r"><strong>AED ${rentTotalNet.toLocaleString()}</strong></td>
                 <td></td>
                 <td class="ta-r fin-our"><strong>AED ${rentTotalOurs.toLocaleString()}</strong></td>
                 <td></td>
@@ -8135,9 +8163,14 @@ function _finRenderBody(props) {
     <!-- ── COMBINED TOTAL ───────────────────────── -->
     <div class="fin-grand">
       <div class="fin-grand-row">
-        <span>Rental Income (Our Share)</span>
+        <span>Rental Income (Our Share, Net of deductions)</span>
         <span>AED ${rentTotalOurs.toLocaleString()}</span>
       </div>
+      ${deductionsTotal ? `
+      <div class="fin-grand-row" style="color:var(--danger);font-weight:500;">
+        <span>&nbsp;&nbsp;↳ Deductions applied (Land + License)</span>
+        <span>− AED ${deductionsTotal.toLocaleString()}</span>
+      </div>` : ''}
       <div class="fin-grand-row">
         <span>Management Fee Income</span>
         <span>AED ${mgmtTotal.toLocaleString()}</span>
