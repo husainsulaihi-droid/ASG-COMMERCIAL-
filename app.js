@@ -225,7 +225,12 @@ function ourRentShare(p) {
 function makeApiList(endpoint, pluralKey) {
   let cache = [];
   return {
-    load: () => cache,
+    // Return a shallow copy so callers can mutate freely without
+    // corrupting the cache. (Without this copy, code like
+    //   const arr = loadTasks(); arr.push(newTask); saveTasks(arr);
+    // ends up mutating the cache before save() can diff it, and the
+    // "new" item is silently treated as already-present — no POST.)
+    load: () => cache.slice(),
     fetch: async () => {
       try {
         const r = await fetch(endpoint, { credentials: 'same-origin' });
