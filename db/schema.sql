@@ -77,6 +77,7 @@ CREATE TABLE properties (
   market_value        REAL,
   land_charges        REAL,    -- annual land charges (deducted from rental income in Financial tab)
   license_fees        REAL,    -- annual trade-license fees (deducted from rental income in Financial tab)
+  sub_lease_fees      REAL,    -- informational only; not used in any calculation
   -- Rental
   status              TEXT,    -- vacant, rented
   annual_rent         REAL,
