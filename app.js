@@ -8804,18 +8804,36 @@ async function handleRealtimeEvent(evt) {
   _sseRebroadcastTimer = setTimeout(() => _applySseRefresh(entity), 250);
 }
 
+// Map of entities → which tabs depend on them. If an SSE event hits an
+// entity that doesn't affect the active tab, we still refresh the cache
+// silently but skip the re-render — that's the difference between every
+// background change feeling like jank vs. only relevant changes redrawing.
+const _ENTITY_TABS = {
+  properties:    new Set(['home','warehouses','offices','residential','reminders','calendar','contract','disputes','construction','payment','proposals','map','financials']),
+  cheques:       new Set(['home','payment','financials']),
+  propertyFiles: new Set(['warehouses','offices','residential']),
+  tasks:         new Set(['team','mytasks']),
+  agents:        new Set(['team']),
+  leads:         new Set(['team']),
+  appointments:  new Set(['team','calendar']),
+  proposals:     new Set(['proposals','team']),
+  projects:      new Set(['construction']),
+  disputes:      new Set(['disputes']),
+};
+
 async function _applySseRefresh(entity) {
-  // Save the user's scroll position so we can restore it after re-render.
   const scrollY = window.scrollY;
+  const affectsActive = !_ENTITY_TABS[entity] || _ENTITY_TABS[entity].has(activeTab);
   try {
     if (entity === 'properties' || entity === 'cheques' || entity === 'propertyFiles') {
       await fetchProperties();
-      rerenderActiveTab();
+      // Always update the chrome (nav counts, alert badges) — cheap.
       renderNavCounts(loadProps());
       renderAlerts(loadProps());
+      if (affectsActive) _rerenderActiveTabFast();
     } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
       await _api[entity].fetch();
-      rerenderActiveTab();
+      if (affectsActive) _rerenderActiveTabFast();
     }
     if (entity === 'tasks') {
       checkTaskNotifications();
@@ -8824,8 +8842,35 @@ async function _applySseRefresh(entity) {
   } catch (e) {
     console.warn('[sse] refresh failed', e);
   }
-  // Restore scroll on the next frame so layout has settled.
-  requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
+  // Only restore scroll if we actually re-rendered. Otherwise leave the
+  // page alone — calling scrollTo even with the same value triggers a
+  // synchronous reflow that the user can feel.
+  if (affectsActive) {
+    requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
+  }
+}
+
+// Fast re-render: instead of toggling all 15 tab views' display values
+// (which forces a layout pass on every SSE event), call only the active
+// tab's render function directly. The display-toggle was already done
+// when the user switched tabs and hasn't changed since.
+function _rerenderActiveTabFast() {
+  switch (activeTab) {
+    case 'home':         return typeof renderHome      === 'function' && renderHome();
+    case 'warehouses':
+    case 'offices':
+    case 'residential':  return typeof refresh         === 'function' && refresh();
+    case 'reminders':    return typeof renderReminders === 'function' && renderReminders();
+    case 'calendar':     return typeof renderCalendar  === 'function' && renderCalendar();
+    case 'disputes':     return typeof renderDisputes  === 'function' && renderDisputes();
+    case 'construction': return typeof renderProjects  === 'function' && renderProjects();
+    case 'payment':      return typeof renderPayments  === 'function' && renderPayments();
+    case 'proposals':    return typeof renderProposals === 'function' && renderProposals();
+    case 'team':         return typeof renderTeamTab   === 'function' && renderTeamTab();
+    case 'mytasks':      return typeof renderMyTasks   === 'function' && renderMyTasks();
+    case 'financials':   return typeof renderFinancials=== 'function' && renderFinancials();
+    // contract / map: no live data — skip
+  }
 }
 
 // Refresh just the cache (no re-render). Used when we don't want to
