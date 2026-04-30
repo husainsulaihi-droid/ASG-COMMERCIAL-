@@ -437,10 +437,9 @@ body, button, input, select, textarea {
 /* ─── MODAL — Right-side slide-in panel ─────── */
 .modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(10,20,40,.45);
+  background: rgba(10,20,40,.55);
   display: none;
   z-index: 300;
-  backdrop-filter: blur(3px);
   padding: 0;
   align-items: stretch;
   justify-content: flex-end;
@@ -3062,7 +3061,6 @@ body, button, input, select, textarea {
   background:rgba(255,255,255,0.07);
   border:1px solid rgba(255,255,255,0.12);
   border-radius:12px; padding:14px 18px;
-  backdrop-filter: blur(8px);
 }
 .home-stat-wide { grid-column: span 2; }
 .home-stat-value {

@@ -8741,6 +8741,7 @@ function startRealtimeSync() {
 //   3. Scroll jump: re-render resets scroll. Save + restore.
 let _sseMutedUntil      = 0;
 let _sseDeferredEntities = new Set();
+let _userScrollingUntil  = 0;
 
 function markLocalMutation() { _sseMutedUntil = Date.now() + 600; }
 
@@ -8748,25 +8749,46 @@ function _isAnyModalOpen() {
   return !!document.querySelector('.modal-overlay.active');
 }
 
+// Track active scroll so SSE re-renders don't yank the page while the
+// user is reading. Decay 350ms after the last scroll event.
+window.addEventListener('scroll', () => {
+  _userScrollingUntil = Date.now() + 350;
+}, { passive: true, capture: true });
+
 async function handleRealtimeEvent(evt) {
   const entity = evt.entity;
-  console.log('[sse] event arrived:', evt, 'mutedUntil=', _sseMutedUntil, 'now=', Date.now(), 'modalOpen=', _isAnyModalOpen());
   // Suppress refresh during/right-after a local save — the save handler
   // already updated the cache + re-rendered.
   if (Date.now() < _sseMutedUntil) {
-    console.log('[sse] muted — refreshing cache silently');
     _refreshCacheSilently(entity);
     return;
   }
   // If any modal is open, queue the entity and refresh on close.
   if (_isAnyModalOpen()) {
-    console.log('[sse] modal open — deferring');
     _sseDeferredEntities.add(entity);
     _refreshCacheSilently(entity);
     return;
   }
+  // If the user is actively scrolling, hold the cache fresh but don't
+  // rerender mid-scroll. Retry shortly after they stop.
+  if (Date.now() < _userScrollingUntil) {
+    _sseDeferredEntities.add(entity);
+    _refreshCacheSilently(entity);
+    clearTimeout(_sseRebroadcastTimer);
+    _sseRebroadcastTimer = setTimeout(() => {
+      if (Date.now() < _userScrollingUntil) {
+        // Still scrolling — defer further. Cap at modal-close flush time.
+        _sseRebroadcastTimer = setTimeout(() => flushDeferredSseRefreshes(), 400);
+      } else {
+        flushDeferredSseRefreshes();
+      }
+    }, 400);
+    return;
+  }
   clearTimeout(_sseRebroadcastTimer);
-  _sseRebroadcastTimer = setTimeout(() => _applySseRefresh(entity), 50);
+  // 250ms (was 50ms) batches multiple SSE events from the same write
+  // burst into one re-render — fewer paint storms while typing/saving.
+  _sseRebroadcastTimer = setTimeout(() => _applySseRefresh(entity), 250);
 }
 
 async function _applySseRefresh(entity) {
