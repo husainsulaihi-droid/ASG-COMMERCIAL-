@@ -8774,12 +8774,17 @@ async function handleRealtimeEvent(evt) {
   // already updated the cache + re-rendered.
   if (Date.now() < _sseMutedUntil) {
     _refreshCacheSilently(entity);
+    if (entity === 'tasks') _liveRefreshOpenChat();
     return;
   }
   // If any modal is open, queue the entity and refresh on close.
+  // EXCEPTION: if it's a 'tasks' event and the open modal is the chat
+  // modal, refresh the chat live so the other party's reply appears
+  // immediately without closing/reopening.
   if (_isAnyModalOpen()) {
     _sseDeferredEntities.add(entity);
     _refreshCacheSilently(entity);
+    if (entity === 'tasks') _liveRefreshOpenChat();
     return;
   }
   // If the user is actively scrolling, hold the cache fresh but don't
@@ -8906,6 +8911,23 @@ function flushDeferredSseRefreshes() {
   }
 }
 
+// Live-refresh the open task notes modal (if any) when an SSE 'tasks'
+// event arrives. Lets a reply from another admin/agent appear in the
+// chat thread immediately without the receiver having to close/reopen.
+async function _liveRefreshOpenChat() {
+  try {
+    const overlay = document.getElementById('taskNotesOverlay');
+    if (!overlay || !overlay.classList.contains('active')) return;
+    const tid = (typeof notesTaskId !== 'undefined') ? notesTaskId : null;
+    if (!tid) return;
+    const notes = await apiListTaskNotes(tid);
+    if (typeof renderNotesList === 'function') renderNotesList(notes);
+    // The newly-arrived message belongs to a task we're actively
+    // viewing — clear the unread flag for it.
+    if (typeof markTaskRead === 'function') markTaskRead(tid);
+  } catch (_) { /* ignore */ }
+}
+
 // Re-render the currently visible tab without changing it.
 function rerenderActiveTab() {
   try {
@@ -9001,32 +9023,165 @@ openTaskNotes = async function(taskId) {
   return _origOpenTaskNotesV3(taskId);
 };
 
-// ─── My Tasks tab — split into Assigned-to-me + Tasks-I've-given ───
+// ─── My Tasks tab — Inbox / Sent sub-tabs + filter + compact rows ───
+let _myTasksTab    = 'inbox';   // 'inbox' | 'sent'
+let _myTasksFilter = 'active';  // 'all' | 'active' | 'done'
+let _myTasksSearch = '';
+
+function _setMyTasksTab(t)    { _myTasksTab = t; renderMyTasks(); }
+function _setMyTasksFilter(f) { _myTasksFilter = f; renderMyTasks(); }
+function _setMyTasksSearch(v) {
+  _myTasksSearch = v.trim().toLowerCase();
+  // Re-render the list only — keep the search input focused.
+  const listEl = document.getElementById('myTasksRows');
+  if (listEl) listEl.innerHTML = _renderMyTasksRowsHtml();
+}
+
 function renderMyTasks() {
   const session = getSession();
   if (!session) return;
   const myId = String(session.userId || session.agentId || '');
   const allTasks = loadTasks();
-  const props = loadProps();
-  const sortFn = (a, b) => {
-    const ord = { 'in-progress': 0, pending: 1, done: 2, cancelled: 3 };
-    return (ord[a.status] || 9) - (ord[b.status] || 9);
-  };
-  const assignedToMe = allTasks.filter(t => String(t.agentId) === myId).sort(sortFn);
-  const givenByMe    = allTasks.filter(t => String(t.createdById) === myId
-                                         && String(t.agentId) !== myId).sort(sortFn);
+
+  const inboxAll = allTasks.filter(t => String(t.agentId) === myId);
+  const sentAll  = allTasks.filter(t => String(t.createdById) === myId
+                                     && String(t.agentId) !== myId);
+  const inboxActive = inboxAll.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
+  const sentActive  = sentAll.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
+
   const container = document.getElementById('myTasksList');
   if (!container) return;
   container.innerHTML = `
-    <div class="mytasks-section">
-      <h2 class="mytasks-h">📥 Assigned to Me <span class="mytasks-count">${assignedToMe.length}</span></h2>
-      ${assignedToMe.length ? assignedToMe.map(t => renderTaskCardForUser(t, props, 'received')).join('') : `<div class="mytasks-empty">No tasks assigned to you yet.</div>`}
+    <div class="mt-toolbar">
+      <div class="mt-tabs">
+        <button class="mt-tab ${_myTasksTab==='inbox'?'active':''}" onclick="_setMyTasksTab('inbox')">
+          <span>📥 Inbox</span><span class="mt-tab-count">${inboxActive}</span>
+        </button>
+        <button class="mt-tab ${_myTasksTab==='sent'?'active':''}" onclick="_setMyTasksTab('sent')">
+          <span>📤 Sent</span><span class="mt-tab-count">${sentActive}</span>
+        </button>
+      </div>
+      <input type="search" class="mt-search" placeholder="Search tasks…"
+             value="${h(_myTasksSearch)}"
+             oninput="_setMyTasksSearch(this.value)">
     </div>
-    <div class="mytasks-section" style="margin-top:24px;">
-      <h2 class="mytasks-h">📤 Tasks I've Given <span class="mytasks-count">${givenByMe.length}</span></h2>
-      ${givenByMe.length ? givenByMe.map(t => renderTaskCardForUser(t, props, 'given')).join('') : `<div class="mytasks-empty">You haven't assigned any tasks yet. Open the Team tab to assign one.</div>`}
+    <div class="mt-filters">
+      <button class="mt-chip ${_myTasksFilter==='active'?'active':''}" onclick="_setMyTasksFilter('active')">Active</button>
+      <button class="mt-chip ${_myTasksFilter==='all'?'active':''}"    onclick="_setMyTasksFilter('all')">All</button>
+      <button class="mt-chip ${_myTasksFilter==='done'?'active':''}"   onclick="_setMyTasksFilter('done')">Done</button>
     </div>
+    <div id="myTasksRows" class="mt-rows">${_renderMyTasksRowsHtml()}</div>
   `;
+}
+
+function _renderMyTasksRowsHtml() {
+  const session = getSession();
+  if (!session) return '';
+  const myId = String(session.userId || session.agentId || '');
+  const props = loadProps();
+  const all = loadTasks();
+  let pool = _myTasksTab === 'inbox'
+    ? all.filter(t => String(t.agentId) === myId)
+    : all.filter(t => String(t.createdById) === myId && String(t.agentId) !== myId);
+
+  if (_myTasksFilter === 'active') {
+    pool = pool.filter(t => t.status !== 'done' && t.status !== 'cancelled');
+  } else if (_myTasksFilter === 'done') {
+    pool = pool.filter(t => t.status === 'done' || t.status === 'cancelled');
+  }
+  if (_myTasksSearch) {
+    const q = _myTasksSearch;
+    pool = pool.filter(t =>
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.description || '').toLowerCase().includes(q) ||
+      (t.createdByName || '').toLowerCase().includes(q)
+    );
+  }
+
+  // Sort: unread first, then active before done, then by deadline.
+  pool.sort((a, b) => {
+    const ua = isTaskUnread(a.id) ? 0 : 1;
+    const ub = isTaskUnread(b.id) ? 0 : 1;
+    if (ua !== ub) return ua - ub;
+    const ord = { 'in-progress': 0, pending: 1, done: 2, cancelled: 3 };
+    const sa = ord[a.status] ?? 9, sb = ord[b.status] ?? 9;
+    if (sa !== sb) return sa - sb;
+    const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+    const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+    return da - db;
+  });
+
+  if (!pool.length) {
+    const empty = _myTasksTab === 'inbox'
+      ? (_myTasksSearch ? 'No matching tasks in your inbox.' : 'Your inbox is empty.')
+      : (_myTasksSearch ? 'No matching tasks you sent.'      : 'You haven\'t sent any tasks yet.');
+    return `<div class="mt-empty">${empty}</div>`;
+  }
+  return pool.map(t => _renderMyTaskRow(t, props, _myTasksTab === 'inbox' ? 'received' : 'given')).join('');
+}
+
+function _renderMyTaskRow(t, props, mode) {
+  const prop      = t.propId ? props.find(p => String(p.id) === String(t.propId)) : null;
+  const sm        = (typeof TASK_STATUS_META  !== 'undefined' && TASK_STATUS_META[t.status]) || { cls: 'ts-pending', label: t.status || 'pending' };
+  const overdue   = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
+  const noteCount = t.notesCount != null ? t.notesCount : (Array.isArray(t.notes) ? t.notes.length : 0);
+  const unread    = isTaskUnread(t.id);
+  const isDone    = t.status === 'done' || t.status === 'cancelled';
+
+  // Counterparty: name and a stable color so each person's avatar matches
+  // their chat bubble color.
+  const partyName = mode === 'received'
+    ? (t.createdByName || 'Someone')
+    : (() => {
+        const u = (typeof loadTaskAssignees === 'function')
+          ? loadTaskAssignees().find(a => String(a.id) === String(t.agentId))
+          : null;
+        return u ? u.name : 'Someone';
+      })();
+  const partyId = mode === 'received' ? String(t.createdById || '') : String(t.agentId || '');
+
+  // Avatar palette — same hash function the chat uses, so colors stay
+  // consistent across views.
+  const palette = [
+    { bg:'#e0f2fe', accent:'#0369a1' }, { bg:'#fce7f3', accent:'#9d174d' },
+    { bg:'#dcfce7', accent:'#166534' }, { bg:'#fef3c7', accent:'#92400e' },
+    { bg:'#ede9fe', accent:'#5b21b6' }, { bg:'#ffe4e6', accent:'#9f1239' },
+    { bg:'#cffafe', accent:'#155e75' }, { bg:'#fed7aa', accent:'#9a3412' },
+  ];
+  let hh = 0; const s = partyId || partyName;
+  for (let i = 0; i < s.length; i++) hh = (hh * 31 + s.charCodeAt(i)) | 0;
+  const c = palette[Math.abs(hh) % palette.length];
+  const initials = (partyName.trim().split(/\s+/).slice(0,2).map(w => w[0] || '').join('') || '?').toUpperCase();
+
+  const fmtDeadline = () => {
+    if (!t.deadline) return '';
+    const d = new Date(t.deadline);
+    if (isNaN(d)) return '';
+    return d.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
+  };
+
+  const sub = [
+    mode === 'received' ? `from ${h(partyName)}` : `to ${h(partyName)}`,
+    prop ? `🏗️ ${h(prop.name)}` : '',
+    t.deadline ? (overdue ? `<span class="mt-overdue">⚠ Overdue ${fmtDeadline()}</span>` : `📅 ${fmtDeadline()}`) : '',
+  ].filter(Boolean).join(' · ');
+
+  return `
+    <div class="mt-row ${unread?'mt-row-unread':''} ${isDone?'mt-row-done':''}" onclick="openTaskNotes('${t.id}')">
+      <div class="mt-avatar" style="background:${c.accent};">${h(initials)}</div>
+      <div class="mt-row-body">
+        <div class="mt-row-head">
+          ${unread ? '<span class="unread-dot" title="Unread reply"></span>' : ''}
+          <span class="mt-row-title">${h(t.title)}</span>
+          <span class="mt-row-status ${sm.cls}">${sm.label}</span>
+        </div>
+        <div class="mt-row-sub">${sub}</div>
+      </div>
+      <div class="mt-row-meta">
+        ${noteCount ? `<span class="mt-msg-count" title="${noteCount} message${noteCount===1?'':'s'}">💬 ${noteCount}</span>` : ''}
+        <span class="mt-chevron">›</span>
+      </div>
+    </div>`;
 }
 
 function renderTaskCardForUser(t, props, mode) {
