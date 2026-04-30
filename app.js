@@ -9839,11 +9839,9 @@ renderNotesList = function(notes) {
     const grouped = authorKey === prevAuthorKey;
     prevAuthorKey = authorKey;
 
-    // For non-self authors, color the bubble per-author so admin1 and
-    // admin2 are visually distinct.
-    const bubbleStyle = (!isMine)
-      ? `style="background:${color.bg};border-left:3px solid ${color.accent};"`
-      : '';
+    // Bubbles use a simple two-tone scheme: own = blue, received = white.
+    // The colored avatar still tells you who sent each message.
+    const bubbleStyle = '';
     const authorLabel = !isMine && !grouped
       ? `<div class="thread-msg-meta"><span class="thread-msg-author" style="color:${color.accent};">${isAdmin ? '👑 ' : ''}${h(author)}</span></div>`
       : '';

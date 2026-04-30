@@ -3569,15 +3569,17 @@ body, button, input, select, textarea {
   word-wrap:break-word; overflow-wrap:break-word; white-space:pre-wrap;
   position:relative; max-width:100%;
 }
-.thread-msg.note-other .thread-msg-bubble { border-bottom-left-radius:4px; }
+.thread-msg.note-other .thread-msg-bubble {
+  background:#fff; color:#111827; border-bottom-left-radius:4px;
+}
 .thread-msg.note-mine  .thread-msg-bubble {
-  background:#c9a84c; color:#fff; border-bottom-right-radius:4px;
+  background:#0084ff; color:#fff; border-bottom-right-radius:4px;
 }
 .thread-msg-time {
   font-size:10px; color:#9ca3af; margin-left:10px; float:right;
   margin-top:3px;
 }
-.thread-msg.note-mine .thread-msg-time { color:rgba(255,255,255,0.85); }
+.thread-msg.note-mine .thread-msg-time { color:rgba(255,255,255,0.8); }
 .thread-msg.grouped .thread-msg-meta { display:none; }
 
 .thread-day-chip {
