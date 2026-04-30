@@ -630,7 +630,7 @@ function persistProps(arr) {
 function uid()             { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ─── State ────────────────────────────────────────
-let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null };
+let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null };
 let pendingMedia      = [];           // new File objects to add
 let existingMediaMeta = [];           // { id, name, mime } already saved
 let removedMediaIds   = [];           // IDB ids to delete on save
@@ -1441,7 +1441,7 @@ function openAddModal() {
   $('modalTitle').textContent = 'Add New Property';
   $('saveBtnText').textContent = 'Save Property';
   $('propertyForm').reset();
-  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null };
   pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
   resetFileZones();
   renderMediaPreviews();
@@ -1474,7 +1474,7 @@ async function openEditModal(id) {
   $('editPropertyId').value = id;
   $('modalTitle').textContent = 'Edit Property';
   $('saveBtnText').textContent = 'Save Changes';
-  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null };
   pendingMedia = [];
   existingMediaMeta = p.media ? [...p.media] : [];
   removedMediaIds   = [];
@@ -1557,6 +1557,7 @@ async function openEditModal(id) {
   showExisting('ijari2',    p.files?.ijari2);
   showExisting('affection', p.files?.affection);
   showExisting('tenancy',   p.files?.tenancy);
+  showExisting('license',   p.files?.license);
 
   await renderMediaPreviews();
   $('propertyModalOverlay').classList.add('active');
@@ -1909,7 +1910,7 @@ async function handleSave() {
 
   // Upload pending document files (drec, ijari, ijari2, affection, tenancy)
   // Each one goes to /var/asg/uploads/<property>/<category>/.
-  for (const key of ['drec', 'ijari', 'ijari2', 'affection', 'tenancy']) {
+  for (const key of ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license']) {
     const file = pendingFiles[key];
     if (file) {
       try { await apiUploadPropertyFile(savedId, key, file); }
@@ -2011,6 +2012,7 @@ async function openDetailModal(id) {
           ijari2:    byCat.ijari2,
           affection: byCat.affection,
           tenancy:   byCat.tenancy,
+          license:   byCat.license,
         };
         p.media = byCat.photos || [];
       }
@@ -2155,6 +2157,7 @@ async function openDetailModal(id) {
           ${docTile('Ijari (Tenancy)', p.files?.ijari2)}
           ${docTile('Affection Plan', p.files?.affection)}
           ${docTile('Tenancy Contract', p.files?.tenancy)}
+          ${docTile('Trade License', p.files?.license)}
         </div>
       </div>
 

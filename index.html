@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260430c">
+  <link rel="stylesheet" href="styles.css?v=20260430d">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -871,6 +871,19 @@
                 </div>
                 <div class="existing-file-tag" data-existing-key="ijari"></div>
               </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Trade License</label>
+                <div class="file-zone" data-doc-key="license" onclick="document.getElementById('fileLicense').click()">
+                  <input type="file" id="fileLicense" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'license')">
+                  <div class="file-zone-icon">📜</div>
+                  <div class="file-zone-text">Upload License</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" data-existing-key="license"></div>
+              </div>
+              <div class="form-group"></div>
             </div>
           </div>
 
@@ -3919,6 +3932,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260430c"></script>
+  <script src="app.js?v=20260430d"></script>
 </body>
 </html>
