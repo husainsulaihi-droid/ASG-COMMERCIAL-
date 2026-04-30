@@ -9455,8 +9455,14 @@ renderAgentInventory = function() {
 // ═══════════════════════════════════════════════════════
 
 // Override task-notes render: WhatsApp-style chat with day chips, grouped
-// consecutive messages, and time-in-bubble. Sorted oldest → newest so the
-// newest reply appears at the bottom (composer just below).
+// consecutive messages, time inside the bubble, and per-author colors.
+//
+// Alignment is by IDENTITY (authorId vs current user), not by role —
+// otherwise admin1 and admin2 would both render right-side gold with the
+// same color and you couldn't tell whose reply was whose. Now: the
+// viewer's own messages go right (gold), everyone else goes left, and
+// each non-self author gets a stable color tab + avatar based on a hash
+// of their author id.
 renderNotesList = function(notes) {
   const list = document.getElementById('taskNotesList');
   if (!list) return;
@@ -9464,7 +9470,9 @@ renderNotesList = function(notes) {
     list.innerHTML = `<div class="thread-empty">No messages yet — start the conversation below.</div>`;
     return;
   }
-  // Make sure messages render oldest-first regardless of API ordering.
+  const sess = (typeof getSession === 'function') ? getSession() : null;
+  const myId = sess ? String(sess.userId || sess.agentId || '') : '';
+
   const sorted = [...notes].sort((a, b) =>
     new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
   );
@@ -9485,30 +9493,73 @@ renderNotesList = function(notes) {
     return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false });
   };
 
+  // Stable, deterministic color per author id. 8 distinct soft palette
+  // entries; the bubble background and the small accent strip both use
+  // shades from the same swatch.
+  const palette = [
+    { bg:'#e0f2fe', accent:'#0369a1', name:'sky'    },
+    { bg:'#fce7f3', accent:'#9d174d', name:'pink'   },
+    { bg:'#dcfce7', accent:'#166534', name:'green'  },
+    { bg:'#fef3c7', accent:'#92400e', name:'amber'  },
+    { bg:'#ede9fe', accent:'#5b21b6', name:'purple' },
+    { bg:'#ffe4e6', accent:'#9f1239', name:'rose'   },
+    { bg:'#cffafe', accent:'#155e75', name:'cyan'   },
+    { bg:'#fed7aa', accent:'#9a3412', name:'orange' },
+  ];
+  const colorFor = (id) => {
+    let h = 0;
+    const s = String(id || '?');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return palette[Math.abs(h) % palette.length];
+  };
+  const initials = (name) => {
+    const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
+    return parts.map(p => p[0] || '').join('').toUpperCase() || '?';
+  };
+
   const out = [];
   let prevDay = null;
   let prevAuthorKey = null;
   for (const n of sorted) {
     const author  = n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown');
+    const aid     = String(n.authorId || '');
+    const isMine  = !!myId && aid === myId;
+    const side    = isMine ? 'note-mine' : 'note-other';
     const isAdmin = n.authorType === 'admin';
-    const side    = isAdmin ? 'note-admin' : 'note-agent';
-    const day     = dayLabel(n.date);
+    const color   = colorFor(aid || author);
+
+    const day = dayLabel(n.date);
     if (day && day !== prevDay) {
       out.push(`<div class="thread-day-chip">${h(day)}</div>`);
       prevDay = day;
       prevAuthorKey = null; // reset grouping at day boundary
     }
-    const authorKey = side + '|' + author;
+    const authorKey = side + '|' + aid;
     const grouped = authorKey === prevAuthorKey;
     prevAuthorKey = authorKey;
+
+    // For non-self authors, color the bubble per-author so admin1 and
+    // admin2 are visually distinct.
+    const bubbleStyle = (!isMine)
+      ? `style="background:${color.bg};border-left:3px solid ${color.accent};"`
+      : '';
+    const authorLabel = !isMine && !grouped
+      ? `<div class="thread-msg-meta"><span class="thread-msg-author" style="color:${color.accent};">${isAdmin ? '👑 ' : ''}${h(author)}</span></div>`
+      : '';
+    const avatar = !isMine && !grouped
+      ? `<div class="thread-avatar" style="background:${color.accent};">${h(initials(author))}</div>`
+      : (!isMine ? `<div class="thread-avatar thread-avatar-spacer"></div>` : '');
+
     out.push(`
-      <div class="thread-msg ${side}${grouped ? ' grouped' : ''}">
-        ${grouped ? '' : `<div class="thread-msg-meta"><span class="thread-msg-author">${isAdmin ? '👑 ' : ''}${h(author)}</span></div>`}
-        <div class="thread-msg-bubble">${h(n.text)}<span class="thread-msg-time">${timeLabel(n.date)}</span></div>
+      <div class="thread-row ${side}${grouped ? ' grouped' : ''}">
+        ${avatar}
+        <div class="thread-msg ${side}${grouped ? ' grouped' : ''}">
+          ${authorLabel}
+          <div class="thread-msg-bubble" ${bubbleStyle}>${h(n.text)}<span class="thread-msg-time">${timeLabel(n.date)}</span></div>
+        </div>
       </div>`);
   }
   list.innerHTML = out.join('');
-  // Auto-scroll to bottom on next paint
   requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
 };
 
