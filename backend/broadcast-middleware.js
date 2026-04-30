@@ -44,14 +44,18 @@ function entityForPath(path) {
 
 function broadcastMiddleware(req, res, next) {
   if (!MUTATIONS.has(req.method)) return next();
+  // Express strips the mount prefix from req.path when middleware is
+  // mounted with app.use('/api', ...). Use originalUrl so our prefix
+  // map (which includes /api/) still matches.
+  const fullPath = (req.originalUrl || req.url).split('?')[0];
   res.on('finish', () => {
     if (res.statusCode < 200 || res.statusCode >= 300) return;
-    const entity = entityForPath(req.path);
+    const entity = entityForPath(fullPath);
     if (!entity) return;
     broadcast({
       entity,
       method: req.method,
-      path:   req.path,
+      path:   fullPath,
       ts:     Date.now(),
     });
   });
