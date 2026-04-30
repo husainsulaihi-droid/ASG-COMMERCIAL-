@@ -1360,6 +1360,36 @@ body, button, input, select, textarea {
 .notif-title { font-size: 13px; font-weight: 600; color: #111; line-height: 1.4; }
 .notif-time  { font-size: 11px; color: #9ca3af; margin-top: 3px; }
 
+/* Unread-task indicator: red dot beside task title */
+.unread-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  background: #dc2626; margin-right: 8px; vertical-align: middle;
+  box-shadow: 0 0 0 3px rgba(220,38,38,.15);
+  animation: unread-pulse 1.6s ease-out infinite;
+}
+@keyframes unread-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(220,38,38,.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
+  100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+}
+
+/* My Tasks page sections */
+.mytasks-section { padding: 0 8px; }
+.mytasks-h {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 17px; font-weight: 700; color: var(--text-1, #111);
+  padding: 10px 4px 12px; border-bottom: 1px solid #e5e7eb; margin: 0 0 14px;
+}
+.mytasks-count {
+  background: #f3f4f6; color: #4b5563; font-size: 12px; font-weight: 600;
+  padding: 2px 9px; border-radius: 10px; line-height: 1.4;
+}
+.mytasks-empty {
+  padding: 28px 14px; text-align: center;
+  color: #9ca3af; font-size: 13px; background: #f9fafb;
+  border-radius: 8px; border: 1px dashed #e5e7eb;
+}
+
 .btn-logout {
   display: flex;
   align-items: center;

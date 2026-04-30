@@ -4380,7 +4380,7 @@ function renderTeamTab() {
                 <span class="task-status-badge ${sm.cls}">${sm.label}</span>
               </div>
             </div>
-            <div class="task-card-title">${h(t.title)}</div>
+            <div class="task-card-title">${isTaskUnread(t.id) ? '<span class="unread-dot" title="Unread reply"></span>' : ''}${h(t.title)}</div>
             ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}</div>` : ''}
             ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
 
@@ -8477,60 +8477,111 @@ submitTaskNote = async function() {
   }
 };
 
-// ─── My Tasks tab — tasks assigned to the current user ───
+// ─── Unread-task tracking (per-tab sessionStorage) ───────
+// A simple Set of task IDs that have new replies you haven't opened
+// yet. Used to render a red dot beside the task title.
+const UNREAD_TASKS_KEY = 'asg_unread_tasks';
+function _loadUnreadTasks() {
+  try { return new Set(JSON.parse(sessionStorage.getItem(UNREAD_TASKS_KEY)) || []); }
+  catch { return new Set(); }
+}
+function _saveUnreadTasks(set) {
+  try { sessionStorage.setItem(UNREAD_TASKS_KEY, JSON.stringify([...set])); } catch (_) {}
+}
+function markTaskUnread(taskId) {
+  const set = _loadUnreadTasks(); set.add(String(taskId)); _saveUnreadTasks(set);
+}
+function markTaskRead(taskId) {
+  const set = _loadUnreadTasks();
+  if (set.delete(String(taskId))) {
+    _saveUnreadTasks(set);
+    // Re-render any visible tab that paints unread dots
+    if (typeof activeTab === 'string' && (activeTab === 'mytasks' || activeTab === 'team')) {
+      rerenderActiveTab();
+    }
+  }
+}
+function isTaskUnread(taskId) { return _loadUnreadTasks().has(String(taskId)); }
+
+// Mark task read when its notes modal opens
+const _origOpenTaskNotesV3 = openTaskNotes;
+openTaskNotes = async function(taskId) {
+  markTaskRead(taskId);
+  return _origOpenTaskNotesV3(taskId);
+};
+
+// ─── My Tasks tab — split into Assigned-to-me + Tasks-I've-given ───
 function renderMyTasks() {
   const session = getSession();
   if (!session) return;
   const myId = String(session.userId || session.agentId || '');
   const allTasks = loadTasks();
-  const mine = allTasks
-    .filter(t => String(t.agentId) === myId)
-    .sort((a, b) => {
-      const ord = { 'in-progress': 0, pending: 1, done: 2, cancelled: 3 };
-      return (ord[a.status] || 9) - (ord[b.status] || 9);
-    });
+  const props = loadProps();
+  const sortFn = (a, b) => {
+    const ord = { 'in-progress': 0, pending: 1, done: 2, cancelled: 3 };
+    return (ord[a.status] || 9) - (ord[b.status] || 9);
+  };
+  const assignedToMe = allTasks.filter(t => String(t.agentId) === myId).sort(sortFn);
+  const givenByMe    = allTasks.filter(t => String(t.createdById) === myId
+                                         && String(t.agentId) !== myId).sort(sortFn);
   const container = document.getElementById('myTasksList');
   if (!container) return;
-  if (!mine.length) {
-    container.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text-3);"><div style="font-size:48px;margin-bottom:12px;">📭</div><h3 style="margin:0 0 6px;">No tasks assigned to you</h3><p style="font-size:13px;">When someone assigns a task, it'll show up here.</p></div>`;
-    return;
-  }
-  const props = loadProps();
-  container.innerHTML = mine.map(t => {
-    const prop    = t.propId ? props.find(p => String(p.id) === String(t.propId)) : null;
-    const tm      = (typeof TASK_TYPE_META    !== 'undefined' && TASK_TYPE_META[t.type])     || { icon: '📌', label: t.type || 'Task' };
-    const sm      = (typeof TASK_STATUS_META  !== 'undefined' && TASK_STATUS_META[t.status]) || { cls: 'ts-pending', label: t.status || 'pending' };
-    const pm      = (typeof PRIORITY_META     !== 'undefined' && PRIORITY_META[t.priority])  || { cls: 'pri-medium', label: t.priority || 'medium' };
-    const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
-    const noteCount = t.notesCount != null ? t.notesCount : (Array.isArray(t.notes) ? t.notes.length : 0);
-    return `
-      <div class="task-card${t.status === 'done' ? ' task-done' : ''}${overdue ? ' task-overdue' : ''}" style="margin-bottom:12px;">
-        <div class="task-card-top">
-          <div class="task-type-badge">${tm.icon} ${tm.label}</div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <span class="task-priority ${pm.cls}">${pm.label}</span>
-            <span class="task-status-badge ${sm.cls}">${sm.label}</span>
-          </div>
+  container.innerHTML = `
+    <div class="mytasks-section">
+      <h2 class="mytasks-h">📥 Assigned to Me <span class="mytasks-count">${assignedToMe.length}</span></h2>
+      ${assignedToMe.length ? assignedToMe.map(t => renderTaskCardForUser(t, props, 'received')).join('') : `<div class="mytasks-empty">No tasks assigned to you yet.</div>`}
+    </div>
+    <div class="mytasks-section" style="margin-top:24px;">
+      <h2 class="mytasks-h">📤 Tasks I've Given <span class="mytasks-count">${givenByMe.length}</span></h2>
+      ${givenByMe.length ? givenByMe.map(t => renderTaskCardForUser(t, props, 'given')).join('') : `<div class="mytasks-empty">You haven't assigned any tasks yet. Open the Team tab to assign one.</div>`}
+    </div>
+  `;
+}
+
+function renderTaskCardForUser(t, props, mode) {
+  const prop      = t.propId ? props.find(p => String(p.id) === String(t.propId)) : null;
+  const tm        = (typeof TASK_TYPE_META    !== 'undefined' && TASK_TYPE_META[t.type])     || { icon: '📌', label: t.type || 'Task' };
+  const sm        = (typeof TASK_STATUS_META  !== 'undefined' && TASK_STATUS_META[t.status]) || { cls: 'ts-pending', label: t.status || 'pending' };
+  const pm        = (typeof PRIORITY_META     !== 'undefined' && PRIORITY_META[t.priority])  || { cls: 'pri-medium', label: t.priority || 'medium' };
+  const overdue   = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
+  const noteCount = t.notesCount != null ? t.notesCount : (Array.isArray(t.notes) ? t.notes.length : 0);
+  const unread    = isTaskUnread(t.id);
+  const counterParty = mode === 'received'
+    ? (t.createdByName ? `Assigned by ${h(t.createdByName)}` : '')
+    : (() => {
+        const u = loadTaskAssignees().find(a => String(a.id) === String(t.agentId));
+        return u ? `Assigned to ${h(u.name)}${u.role === 'admin' ? ' (Admin)' : ''}` : '';
+      })();
+  // For "received" mode the user can change status; for "given" they can't.
+  const statusControl = mode === 'received' ? `
+    <select class="task-status-select" onchange="updateTaskStatus('${t.id}', this.value)">
+      <option value="pending"${t.status === 'pending' ? ' selected' : ''}>Pending</option>
+      <option value="in-progress"${t.status === 'in-progress' ? ' selected' : ''}>In Progress</option>
+      <option value="done"${t.status === 'done' ? ' selected' : ''}>Done</option>
+      <option value="cancelled"${t.status === 'cancelled' ? ' selected' : ''}>Cancelled</option>
+    </select>` : '';
+  return `
+    <div class="task-card${t.status === 'done' ? ' task-done' : ''}${overdue ? ' task-overdue' : ''}" style="margin-bottom:12px;">
+      <div class="task-card-top">
+        <div class="task-type-badge">${tm.icon} ${tm.label}</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span class="task-priority ${pm.cls}">${pm.label}</span>
+          <span class="task-status-badge ${sm.cls}">${sm.label}</span>
         </div>
-        <div class="task-card-title">${h(t.title)}</div>
-        ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location ? ' · ' + h(prop.location) : ''}</div>` : ''}
-        ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
-        ${t.createdByName ? `<div style="font-size:12px;color:var(--text-3);margin-top:6px;">Assigned by ${h(t.createdByName)}</div>` : ''}
-        <div class="task-card-meta">
-          ${t.deadline ? `<span class="${overdue ? 'task-overdue-tag' : 'task-deadline'}">📅 ${overdue ? 'Overdue — ' : ''}${t.deadline}</span>` : ''}
-          <span class="task-note-count">💬 ${noteCount} update${noteCount === 1 ? '' : 's'}</span>
-        </div>
-        <div class="task-card-actions">
-          <button class="btn-sm btn-primary" onclick="openTaskNotes('${t.id}')">💬 Reply</button>
-          <select class="task-status-select" onchange="updateTaskStatus('${t.id}', this.value)">
-            <option value="pending"${t.status === 'pending' ? ' selected' : ''}>Pending</option>
-            <option value="in-progress"${t.status === 'in-progress' ? ' selected' : ''}>In Progress</option>
-            <option value="done"${t.status === 'done' ? ' selected' : ''}>Done</option>
-            <option value="cancelled"${t.status === 'cancelled' ? ' selected' : ''}>Cancelled</option>
-          </select>
-        </div>
-      </div>`;
-  }).join('');
+      </div>
+      <div class="task-card-title">${unread ? '<span class="unread-dot" title="Unread reply"></span>' : ''}${h(t.title)}</div>
+      ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location ? ' · ' + h(prop.location) : ''}</div>` : ''}
+      ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
+      ${counterParty ? `<div style="font-size:12px;color:var(--text-3);margin-top:6px;">${counterParty}</div>` : ''}
+      <div class="task-card-meta">
+        ${t.deadline ? `<span class="${overdue ? 'task-overdue-tag' : 'task-deadline'}">📅 ${overdue ? 'Overdue — ' : ''}${t.deadline}</span>` : ''}
+        <span class="task-note-count">💬 ${noteCount} update${noteCount === 1 ? '' : 's'}</span>
+      </div>
+      <div class="task-card-actions">
+        <button class="btn-sm btn-primary" onclick="openTaskNotes('${t.id}')">💬 ${unread ? 'New reply — Open' : 'Reply'}</button>
+        ${statusControl}
+      </div>
+    </div>`;
 }
 
 // Update sidebar nav badge for "My Tasks" with count of pending+in-progress
@@ -8575,6 +8626,7 @@ function checkTaskNotifications() {
         const involved = taskAgent === myId || taskCreator === myId;
         if (involved) {
           addNotification({ icon: '💬', text: `New reply on: ${t.title}`, taskId: id });
+          markTaskUnread(id);
         }
       }
     }
