@@ -8551,23 +8551,21 @@ function checkTaskNotifications() {
   const session = getSession();
   if (!session) return;
   const myId = String(session.userId || session.agentId || '');
-  const myName = session.name || '';
   const cur = loadTasks();
+  console.log('[notify] tasks event — me=', myId, 'tasks=', cur.length, 'snapshotSize=', _taskSnapshot.size);
   for (const t of cur) {
     const id = String(t.id);
     const prev = _taskSnapshot.get(id);
     const taskAgent  = String(t.agentId || '');
     const taskCreator = String(t.createdById || '');
     const noteCount  = t.notesCount || 0;
+    console.log(`[notify]  task ${id} agent=${taskAgent} creator=${taskCreator} notes=${noteCount} prev=`, prev);
     if (!prev) {
-      // New task
       if (taskAgent === myId && taskCreator !== myId) {
         showToast(`📋 New task assigned: ${t.title}`, 'success');
       }
     } else {
-      // Reply added
       if (noteCount > prev.notesCount) {
-        // Only notify if I'm involved AND I'm not the (most recent) author
         const involved = taskAgent === myId || taskCreator === myId;
         if (involved) {
           showToast(`💬 New reply on: ${t.title}`, 'info');
