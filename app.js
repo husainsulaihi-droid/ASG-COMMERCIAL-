@@ -8274,6 +8274,7 @@ boot = async function() {
     showTab('home');                   // re-render now that data is loaded
     _refreshTaskSnapshot();            // baseline so first SSE doesn't toast everything
     updateMyTasksBadge();
+    renderNotifBadge();                // restore unread count from sessionStorage
     renderNavCounts(loadProps());
     setInterval(() => renderAlerts(loadProps()), 60000);
     renderAlerts(loadProps());
@@ -8553,29 +8554,129 @@ function checkTaskNotifications() {
   if (!session) return;
   const myId = String(session.userId || session.agentId || '');
   const cur = loadTasks();
-  console.log('[notify] tasks event — me=', myId, 'tasks=', cur.length, 'snapshotSize=', _taskSnapshot.size);
   for (const t of cur) {
     const id = String(t.id);
     const prev = _taskSnapshot.get(id);
-    const taskAgent  = String(t.agentId || '');
+    const taskAgent   = String(t.agentId || '');
     const taskCreator = String(t.createdById || '');
-    const noteCount  = t.notesCount || 0;
-    console.log(`[notify]  task ${id} agent=${taskAgent} creator=${taskCreator} notes=${noteCount} prev=`, prev);
+    const noteCount   = t.notesCount || 0;
     if (!prev) {
       if (taskAgent === myId && taskCreator !== myId) {
-        showToast(`📋 New task assigned: ${t.title}`, 'success');
+        addNotification({ icon: '📋', text: `New task assigned: ${t.title}`, taskId: id });
       }
     } else {
       if (noteCount > prev.notesCount) {
         const involved = taskAgent === myId || taskCreator === myId;
         if (involved) {
-          showToast(`💬 New reply on: ${t.title}`, 'info');
+          addNotification({ icon: '💬', text: `New reply on: ${t.title}`, taskId: id });
         }
       }
     }
   }
   _refreshTaskSnapshot();
 }
+
+// ─── Notification center ─────────────────────────────────
+// Notifications are kept in sessionStorage (per-tab, per-login) and
+// rendered into a dropdown anchored to the bell icon in the header.
+// Adding a notification also fires a brief toast.
+const NOTIF_KEY = 'asg_notifs';
+function _loadNotifs() {
+  try { return JSON.parse(sessionStorage.getItem(NOTIF_KEY)) || []; }
+  catch { return []; }
+}
+function _saveNotifs(arr) {
+  try { sessionStorage.setItem(NOTIF_KEY, JSON.stringify(arr.slice(0, 50))); } catch (_) {}
+}
+function addNotification({ icon, text, taskId }) {
+  const list = _loadNotifs();
+  list.unshift({ id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                 icon: icon || '🔔', text, taskId, ts: Date.now(), read: false });
+  _saveNotifs(list);
+  renderNotifBadge();
+  if (typeof showToast === 'function') showToast(`${icon || '🔔'} ${text}`, 'info');
+  // If the panel is open, refresh its contents
+  const panel = document.getElementById('notifPanel');
+  if (panel && panel.style.display !== 'none') renderNotifPanel();
+}
+function clearNotifications() {
+  _saveNotifs([]);
+  renderNotifBadge();
+  renderNotifPanel();
+}
+function markNotifsRead() {
+  const list = _loadNotifs();
+  for (const n of list) n.read = true;
+  _saveNotifs(list);
+  renderNotifBadge();
+}
+function renderNotifBadge() {
+  const list = _loadNotifs();
+  const unread = list.filter(n => !n.read).length;
+  const el = document.getElementById('notifCount');
+  if (!el) return;
+  if (unread > 0) {
+    el.textContent = unread > 99 ? '99+' : String(unread);
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+function renderNotifPanel() {
+  const list = _loadNotifs();
+  const body = document.getElementById('notifList');
+  if (!body) return;
+  if (!list.length) {
+    body.innerHTML = '<div class="notif-empty">No notifications yet.<br>You\'ll see new tasks and replies here.</div>';
+    return;
+  }
+  body.innerHTML = list.map(n => `
+    <div class="notif-item${n.read ? '' : ' notif-unread'}" onclick="onNotifClick('${n.id}', ${n.taskId ? `'${n.taskId}'` : 'null'})">
+      <div class="notif-icon">${n.icon || '🔔'}</div>
+      <div class="notif-body">
+        <div class="notif-title">${h(n.text)}</div>
+        <div class="notif-time">${formatNotifTime(n.ts)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+function formatNotifTime(ts) {
+  const d = new Date(ts);
+  const diff = Date.now() - ts;
+  if (diff < 60_000)        return 'just now';
+  if (diff < 3_600_000)     return Math.floor(diff / 60_000) + ' min ago';
+  if (diff < 86_400_000)    return Math.floor(diff / 3_600_000) + 'h ago';
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function toggleNotifPanel() {
+  const panel = document.getElementById('notifPanel');
+  if (!panel) return;
+  const opening = panel.style.display === 'none';
+  panel.style.display = opening ? '' : 'none';
+  if (opening) {
+    renderNotifPanel();
+    markNotifsRead();
+  }
+}
+function onNotifClick(notifId, taskId) {
+  // Mark this one read
+  const list = _loadNotifs();
+  const item = list.find(n => n.id === notifId);
+  if (item) { item.read = true; _saveNotifs(list); renderNotifBadge(); }
+  // Navigate to the relevant tab
+  if (taskId && taskId !== 'null') {
+    document.getElementById('notifPanel').style.display = 'none';
+    if (typeof showTab === 'function') showTab('mytasks');
+  }
+}
+// Click outside the bell/panel closes the panel
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('notifPanel');
+  const btn   = document.getElementById('notifBtn');
+  if (!panel || panel.style.display === 'none') return;
+  if (panel.contains(e.target) || btn.contains(e.target)) return;
+  panel.style.display = 'none';
+});
 
 // ═══════════════════════════════════════════════════════
 //  TEAM MODULE EXPANSION
