@@ -37,9 +37,13 @@ const router = express.Router();
 const PROP_FIELDS = [
   'type', 'name', 'unit_no', 'trade_license', 'usage', 'location', 'map_link',
   'size', 'area', 'compound', 'mezzanine',
-  'ownership', 'partner_name', 'our_share', 'owner_name', 'owner_phone',
+  'premise_number', 'dewa_number',
+  'ownership', 'partner_name', 'our_share', 'owner_name', 'owner_phone', 'owner_email',
+  'partners',                                       // JSON array of {name, phone}
   'mgmt_fee', 'mgmt_date', 'purchase_price', 'purchase_date', 'market_value',
   'land_charges', 'license_fees', 'sub_lease_fees',
+  'dewa_charges', 'ejari_fees', 'civil_defense_charges', 'legal_fee',
+  'corporate_tax', 'security_deposit',
   'status', 'annual_rent', 'service_charges', 'maintenance_fees', 'vat',
   'tenant_name', 'tenant_phone', 'tenant_email', 'reminder_days',
   'lease_start', 'lease_end', 'num_cheques', 'notes', 'coords',
@@ -49,7 +53,10 @@ const PROP_FIELDS = [
 const FINANCIAL_FIELDS = [
   'annualRent', 'purchasePrice', 'marketValue', 'serviceCharges',
   'maintenanceFees', 'vat', 'mgmtFee', 'purchaseDate', 'mgmtDate',
-  'ourShare', 'partnerName', 'landCharges', 'licenseFees', 'subLeaseFees'
+  'ourShare', 'partnerName', 'partners',
+  'landCharges', 'licenseFees', 'subLeaseFees',
+  'dewaCharges', 'ejariFees', 'civilDefenseCharges', 'legalFee',
+  'corporateTax', 'securityDeposit'
 ];
 const TENANT_FIELDS = [
   'tenantName', 'tenantPhone', 'tenantEmail', 'leaseStart', 'leaseEnd', 'numCheques'
@@ -186,8 +193,8 @@ router.post('/:id/cheques', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const b = req.body || {};
   const result = getDb().prepare(
-    'INSERT INTO property_cheques (property_id, cheque_num, cheque_date, amount, status) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, b.chequeNum || null, b.chequeDate || null, b.amount || null, b.status || 'pending');
+    'INSERT INTO property_cheques (property_id, cheque_num, cheque_no_text, cheque_date, amount, status) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, b.chequeNum || null, b.chequeNoText || null, b.chequeDate || null, b.amount || null, b.status || 'pending');
   const row = getDb().prepare('SELECT * FROM property_cheques WHERE id = ?').get(result.lastInsertRowid);
   folderExport.writePropertyFolder(id);
   res.status(201).json({ cheque: rowToApi(row) });
@@ -198,10 +205,11 @@ router.patch('/:id/cheques/:cid', requireAdmin, (req, res) => {
   const b = req.body || {};
   const updates = [];
   const values = [];
-  if (b.chequeNum  !== undefined) { updates.push('cheque_num = ?');  values.push(b.chequeNum); }
-  if (b.chequeDate !== undefined) { updates.push('cheque_date = ?'); values.push(b.chequeDate); }
-  if (b.amount     !== undefined) { updates.push('amount = ?');      values.push(b.amount); }
-  if (b.status     !== undefined) { updates.push('status = ?');      values.push(b.status); }
+  if (b.chequeNum     !== undefined) { updates.push('cheque_num = ?');     values.push(b.chequeNum); }
+  if (b.chequeNoText  !== undefined) { updates.push('cheque_no_text = ?'); values.push(b.chequeNoText); }
+  if (b.chequeDate    !== undefined) { updates.push('cheque_date = ?');    values.push(b.chequeDate); }
+  if (b.amount        !== undefined) { updates.push('amount = ?');         values.push(b.amount); }
+  if (b.status        !== undefined) { updates.push('status = ?');         values.push(b.status); }
   if (!updates.length) {
     const row = getDb().prepare('SELECT * FROM property_cheques WHERE id = ?').get(cid);
     return res.json({ cheque: rowToApi(row) });

@@ -192,18 +192,25 @@ function idbDel(id) {
 // ─── LocalStorage (property data) ────────────────
 // ─── Income helpers: account for partnership share & deductions ────
 // Returns YOUR share of the NET annual rent for a property.
-// Net = annualRent − landCharges − licenseFees − serviceCharges (floored at 0).
+// Net = annualRent − all per-property deductions (floored at 0).
 //   - own:        100% of net
 //   - partnership: ourShare% of net
 //   - management:  0 (you don't earn rent on managed; mgmtFee instead)
-//   - unknown:    100% (legacy/unmigrated rows)
+function totalDeductions(p) {
+  if (!p) return 0;
+  return (Number(p.landCharges)         || 0)
+       + (Number(p.licenseFees)         || 0)
+       + (Number(p.serviceCharges)      || 0)
+       + (Number(p.dewaCharges)         || 0)
+       + (Number(p.ejariFees)           || 0)
+       + (Number(p.civilDefenseCharges) || 0)
+       + (Number(p.legalFee)            || 0)
+       + (Number(p.corporateTax)        || 0);
+}
 function ourRentShare(p) {
   if (!p) return 0;
   const rent = Number(p.annualRent) || 0;
-  const land = Number(p.landCharges) || 0;
-  const lic  = Number(p.licenseFees) || 0;
-  const svc  = Number(p.serviceCharges) || 0;
-  const net  = Math.max(0, rent - land - lic - svc);
+  const net  = Math.max(0, rent - totalDeductions(p));
   if (p.ownership === 'management') return 0;
   if (p.ownership === 'partnership') {
     const share = Number(p.ourShare) || 0;
@@ -371,6 +378,7 @@ async function fetchProperties() {
           if (!byProp.has(pid)) byProp.set(pid, []);
           byProp.get(pid).push({
             n:      c.chequeNum,
+            noText: c.chequeNoText || '',
             date:   c.chequeDate,
             amount: c.amount,
             status: c.status,
@@ -501,15 +509,17 @@ function renderChequeEditFields(prefill) {
   const existing = [];
   container.querySelectorAll('.cheque-row').forEach((row, i) => {
     existing[i] = {
-      date:   row.querySelector('.cheque-date')?.value   || '',
-      amount: row.querySelector('.cheque-amount')?.value || '',
-      status: row.querySelector('.cheque-status')?.value || 'pending',
+      noText: row.querySelector('.cheque-no-text')?.value || '',
+      date:   row.querySelector('.cheque-date')?.value    || '',
+      amount: row.querySelector('.cheque-amount')?.value  || '',
+      status: row.querySelector('.cheque-status')?.value  || 'pending',
     };
   });
   if (prefill && prefill.length) {
     prefill.forEach((c, i) => {
       existing[i] = {
-        date:   c.date   || '',
+        noText: c.chequeNoText || c.noText || '',
+        date:   c.date   || c.chequeDate || '',
         amount: c.amount != null ? String(c.amount) : '',
         status: c.status || 'pending',
       };
@@ -517,11 +527,12 @@ function renderChequeEditFields(prefill) {
   }
 
   if (!n) { container.innerHTML = '<p style="color:var(--text-3);font-size:13px;">No cheques. Increase the count above to add rows.</p>'; return; }
-  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
+  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
   for (let i = 0; i < n; i++) {
     const prev = existing[i] || {};
     html += `<div class="cheque-row">
       <span class="cheque-num">${i + 1}</span>
+      <input type="text" class="cheque-no-text" placeholder="e.g. 00012345" value="${prev.noText || ''}">
       <input type="date" class="cheque-date" value="${prev.date || ''}">
       <input type="number" class="cheque-amount" placeholder="e.g. 10,000" min="0" value="${prev.amount || ''}">
       <select class="cheque-status">
@@ -545,6 +556,7 @@ async function saveChequeEdit() {
   document.getElementById('chequeEditFields').querySelectorAll('.cheque-row').forEach((row, i) => {
     rows.push({
       n:      i + 1,
+      noText: row.querySelector('.cheque-no-text')?.value.trim() || null,
       date:   row.querySelector('.cheque-date')?.value           || null,
       amount: Number(row.querySelector('.cheque-amount')?.value) || null,
       status: row.querySelector('.cheque-status')?.value         || 'pending',
@@ -590,10 +602,11 @@ async function apiSyncPropertyCheques(propertyId, formCheques) {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chequeNum:  c.n,
-        chequeDate: c.date || null,
-        amount:     c.amount || null,
-        status:     c.status || 'pending',
+        chequeNum:    c.n,
+        chequeNoText: c.noText || null,
+        chequeDate:   c.date || null,
+        amount:       c.amount || null,
+        status:       c.status || 'pending',
       }),
     }).catch(() => {})
   ));
@@ -637,7 +650,7 @@ function persistProps(arr) {
 function uid()             { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ─── State ────────────────────────────────────────
-let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null };
+let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null };
 let pendingMedia      = [];           // new File objects to add
 let existingMediaMeta = [];           // { id, name, mime } already saved
 let removedMediaIds   = [];           // IDB ids to delete on save
@@ -1451,7 +1464,7 @@ function openAddModal() {
   $('modalTitle').textContent = 'Add New Property';
   $('saveBtnText').textContent = 'Save Property';
   $('propertyForm').reset();
-  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null };
   pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
   resetFileZones();
   renderMediaPreviews();
@@ -1460,6 +1473,8 @@ function openAddModal() {
   if (typeof togglePropUsageCustom === 'function') togglePropUsageCustom();
   $('propNumCheques').value = '';
   $('chequeFields').innerHTML = '';
+  const partnerFieldsEl = $('partnerFields');
+  if (partnerFieldsEl) partnerFieldsEl.innerHTML = '';
   $('propertyModalOverlay').classList.add('active');
 }
 
@@ -1484,7 +1499,7 @@ async function openEditModal(id) {
   $('editPropertyId').value = id;
   $('modalTitle').textContent = 'Edit Property';
   $('saveBtnText').textContent = 'Save Changes';
-  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null };
   pendingMedia = [];
   existingMediaMeta = p.media ? [...p.media] : [];
   removedMediaIds   = [];
@@ -1529,6 +1544,25 @@ async function openEditModal(id) {
   $('propMarketValue').value   = p.marketValue   || '';
   $('propLandCharges').value   = p.landCharges   || '';
   $('propLicenseFees').value   = p.licenseFees   || '';
+  $('propDewaCharges').value           = p.dewaCharges          || '';
+  $('propEjariFees').value             = p.ejariFees            || '';
+  $('propCivilDefenseCharges').value   = p.civilDefenseCharges  || '';
+  $('propLegalFee').value              = p.legalFee             || '';
+  $('propCorporateTax').value          = p.corporateTax         || '';
+  $('propSecurityDeposit').value       = p.securityDeposit      || '';
+  $('propPremiseNo').value             = p.premiseNumber || '';
+  $('propDewaNo').value                = p.dewaNumber    || '';
+  $('propOwnerEmail').value            = p.ownerEmail    || '';
+  // Partners: hydrate from JSON. If legacy single-partner data is present
+  // and partners JSON is empty, seed the partners array with the legacy row.
+  let partnersArr = [];
+  if (p.partners) {
+    try { partnersArr = JSON.parse(p.partners); } catch { partnersArr = []; }
+  } else if (p.partnerName) {
+    partnersArr = [{ name: p.partnerName, phone: '' }];
+  }
+  $('propNumPartners').value = partnersArr.length || '';
+  renderPartnerFields(partnersArr);
   $('propRent').value          = p.annualRent    || '';
   $('propServiceCharges').value = p.serviceCharges || '';
   $('propMaintenanceFees').value = p.maintenanceFees || '';
@@ -1548,6 +1582,8 @@ async function openEditModal(id) {
     $('chequeFields').querySelectorAll('.cheque-row').forEach((row, i) => {
       const c = p.cheques[i];
       if (!c) return;
+      const noTextEl = row.querySelector('.cheque-no-text');
+      if (noTextEl) noTextEl.value = c.noText || c.chequeNoText || '';
       row.querySelector('.cheque-date').value   = c.date   || '';
       row.querySelector('.cheque-amount').value = c.amount || '';
       row.querySelector('.cheque-status').value = c.status || 'pending';
@@ -1562,12 +1598,14 @@ async function openEditModal(id) {
   toggleOwnership();
   toggleRentalSection();
 
-  showExisting('drec',      p.files?.drec);
-  showExisting('ijari',     p.files?.ijari);
-  showExisting('ijari2',    p.files?.ijari2);
-  showExisting('affection', p.files?.affection);
-  showExisting('tenancy',   p.files?.tenancy);
-  showExisting('license',   p.files?.license);
+  showExisting('drec',          p.files?.drec);
+  showExisting('ijari',         p.files?.ijari);
+  showExisting('ijari2',        p.files?.ijari2);
+  showExisting('affection',     p.files?.affection);
+  showExisting('tenancy',       p.files?.tenancy);
+  showExisting('license',       p.files?.license);
+  showExisting('tenantlicense', p.files?.tenantlicense);
+  showExisting('addendum',      p.files?.addendum);
 
   await renderMediaPreviews();
   $('propertyModalOverlay').classList.add('active');
@@ -1582,6 +1620,39 @@ function toggleOwnership() {
   const v = $('propOwnership').value;
   $('partnershipFields').style.display = v === 'partnership' ? 'block' : 'none';
   $('managementFields').style.display  = v === 'management'  ? 'block' : 'none';
+}
+
+// ─── Partner rows (multi-partner support) ───────────────────
+// Driven by the Number of Partners input. Each row collects {name, phone}.
+// Existing values are preserved when the count changes.
+function renderPartnerFields(prefill) {
+  const container = document.getElementById('partnerFields');
+  if (!container) return;
+  const n = parseInt(document.getElementById('propNumPartners')?.value, 10) || 0;
+  // Capture current values
+  const existing = [];
+  container.querySelectorAll('.partner-row').forEach((row, i) => {
+    existing[i] = {
+      name:  row.querySelector('.partner-name')?.value  || '',
+      phone: row.querySelector('.partner-phone')?.value || '',
+    };
+  });
+  if (Array.isArray(prefill)) {
+    prefill.forEach((p, i) => existing[i] = { name: p.name || '', phone: p.phone || '' });
+  }
+  if (!n) { container.innerHTML = ''; return; }
+  let html = '<div class="partner-list">';
+  for (let i = 0; i < n; i++) {
+    const v = existing[i] || {};
+    html += `
+      <div class="partner-row" style="display:grid;grid-template-columns:32px 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+        <span style="font-size:12px;font-weight:700;color:var(--text-3);text-align:center;">P${i+1}</span>
+        <input type="text" class="partner-name"  placeholder="Partner ${i+1} name"   value="${h(v.name || '')}">
+        <input type="tel"  class="partner-phone" placeholder="+971 XX XXX XXXX"      value="${h(v.phone || '')}">
+      </div>`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
 }
 
 // Auto-calculate 5% VAT from annual rent only
@@ -1599,16 +1670,18 @@ function renderChequeFields() {
   const existing = [];
   container.querySelectorAll('.cheque-row').forEach((row, i) => {
     existing[i] = {
-      date:   row.querySelector('.cheque-date')?.value   || '',
-      amount: row.querySelector('.cheque-amount')?.value || '',
-      status: row.querySelector('.cheque-status')?.value || 'pending',
+      noText: row.querySelector('.cheque-no-text')?.value || '',
+      date:   row.querySelector('.cheque-date')?.value    || '',
+      amount: row.querySelector('.cheque-amount')?.value  || '',
+      status: row.querySelector('.cheque-status')?.value  || 'pending',
     };
   });
-  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
+  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
   for (let i = 0; i < n; i++) {
     const prev = existing[i] || {};
     html += `<div class="cheque-row">
       <span class="cheque-num">${i + 1}</span>
+      <input type="text" class="cheque-no-text" placeholder="e.g. 00012345" value="${prev.noText || ''}">
       <input type="date" class="cheque-date" value="${prev.date || ''}">
       <input type="number" class="cheque-amount" placeholder="e.g. 45,000" min="0" value="${prev.amount || ''}">
       <select class="cheque-status">
@@ -1861,8 +1934,28 @@ async function handleSave() {
     purchasePrice: Number($('propPurchasePrice').value) || null,
     purchaseDate:  $('propPurchaseDate').value          || null,
     marketValue:   Number($('propMarketValue').value)   || null,
-    landCharges:   Number($('propLandCharges').value)   || null,
-    licenseFees:   Number($('propLicenseFees').value)   || null,
+    landCharges:           Number($('propLandCharges').value)           || null,
+    licenseFees:           Number($('propLicenseFees').value)           || null,
+    dewaCharges:           Number($('propDewaCharges').value)           || null,
+    ejariFees:             Number($('propEjariFees').value)             || null,
+    civilDefenseCharges:   Number($('propCivilDefenseCharges').value)   || null,
+    legalFee:              Number($('propLegalFee').value)              || null,
+    corporateTax:          Number($('propCorporateTax').value)          || null,
+    securityDeposit:       Number($('propSecurityDeposit').value)       || null,
+    premiseNumber:         $('propPremiseNo').value.trim()  || null,
+    dewaNumber:            $('propDewaNo').value.trim()     || null,
+    ownerEmail:            $('propOwnerEmail').value.trim() || null,
+    partners:              (() => {
+      const n = parseInt($('propNumPartners')?.value, 10) || 0;
+      if (!n) return null;
+      const list = [];
+      document.querySelectorAll('#partnerFields .partner-row').forEach(row => {
+        const name  = row.querySelector('.partner-name')?.value.trim()  || '';
+        const phone = row.querySelector('.partner-phone')?.value.trim() || '';
+        if (name || phone) list.push({ name, phone });
+      });
+      return list.length ? JSON.stringify(list) : null;
+    })(),
     status:        getRadio('propStatus')               || null,
     annualRent:    Number($('propRent').value)          || null,
     serviceCharges:  Number($('propServiceCharges').value)  || null,
@@ -1882,10 +1975,11 @@ async function handleSave() {
       const rows = [];
       $('chequeFields').querySelectorAll('.cheque-row').forEach((row, i) => {
         rows.push({
-          n:      i + 1,
-          date:   row.querySelector('.cheque-date')?.value                  || null,
-          amount: Number(row.querySelector('.cheque-amount')?.value)        || null,
-          status: row.querySelector('.cheque-status')?.value                || 'pending',
+          n:        i + 1,
+          noText:   row.querySelector('.cheque-no-text')?.value.trim()  || null,
+          date:     row.querySelector('.cheque-date')?.value            || null,
+          amount:   Number(row.querySelector('.cheque-amount')?.value)  || null,
+          status:   row.querySelector('.cheque-status')?.value          || 'pending',
         });
       });
       return rows.length ? rows : null;
@@ -1922,7 +2016,7 @@ async function handleSave() {
 
   // Upload pending document files in parallel — sequential awaits made
   // saves take 10-30s when several files were attached.
-  const uploads = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license']
+  const uploads = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license', 'tenantlicense', 'addendum']
     .filter(k => pendingFiles[k])
     .map(k => apiUploadPropertyFile(savedId, k, pendingFiles[k])
       .catch(e => { console.warn(`upload ${k} failed:`, e); showToast(`Upload of ${k} failed`, 'error'); })
@@ -2019,12 +2113,14 @@ async function openDetailModal(id) {
         }
         // Overwrite legacy fields so the existing render uses API data.
         p.files = {
-          drec:      byCat.drec,
-          ijari:     byCat.ijari,
-          ijari2:    byCat.ijari2,
-          affection: byCat.affection,
-          tenancy:   byCat.tenancy,
-          license:   byCat.license,
+          drec:          byCat.drec,
+          ijari:         byCat.ijari,
+          ijari2:        byCat.ijari2,
+          affection:     byCat.affection,
+          tenancy:       byCat.tenancy,
+          license:       byCat.license,
+          tenantlicense: byCat.tenantlicense,
+          addendum:      byCat.addendum,
         };
         p.media = byCat.photos || [];
       }
@@ -2036,6 +2132,7 @@ async function openDetailModal(id) {
       const apiCheques = await apiListPropertyCheques(id);
       p.cheques = apiCheques.map(c => ({
         n:      c.chequeNum,
+        noText: c.chequeNoText || '',
         date:   c.chequeDate,
         amount: c.amount,
         status: c.status,
@@ -2101,14 +2198,20 @@ async function openDetailModal(id) {
             ${p.purchaseDate  ? `<div class="detail-row"><span class="dr-label">Purchase Date</span><span class="dr-value">${fmtDate(p.purchaseDate)}</span></div>` : ''}
             ${p.marketValue   ? `<div class="detail-row"><span class="dr-label">Market Value</span><span class="dr-value">AED ${num(p.marketValue)}</span></div>` : ''}
             ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span><span class="dr-value big">AED ${num(p.annualRent)}</span></div>` : ''}
-            ${p.landCharges    ? `<div class="detail-row"><span class="dr-label">Land Charges</span><span class="dr-value red">− AED ${num(p.landCharges)} / yr</span></div>` : ''}
-            ${p.licenseFees    ? `<div class="detail-row"><span class="dr-label">License Fees</span><span class="dr-value red">− AED ${num(p.licenseFees)} / yr</span></div>` : ''}
-            ${p.serviceCharges ? `<div class="detail-row"><span class="dr-label">Service Charges</span><span class="dr-value red">− AED ${num(p.serviceCharges)} / yr</span></div>` : ''}
-            ${p.annualRent && (Number(p.landCharges)||Number(p.licenseFees)||Number(p.serviceCharges)) ? `<div class="detail-row"><span class="dr-label">Net Annual Rent</span><span class="dr-value big green">AED ${num(Math.max(0, Number(p.annualRent) - (Number(p.landCharges)||0) - (Number(p.licenseFees)||0) - (Number(p.serviceCharges)||0)))}</span></div>` : ''}
-            ${p.maintenanceFees ? `<div class="detail-row"><span class="dr-label">Annual Maintenance</span><span class="dr-value">AED ${num(p.maintenanceFees)} / yr</span></div>` : ''}
-            ${p.annualRent ? `<div class="detail-row"><span class="dr-label">VAT (5%)</span><span class="dr-value">AED ${num(Math.round(Number(p.annualRent) * 0.05))}</span></div>` : ''}
-            ${p.subLeaseFees ? `<div class="detail-row"><span class="dr-label">Sub Lease Fees</span><span class="dr-value">AED ${num(p.subLeaseFees)}</span></div>` : ''}
-            ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, p.purchasePrice)}</span></div>` : ''}
+            ${p.landCharges          ? `<div class="detail-row"><span class="dr-label">Land Main Lease</span><span class="dr-value red">− AED ${num(p.landCharges)} / yr</span></div>` : ''}
+            ${p.licenseFees          ? `<div class="detail-row"><span class="dr-label">License Fees</span><span class="dr-value red">− AED ${num(p.licenseFees)} / yr</span></div>` : ''}
+            ${p.serviceCharges       ? `<div class="detail-row"><span class="dr-label">Service Charges</span><span class="dr-value red">− AED ${num(p.serviceCharges)} / yr</span></div>` : ''}
+            ${p.dewaCharges          ? `<div class="detail-row"><span class="dr-label">DEWA Charges</span><span class="dr-value red">− AED ${num(p.dewaCharges)} / yr</span></div>` : ''}
+            ${p.ejariFees            ? `<div class="detail-row"><span class="dr-label">Ejari Fees</span><span class="dr-value red">− AED ${num(p.ejariFees)}</span></div>` : ''}
+            ${p.civilDefenseCharges  ? `<div class="detail-row"><span class="dr-label">Civil Defense</span><span class="dr-value red">− AED ${num(p.civilDefenseCharges)} / yr</span></div>` : ''}
+            ${p.legalFee             ? `<div class="detail-row"><span class="dr-label">Legal Fee</span><span class="dr-value red">− AED ${num(p.legalFee)}</span></div>` : ''}
+            ${p.corporateTax         ? `<div class="detail-row"><span class="dr-label">Corporate Tax</span><span class="dr-value red">− AED ${num(p.corporateTax)}</span></div>` : ''}
+            ${p.annualRent && totalDeductions(p) ? `<div class="detail-row"><span class="dr-label">Net Annual Rent</span><span class="dr-value big green">AED ${num(Math.max(0, Number(p.annualRent) - totalDeductions(p)))}</span></div>` : ''}
+            ${p.maintenanceFees      ? `<div class="detail-row"><span class="dr-label">Annual Maintenance</span><span class="dr-value">AED ${num(p.maintenanceFees)} / yr</span></div>` : ''}
+            ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">VAT (5%)</span><span class="dr-value">AED ${num(Math.round(Number(p.annualRent) * 0.05))}</span></div>` : ''}
+            ${p.subLeaseFees         ? `<div class="detail-row"><span class="dr-label">Sub Lease Fees</span><span class="dr-value">AED ${num(p.subLeaseFees)}</span></div>` : ''}
+            ${p.securityDeposit      ? `<div class="detail-row"><span class="dr-label">Security Deposit</span><span class="dr-value">AED ${num(p.securityDeposit)}</span></div>` : ''}
+            ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, p.purchasePrice)}</span></div>` : ''}
           </div>
         </div>
       </div>
@@ -2146,10 +2249,11 @@ async function openDetailModal(id) {
       <div class="detail-block">
         <div class="detail-block-header">💳 Cheque Schedule</div>
         <div class="cheque-detail-table">
-          <div class="cdt-head"><span>#</span><span>Date</span><span>Amount</span><span>Status</span></div>
+          <div class="cdt-head"><span>#</span><span>Cheque No.</span><span>Date</span><span>Amount</span><span>Status</span></div>
           ${p.cheques.map((c, i) => `
           <div class="cdt-row">
             <span class="cdt-num">${i+1}</span>
+            <span>${h(c.noText || '—')}</span>
             <span>${fmtDate(c.date)||'—'}</span>
             <span>${c.amount ? 'AED '+num(c.amount) : '—'}</span>
             <span class="cdt-badge cdt-${c.status||'pending'}">${
@@ -2170,6 +2274,8 @@ async function openDetailModal(id) {
           ${docTile('Affection Plan', p.files?.affection)}
           ${docTile('Tenancy Contract', p.files?.tenancy)}
           ${docTile('Trade License', p.files?.license)}
+          ${docTile('Tenant License', p.files?.tenantlicense)}
+          ${docTile('Addendum', p.files?.addendum)}
         </div>
       </div>
 
@@ -2672,11 +2778,12 @@ function renderPayments() {
       </div>
       <div class="pmt-table">
         <div class="pmt-thead">
-          <span>#</span><span>Cheque Date</span><span>Amount</span><span>Status</span>
+          <span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount</span><span>Status</span>
         </div>
         ${g.cheques.map((c, i) => `
         <div class="pmt-trow pmt-trow-${c.status || 'pending'}">
           <span class="pmt-num">${c.n || i + 1}</span>
+          <span>${h(c.noText || '—')}</span>
           <span>${fmtDate(c.date) || '—'}</span>
           <span class="pmt-amount">${c.amount ? 'AED ' + num(c.amount) : '—'}</span>
           <span>
@@ -7923,14 +8030,21 @@ function _finRenderBody(props) {
     .filter(p => p.status === 'rented' && (p.annualRent||0) > 0)
     .map(p => {
       const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
-      const annual = Number(p.annualRent) || 0;
+      const annual = Number(p.annualRent)  || 0;
       const land   = Number(p.landCharges) || 0;
       const lic    = Number(p.licenseFees) || 0;
       const svc    = Number(p.serviceCharges) || 0;
-      const net    = Math.max(0, annual - land - lic - svc);
+      const dewa   = Number(p.dewaCharges) || 0;
+      const ejari  = Number(p.ejariFees)   || 0;
+      const cd     = Number(p.civilDefenseCharges) || 0;
+      const legal  = Number(p.legalFee)    || 0;
+      const ctax   = Number(p.corporateTax) || 0;
+      const totalDed = land + lic + svc + dewa + ejari + cd + legal + ctax;
+      const net    = Math.max(0, annual - totalDed);
       const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
       const ourIncome = Math.round(net * (sharePct/100));
-      return { p, months, annual, land, lic, svc, net, incomeYr: net, sharePct, ourIncome };
+      return { p, months, annual, land, lic, svc, dewa, ejari, cd, legal, ctax, totalDed, net,
+               incomeYr: net, sharePct, ourIncome };
     })
     .sort((a,b) => b.ourIncome - a.ourIncome);
 
@@ -7938,9 +8052,23 @@ function _finRenderBody(props) {
   const rentTotalLand  = rentRows.reduce((s,r)=>s+r.land,   0);
   const rentTotalLic   = rentRows.reduce((s,r)=>s+r.lic,    0);
   const rentTotalSvc   = rentRows.reduce((s,r)=>s+r.svc,    0);
+  const rentTotalDewa  = rentRows.reduce((s,r)=>s+r.dewa,   0);
+  const rentTotalEjari = rentRows.reduce((s,r)=>s+r.ejari,  0);
+  const rentTotalCD    = rentRows.reduce((s,r)=>s+r.cd,     0);
+  const rentTotalLegal = rentRows.reduce((s,r)=>s+r.legal,  0);
+  const rentTotalCtax  = rentRows.reduce((s,r)=>s+r.ctax,   0);
   const rentTotalNet   = rentRows.reduce((s,r)=>s+r.net,    0);
-  const deductionsTotal = rentTotalLand + rentTotalLic + rentTotalSvc;
+  const deductionsTotal = rentTotalLand + rentTotalLic + rentTotalSvc
+                        + rentTotalDewa + rentTotalEjari + rentTotalCD
+                        + rentTotalLegal + rentTotalCtax;
   const rentTotalOurs  = rentRows.reduce((s,r)=>s+r.ourIncome, 0);
+
+  // Security Deposit list (informational, ALL properties with a value)
+  const depRows = pool
+    .filter(p => Number(p.securityDeposit) > 0)
+    .map(p => ({ p, amount: Number(p.securityDeposit) || 0 }))
+    .sort((a,b) => b.amount - a.amount);
+  const depTotal = depRows.reduce((s,r) => s + r.amount, 0);
 
   // Vacant in year (warehouses we own/partner with that aren't generating)
   const vacantList = pool.filter(p =>
@@ -8003,7 +8131,7 @@ function _finRenderBody(props) {
       <div class="fin-kpi">
         <div class="fin-kpi-label">Deductions</div>
         <div class="fin-kpi-value fin-kpi-warn">− AED ${deductionsTotal.toLocaleString()}</div>
-        <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()} · Service ${rentTotalSvc.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()} · Service ${rentTotalSvc.toLocaleString()} · DEWA ${rentTotalDewa.toLocaleString()} · Ejari ${rentTotalEjari.toLocaleString()} · CD ${rentTotalCD.toLocaleString()} · Legal ${rentTotalLegal.toLocaleString()} · Tax ${rentTotalCtax.toLocaleString()}</div>
       </div>` : ''}
       <div class="fin-kpi">
         <div class="fin-kpi-label">Management Fees</div>
@@ -8213,6 +8341,41 @@ function _finRenderBody(props) {
       </div>
     </div>` : ''}
 
+    <!-- ── SECURITY DEPOSITS ────────────────────── -->
+    ${depRows.length ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Security Deposits Held — ${typeLabel}</h2>
+          <span class="fin-section-sub">Informational · refundable amounts held against tenancies</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Total Held</span>
+          <span class="fin-tot-value">AED ${depTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead><tr><th style="width:34px">#</th><th>Property</th><th>Tenant</th><th class="ta-r">Security Deposit</th></tr></thead>
+          <tbody>
+            ${depRows.map((r,i)=>`
+              <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(r.p.name)}</strong></td>
+                <td>${h(r.p.tenantName||'—')}</td>
+                <td class="ta-r"><strong>AED ${num(r.amount)}</strong></td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="ta-r"><strong>TOTAL</strong></td>
+              <td class="ta-r"><strong>AED ${num(depTotal)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+
     <!-- ── COMBINED TOTAL ───────────────────────── -->
     <div class="fin-grand">
       <div class="fin-grand-row">
@@ -8221,7 +8384,7 @@ function _finRenderBody(props) {
       </div>
       ${deductionsTotal ? `
       <div class="fin-grand-row" style="color:var(--danger);font-weight:500;">
-        <span>&nbsp;&nbsp;↳ Deductions applied (Land + License + Service)</span>
+        <span>&nbsp;&nbsp;↳ Deductions applied (Land + License + Service + DEWA + Ejari + Civil Defense + Legal + Corporate Tax)</span>
         <span>− AED ${deductionsTotal.toLocaleString()}</span>
       </div>` : ''}
       <div class="fin-grand-row">

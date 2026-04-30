@@ -75,9 +75,19 @@ CREATE TABLE properties (
   purchase_price      REAL,
   purchase_date       DATE,
   market_value        REAL,
-  land_charges        REAL,    -- annual land charges (deducted from rental income in Financial tab)
-  license_fees        REAL,    -- annual trade-license fees (deducted from rental income in Financial tab)
+  land_charges        REAL,    -- "Land Main Lease" — annual deduction
+  license_fees        REAL,    -- annual trade-license fees (deducted from rental income)
   sub_lease_fees      REAL,    -- informational only; not used in any calculation
+  dewa_charges        REAL,    -- DEWA charges (annual deduction)
+  ejari_fees          REAL,    -- Ejari fees (deduction)
+  civil_defense_charges REAL,  -- civil defense charges (annual deduction)
+  legal_fee           REAL,    -- legal fee (deduction)
+  corporate_tax       REAL,    -- corporate tax (deduction)
+  security_deposit    REAL,    -- informational; surfaced as its own section in Financial tab
+  premise_number      TEXT,
+  dewa_number         TEXT,
+  owner_email         TEXT,
+  partners            TEXT,    -- JSON array of {name, phone} for multi-partner ownership
   -- Rental
   status              TEXT,    -- vacant, rented
   annual_rent         REAL,
@@ -111,12 +121,13 @@ CREATE INDEX idx_properties_status ON properties(status);
 
 -- ─── PROPERTY CHEQUES ────────────────────────────────────────────
 CREATE TABLE property_cheques (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  property_id INTEGER NOT NULL,
-  cheque_num  INTEGER,
-  cheque_date DATE,
-  amount      REAL,
-  status      TEXT DEFAULT 'pending',  -- pending, received, bounced
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id    INTEGER NOT NULL,
+  cheque_num     INTEGER,                       -- ordinal (1..N)
+  cheque_no_text TEXT,                          -- printed cheque number from the cheque book
+  cheque_date    DATE,
+  amount         REAL,
+  status         TEXT DEFAULT 'pending',        -- pending, received, bounced
   FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_cheques_property ON property_cheques(property_id);

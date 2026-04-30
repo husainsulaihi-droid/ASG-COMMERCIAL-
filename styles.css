@@ -1828,7 +1828,7 @@ body, button, input, select, textarea {
 .pmt-table { width: 100%; }
 .pmt-thead, .pmt-trow {
   display: grid;
-  grid-template-columns: 36px 1fr 1fr 140px;
+  grid-template-columns: 36px 1.1fr 1fr 1fr 140px;
   align-items: center;
   gap: 8px;
   padding: 9px 18px;
@@ -1892,7 +1892,7 @@ body, button, input, select, textarea {
 .cheque-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .cheque-head, .cheque-row {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 130px;
+  grid-template-columns: 28px 1fr 1fr 1fr 130px;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
@@ -1918,7 +1918,7 @@ body, button, input, select, textarea {
 .cheque-detail-table { padding: 0 16px 12px; }
 .cdt-head, .cdt-row {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 120px;
+  grid-template-columns: 28px 1.1fr 1fr 1fr 120px;
   align-items: center;
   gap: 8px;
   padding: 8px 0;

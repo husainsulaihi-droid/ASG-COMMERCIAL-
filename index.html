@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260430r">
+  <link rel="stylesheet" href="styles.css?v=20260430s">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -742,6 +742,16 @@
             </div>
             <div class="form-row">
               <div class="form-group">
+                <label>Premise Number</label>
+                <input type="text" id="propPremiseNo" placeholder="e.g. PRM-12345">
+              </div>
+              <div class="form-group">
+                <label>DEWA Number</label>
+                <input type="text" id="propDewaNo" placeholder="e.g. 2002012345">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
                 <label>Google Maps Link</label>
                 <input type="url" id="propMapLink" placeholder="https://maps.google.com/...">
               </div>
@@ -810,14 +820,15 @@
             <div id="partnershipFields" style="display:none;">
               <div class="form-row">
                 <div class="form-group">
-                  <label>Partner Name / Company</label>
-                  <input type="text" id="propPartnerName" placeholder="Partner's full name or company">
-                </div>
-                <div class="form-group">
                   <label>Our Ownership Share (%)</label>
                   <input type="number" id="propOurShare" placeholder="e.g. 50" min="1" max="99">
                 </div>
+                <div class="form-group">
+                  <label>Number of Partners</label>
+                  <input type="number" id="propNumPartners" min="0" max="20" placeholder="e.g. 1" oninput="renderPartnerFields()">
+                </div>
               </div>
+              <div id="partnerFields"></div>
             </div>
             <div id="managementFields" style="display:none;">
               <div class="mgmt-notice">
@@ -833,6 +844,13 @@
                   <label>Owner's Contact / Phone</label>
                   <input type="tel" id="propOwnerPhone" placeholder="+971 XX XXX XXXX">
                 </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Owner's Email</label>
+                  <input type="email" id="propOwnerEmail" placeholder="owner@example.com">
+                </div>
+                <div class="form-group"></div>
               </div>
               <div class="form-row">
                 <div class="form-group">
@@ -857,12 +875,42 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>Land Charges (AED / year) <span class="optional-label">deducted from rental income</span></label>
+                <label>Land Main Lease (AED / year) <span class="optional-label">deducted from rental income</span></label>
                 <input type="number" id="propLandCharges" placeholder="e.g. 8,000" min="0">
               </div>
               <div class="form-group">
                 <label>License Fees (AED / year) <span class="optional-label">deducted from rental income</span></label>
                 <input type="number" id="propLicenseFees" placeholder="e.g. 5,000" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>DEWA Charges (AED / year) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propDewaCharges" placeholder="e.g. 3,500" min="0">
+              </div>
+              <div class="form-group">
+                <label>Ejari Fees (AED) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propEjariFees" placeholder="e.g. 220" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Civil Defense Charges (AED / year) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propCivilDefenseCharges" placeholder="e.g. 1,500" min="0">
+              </div>
+              <div class="form-group">
+                <label>Legal Fee (AED) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propLegalFee" placeholder="e.g. 2,000" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Corporate Tax (AED) <span class="optional-label">deducted from rental income</span></label>
+                <input type="number" id="propCorporateTax" placeholder="e.g. 5,000" min="0">
+              </div>
+              <div class="form-group">
+                <label>Security Deposit (AED) <span class="optional-label">informational · listed in Financial tab</span></label>
+                <input type="number" id="propSecurityDeposit" placeholder="e.g. 25,000" min="0">
               </div>
             </div>
 
@@ -1064,6 +1112,29 @@
                 </div>
                 <div class="existing-file-tag" id="existingTenancy"></div>
               </div>
+            </div>
+            <div class="form-row three-col">
+              <div class="form-group">
+                <label>Tenant License Copy</label>
+                <div class="file-zone" data-doc-key="tenantlicense" onclick="document.getElementById('fileTenantLicense').click()">
+                  <input type="file" id="fileTenantLicense" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'tenantlicense')">
+                  <div class="file-zone-icon">🪪</div>
+                  <div class="file-zone-text">Upload Tenant License</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" data-existing-key="tenantlicense"></div>
+              </div>
+              <div class="form-group">
+                <label>Addendum</label>
+                <div class="file-zone" data-doc-key="addendum" onclick="document.getElementById('fileAddendum').click()">
+                  <input type="file" id="fileAddendum" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'addendum')">
+                  <div class="file-zone-icon">📎</div>
+                  <div class="file-zone-text">Upload Addendum</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" data-existing-key="addendum"></div>
+              </div>
+              <div class="form-group"></div>
             </div>
             <div class="form-row">
               <div class="form-group full-width">
@@ -3962,6 +4033,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260430r"></script>
+  <script src="app.js?v=20260430s"></script>
 </body>
 </html>
