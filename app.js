@@ -577,16 +577,16 @@ async function apiListPropertyCheques(propertyId) {
 // Replace ALL cheques for a property with the given list (as built by the form).
 // Form items: {n, date, amount, status}; API expects {chequeNum, chequeDate, amount, status}.
 async function apiSyncPropertyCheques(propertyId, formCheques) {
-  // 1) wipe existing
+  // 1) wipe existing — fire all deletes in parallel
   const existing = await apiListPropertyCheques(propertyId);
-  for (const c of existing) {
-    await fetch(`/api/properties/${propertyId}/cheques/${c.id}`, {
+  await Promise.all(existing.map(c =>
+    fetch(`/api/properties/${propertyId}/cheques/${c.id}`, {
       method: 'DELETE', credentials: 'same-origin',
-    }).catch(() => {});
-  }
-  // 2) create new from the form
-  for (const c of (formCheques || [])) {
-    await fetch(`/api/properties/${propertyId}/cheques`, {
+    }).catch(() => {})
+  ));
+  // 2) create new from the form — fire all creates in parallel
+  await Promise.all((formCheques || []).map(c =>
+    fetch(`/api/properties/${propertyId}/cheques`, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -595,8 +595,8 @@ async function apiSyncPropertyCheques(propertyId, formCheques) {
         amount:     c.amount || null,
         status:     c.status || 'pending',
       }),
-    }).catch(() => {});
-  }
+    }).catch(() => {})
+  ));
 }
 
 // Legacy persistProps shim. Some callers pass the entire mutated array.
@@ -1920,15 +1920,14 @@ async function handleSave() {
     catch (e) { console.warn('cheque sync failed:', e); }
   }
 
-  // Upload pending document files (drec, ijari, ijari2, affection, tenancy)
-  // Each one goes to /var/asg/uploads/<property>/<category>/.
-  for (const key of ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license']) {
-    const file = pendingFiles[key];
-    if (file) {
-      try { await apiUploadPropertyFile(savedId, key, file); }
-      catch (e) { console.warn(`upload ${key} failed:`, e); showToast(`Upload of ${key} failed`, 'error'); }
-    }
-  }
+  // Upload pending document files in parallel — sequential awaits made
+  // saves take 10-30s when several files were attached.
+  const uploads = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license']
+    .filter(k => pendingFiles[k])
+    .map(k => apiUploadPropertyFile(savedId, k, pendingFiles[k])
+      .catch(e => { console.warn(`upload ${k} failed:`, e); showToast(`Upload of ${k} failed`, 'error'); })
+    );
+  if (uploads.length) await Promise.all(uploads);
 
   // Delete media flagged for removal
   for (const id of removedMediaIds) {
