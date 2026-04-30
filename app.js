@@ -350,7 +350,18 @@ async function fetchAllEntities() {
 // REST API. We keep an in-memory cache so existing sync callers (loadProps()
 // in 45+ places) keep working without each one becoming async. The cache is
 // populated by fetchProperties() at boot and after every write.
-let _propsCache = [];
+//
+// Boot speed: we also mirror the cache to localStorage so a hard-refresh
+// can paint instantly from the last-known state while the live fetch runs
+// in the background.
+const PROPS_LS_KEY = 'asg_props_cache';
+let _propsCache = (() => {
+  try { return JSON.parse(localStorage.getItem(PROPS_LS_KEY)) || []; }
+  catch { return []; }
+})();
+function _persistPropsCache() {
+  try { localStorage.setItem(PROPS_LS_KEY, JSON.stringify(_propsCache)); } catch (_) {}
+}
 
 async function fetchProperties() {
   try {
@@ -390,6 +401,7 @@ async function fetchProperties() {
     } catch (e) {
       console.warn('[fetchProperties] cheque hydration failed:', e.message);
     }
+    _persistPropsCache();
     return _propsCache;
   } catch (err) {
     console.error('[fetchProperties] failed:', err);
@@ -649,6 +661,7 @@ function persistProps(arr) {
   const before = new Map(_propsCache.map(p => [String(p.id), p]));
   const after  = new Map(arr.map(p => [String(p.id), p]));
   _propsCache = arr;  // optimistic update — loadProps reflects new state immediately
+  _persistPropsCache();
 
   // Background sync to API
   (async () => {
@@ -8638,13 +8651,22 @@ boot = async function() {
     // Switch to home BEFORE awaiting the network so the user doesn't
     // see a flash of the default (warehouses) tab while data loads.
     showTab('home');
-    await openIDB();
-    await fetchProperties();           // hydrate cache from backend before render
-    await fetchAllEntities();          // hydrate every other entity (leads, tasks, leaves, etc.)
     bindUI();
+    // Paint immediately from the last-known cache so the dashboard
+    // shows real numbers in <50ms. The fresh fetch runs in parallel
+    // and re-renders when complete.
+    if (_propsCache.length) {
+      try { renderHome(); } catch (_) {}
+      try { renderNavCounts(loadProps()); } catch (_) {}
+      try { renderAlerts(loadProps()); } catch (_) {}
+    }
+    await openIDB();
+    // Run all entity fetches in parallel so the slowest one no longer
+    // blocks the rest. fetchProperties hydrates cheques internally.
+    await Promise.all([fetchProperties(), fetchAllEntities()]);
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
-    showTab('home');                   // re-render now that data is loaded
+    showTab(activeTab || 'home');      // single re-render with fresh data
     _refreshTaskSnapshot();            // baseline so first SSE doesn't toast everything
     updateMyTasksBadge();
     renderNotifBadge();                // restore unread count from sessionStorage
@@ -8704,7 +8726,7 @@ function startRealtimeSync() {
 let _sseMutedUntil      = 0;
 let _sseDeferredEntities = new Set();
 
-function markLocalMutation() { _sseMutedUntil = Date.now() + 1200; }
+function markLocalMutation() { _sseMutedUntil = Date.now() + 600; }
 
 function _isAnyModalOpen() {
   return !!document.querySelector('.modal-overlay.active');
@@ -8728,7 +8750,7 @@ async function handleRealtimeEvent(evt) {
     return;
   }
   clearTimeout(_sseRebroadcastTimer);
-  _sseRebroadcastTimer = setTimeout(() => _applySseRefresh(entity), 150);
+  _sseRebroadcastTimer = setTimeout(() => _applySseRefresh(entity), 50);
 }
 
 async function _applySseRefresh(entity) {
