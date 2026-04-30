@@ -9432,29 +9432,62 @@ renderAgentInventory = function() {
 //  TWO-WAY UPDATES MODULE — author labels everywhere
 // ═══════════════════════════════════════════════════════
 
-// Override task-notes render: chat-bubble style with author label
+// Override task-notes render: WhatsApp-style chat with day chips, grouped
+// consecutive messages, and time-in-bubble. Sorted oldest → newest so the
+// newest reply appears at the bottom (composer just below).
 renderNotesList = function(notes) {
   const list = document.getElementById('taskNotesList');
   if (!list) return;
   if (!notes || !notes.length) {
-    list.innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:8px 0;">No updates yet.</p>`;
+    list.innerHTML = `<div class="thread-empty">No messages yet — start the conversation below.</div>`;
     return;
   }
-  list.innerHTML = notes.map(n => {
-    const author = n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown');
+  // Make sure messages render oldest-first regardless of API ordering.
+  const sorted = [...notes].sort((a, b) =>
+    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
+  );
+
+  const dayLabel = (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const today = new Date(); today.setHours(0,0,0,0);
+    const yest  = new Date(today); yest.setDate(yest.getDate() - 1);
+    const that  = new Date(d); that.setHours(0,0,0,0);
+    if (that.getTime() === today.getTime()) return 'Today';
+    if (that.getTime() === yest.getTime())  return 'Yesterday';
+    return d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', year: that.getFullYear() === today.getFullYear() ? undefined : '2-digit' });
+  };
+  const timeLabel = (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false });
+  };
+
+  const out = [];
+  let prevDay = null;
+  let prevAuthorKey = null;
+  for (const n of sorted) {
+    const author  = n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown');
     const isAdmin = n.authorType === 'admin';
-    const side = isAdmin ? 'note-admin' : 'note-agent';
-    return `
-      <div class="thread-msg ${side}">
-        <div class="thread-msg-meta">
-          <span class="thread-msg-author">${isAdmin ? '👑 ' : ''}${h(author)}${isAdmin ? '' : ''}</span>
-          <span class="thread-msg-date">${formatDate(n.date)}</span>
-        </div>
-        <div class="thread-msg-bubble">${h(n.text)}</div>
-      </div>`;
-  }).join('');
-  // Auto-scroll to bottom
-  list.scrollTop = list.scrollHeight;
+    const side    = isAdmin ? 'note-admin' : 'note-agent';
+    const day     = dayLabel(n.date);
+    if (day && day !== prevDay) {
+      out.push(`<div class="thread-day-chip">${h(day)}</div>`);
+      prevDay = day;
+      prevAuthorKey = null; // reset grouping at day boundary
+    }
+    const authorKey = side + '|' + author;
+    const grouped = authorKey === prevAuthorKey;
+    prevAuthorKey = authorKey;
+    out.push(`
+      <div class="thread-msg ${side}${grouped ? ' grouped' : ''}">
+        ${grouped ? '' : `<div class="thread-msg-meta"><span class="thread-msg-author">${isAdmin ? '👑 ' : ''}${h(author)}</span></div>`}
+        <div class="thread-msg-bubble">${h(n.text)}<span class="thread-msg-time">${timeLabel(n.date)}</span></div>
+      </div>`);
+  }
+  list.innerHTML = out.join('');
+  // Auto-scroll to bottom on next paint
+  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
 };
 
 // (Legacy submitTaskNote override removed — the API-backed version
