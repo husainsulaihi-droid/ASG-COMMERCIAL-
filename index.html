@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260430j">
+  <link rel="stylesheet" href="styles.css?v=20260430k">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -220,6 +220,11 @@
       <div class="nav-divider"></div>
       <div class="nav-group">
         <div class="nav-group-label">Management</div>
+        <button class="nav-item" id="tabMyTasks" onclick="showTab('mytasks')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          My Tasks
+          <span class="nav-count" id="navCountMyTasks"></span>
+        </button>
         <button class="nav-item" id="tabTeam" onclick="showTab('team')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
           Team
@@ -2027,6 +2032,18 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════ -->
+  <!-- MY TASKS VIEW                          -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="myTasksView" style="display:none;">
+    <div class="page-hdr">
+      <h1>My Tasks</h1>
+      <p style="color:var(--text-3);font-size:13px;margin-top:4px;">Tasks assigned to you · Reply to update the requester</p>
+    </div>
+    <div id="myTasksList" style="padding:16px;"></div>
   </div>
 
   <!-- ═══════════════════════════════════════ -->
@@ -3932,6 +3949,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260430j"></script>
+  <script src="app.js?v=20260430k"></script>
 </body>
 </html>

@@ -28,6 +28,18 @@ const TASK_FIELDS = [
   'priority', 'status', 'deadline'
 ];
 
+// Attach a notesCount field so the frontend can show "Reply (N)" badges
+// without making one API call per task.
+function withNotesCount(rows) {
+  if (!rows.length) return rows;
+  const ids = rows.map(r => r.id);
+  const counts = getDb().prepare(
+    `SELECT task_id AS id, COUNT(*) AS n FROM task_notes WHERE task_id IN (${ids.map(()=>'?').join(',')}) GROUP BY task_id`
+  ).all(...ids);
+  const byId = new Map(counts.map(c => [c.id, c.n]));
+  return rows.map(r => ({ ...r, notes_count: byId.get(r.id) || 0 }));
+}
+
 function teamOf(leaderId) {
   return getDb().prepare('SELECT id FROM users WHERE team_leader_id = ?').all(leaderId).map(r => r.id);
 }
@@ -49,7 +61,13 @@ function canAssignTo(user, agentId) {
 }
 
 function canDelete(user, task) {
-  if (user.role === 'admin') return true;
+  // Admins can delete only tasks they created (or any task if they're the
+  // primary admin user 'admin'). Other admins/agents cannot delete tasks
+  // they didn't create.
+  if (user.role === 'admin') {
+    if (user.username === 'admin') return true;            // primary admin can always delete
+    return task.created_by_id === user.id;                 // other admins: only own
+  }
   if (user.isTeamLeader) {
     if (task.agent_id === user.id) return true;
     return teamOf(user.id).includes(task.agent_id);
@@ -73,7 +91,7 @@ router.get('/', requireAuth, (req, res) => {
   } else {
     rows = getDb().prepare('SELECT * FROM tasks WHERE agent_id = ? ORDER BY updated_at DESC').all(req.user.id);
   }
-  res.json({ tasks: rows.map(rowToApi) });
+  res.json({ tasks: withNotesCount(rows).map(rowToApi) });
 });
 
 router.get('/:id', requireAuth, (req, res) => {
@@ -95,6 +113,9 @@ router.post('/', requireAuth, (req, res) => {
   if (data.agent_id != null && !canAssignTo(req.user, data.agent_id)) {
     return res.status(403).json({ error: 'Cannot assign to that agent' });
   }
+
+  data.created_by_id   = req.user.id;
+  data.created_by_name = req.user.name;
 
   const cols = Object.keys(data);
   const placeholders = cols.map(() => '?').join(', ');

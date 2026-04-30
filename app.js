@@ -732,9 +732,10 @@ function showTab(tab) {
   const proposalsEl = $('proposalsView'); if (proposalsEl) proposalsEl.style.display = tab === 'proposals' ? '' : 'none';
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('teamView').style.display         = tab === 'team'         ? '' : 'none';
+  const myTasksEl = $('myTasksView');   if (myTasksEl) myTasksEl.style.display = tab === 'mytasks' ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','Team','Financials'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','MyTasks','Team','Financials'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -754,6 +755,7 @@ function showTab(tab) {
   if (tab === 'proposals')    renderProposals();
   if (tab === 'map')          initMapTab();
   if (tab === 'team')         renderTeamTab();
+  if (tab === 'mytasks')      renderMyTasks();
   if (tab === 'financials')   renderFinancials();
 }
 
@@ -4229,6 +4231,7 @@ function updateTaskBadge() {
   const pending = loadTasks().filter(t => t.status === 'pending' || t.status === 'in-progress').length;
   const el = $('navCountTasks');
   if (el) { el.textContent = pending || ''; el.style.display = pending ? '' : 'none'; }
+  if (typeof updateMyTasksBadge === 'function') updateMyTasksBadge();
 }
 
 // ── Task Notes ─────────────────────────────────────
@@ -4404,10 +4407,17 @@ function renderTeamTab() {
               ${t.notes && t.notes.length ? `<span class="task-note-count">💬 ${t.notes.length} update${t.notes.length>1?'s':''}</span>` : '<span class="task-note-count" style="color:#bbb;">No updates yet</span>'}
             </div>
             <div class="task-card-actions">
-              <button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Reply (${t.notes?t.notes.length:0})</button>
+              <button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Reply (${t.notesCount != null ? t.notesCount : (t.notes ? t.notes.length : 0)})</button>
               <button class="btn-sm btn-ghost" onclick="openTaskModal('${t.id}')">✏️ Edit Task</button>
-              <div class="task-readonly-badge">🔒 Status set by agent</div>
-              <button class="btn-sm btn-danger" onclick="deleteTask('${t.id}')">🗑️</button>
+              <div class="task-readonly-badge">🔒 Status set by assignee</div>
+              ${(() => {
+                // Only the task creator (or the primary 'admin' user) can delete.
+                const sess = getSession();
+                const myId = String(sess?.userId || '');
+                const isPrimary = sess?.name === 'Administrator' || myId === '1';
+                const canDel = isPrimary || String(t.createdById || '') === myId;
+                return canDel ? `<button class="btn-sm btn-danger" onclick="deleteTask('${t.id}')">🗑️</button>` : '';
+              })()}
             </div>
           </div>`;
       }).join('');
@@ -8262,6 +8272,8 @@ boot = async function() {
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
     showTab('home');                   // re-render now that data is loaded
+    _refreshTaskSnapshot();            // baseline so first SSE doesn't toast everything
+    updateMyTasksBadge();
     renderNavCounts(loadProps());
     setInterval(() => renderAlerts(loadProps()), 60000);
     renderAlerts(loadProps());
@@ -8357,6 +8369,10 @@ async function _applySseRefresh(entity) {
       await _api[entity].fetch();
       rerenderActiveTab();
     }
+    if (entity === 'tasks') {
+      checkTaskNotifications();
+      updateMyTasksBadge();
+    }
   } catch (e) {
     console.warn('[sse] refresh failed', e);
   }
@@ -8398,6 +8414,168 @@ function rerenderActiveTab() {
       showTab(activeTab);
     }
   } catch (e) { /* ignore */ }
+}
+
+// ─── Task Notes via backend API ──────────────────────────
+// Replaces the legacy localStorage-style task.notes JSON array. Notes
+// now live in the task_notes table on the server.
+async function apiListTaskNotes(taskId) {
+  try {
+    const r = await fetch(`/api/tasks/${taskId}/notes`, { credentials: 'same-origin' });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return d.notes || [];
+  } catch (e) { console.warn('[tasks] notes fetch failed', e); return []; }
+}
+
+async function apiPostTaskNote(taskId, text) {
+  const r = await fetch(`/api/tasks/${taskId}/notes`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || 'HTTP ' + r.status);
+  }
+  return (await r.json()).note;
+}
+
+// Override: load notes from API on open (instead of from task.notes JSON)
+const _origOpenTaskNotesV2 = openTaskNotes;
+openTaskNotes = async function(taskId) {
+  _origOpenTaskNotesV2(taskId);                  // existing UI bootstrap
+  try {
+    const notes = await apiListTaskNotes(taskId);
+    renderNotesList(notes);
+  } catch (_) {}
+};
+
+// Override: post via API
+submitTaskNote = async function() {
+  const input = document.getElementById('taskNoteInput');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  if (!notesTaskId) return;
+  if (typeof markLocalMutation === 'function') markLocalMutation();
+  try {
+    await apiPostTaskNote(notesTaskId, text);
+    input.value = '';
+    const notes = await apiListTaskNotes(notesTaskId);
+    renderNotesList(notes);
+    showToast('Update posted', 'success');
+  } catch (e) {
+    showToast('Post failed: ' + e.message, 'error');
+  }
+};
+
+// ─── My Tasks tab — tasks assigned to the current user ───
+function renderMyTasks() {
+  const session = getSession();
+  if (!session) return;
+  const myId = String(session.userId || session.agentId || '');
+  const allTasks = loadTasks();
+  const mine = allTasks
+    .filter(t => String(t.agentId) === myId)
+    .sort((a, b) => {
+      const ord = { 'in-progress': 0, pending: 1, done: 2, cancelled: 3 };
+      return (ord[a.status] || 9) - (ord[b.status] || 9);
+    });
+  const container = document.getElementById('myTasksList');
+  if (!container) return;
+  if (!mine.length) {
+    container.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text-3);"><div style="font-size:48px;margin-bottom:12px;">📭</div><h3 style="margin:0 0 6px;">No tasks assigned to you</h3><p style="font-size:13px;">When someone assigns a task, it'll show up here.</p></div>`;
+    return;
+  }
+  const props = loadProps();
+  container.innerHTML = mine.map(t => {
+    const prop    = t.propId ? props.find(p => String(p.id) === String(t.propId)) : null;
+    const tm      = (typeof TASK_TYPE_META    !== 'undefined' && TASK_TYPE_META[t.type])     || { icon: '📌', label: t.type || 'Task' };
+    const sm      = (typeof TASK_STATUS_META  !== 'undefined' && TASK_STATUS_META[t.status]) || { cls: 'ts-pending', label: t.status || 'pending' };
+    const pm      = (typeof PRIORITY_META     !== 'undefined' && PRIORITY_META[t.priority])  || { cls: 'pri-medium', label: t.priority || 'medium' };
+    const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
+    const noteCount = t.notesCount != null ? t.notesCount : (Array.isArray(t.notes) ? t.notes.length : 0);
+    return `
+      <div class="task-card${t.status === 'done' ? ' task-done' : ''}${overdue ? ' task-overdue' : ''}" style="margin-bottom:12px;">
+        <div class="task-card-top">
+          <div class="task-type-badge">${tm.icon} ${tm.label}</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="task-priority ${pm.cls}">${pm.label}</span>
+            <span class="task-status-badge ${sm.cls}">${sm.label}</span>
+          </div>
+        </div>
+        <div class="task-card-title">${h(t.title)}</div>
+        ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location ? ' · ' + h(prop.location) : ''}</div>` : ''}
+        ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
+        ${t.createdByName ? `<div style="font-size:12px;color:var(--text-3);margin-top:6px;">Assigned by ${h(t.createdByName)}</div>` : ''}
+        <div class="task-card-meta">
+          ${t.deadline ? `<span class="${overdue ? 'task-overdue-tag' : 'task-deadline'}">📅 ${overdue ? 'Overdue — ' : ''}${t.deadline}</span>` : ''}
+          <span class="task-note-count">💬 ${noteCount} update${noteCount === 1 ? '' : 's'}</span>
+        </div>
+        <div class="task-card-actions">
+          <button class="btn-sm btn-primary" onclick="openTaskNotes('${t.id}')">💬 Reply</button>
+          <select class="task-status-select" onchange="updateTaskStatus('${t.id}', this.value)">
+            <option value="pending"${t.status === 'pending' ? ' selected' : ''}>Pending</option>
+            <option value="in-progress"${t.status === 'in-progress' ? ' selected' : ''}>In Progress</option>
+            <option value="done"${t.status === 'done' ? ' selected' : ''}>Done</option>
+            <option value="cancelled"${t.status === 'cancelled' ? ' selected' : ''}>Cancelled</option>
+          </select>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Update sidebar nav badge for "My Tasks" with count of pending+in-progress
+function updateMyTasksBadge() {
+  const session = getSession();
+  if (!session) return;
+  const myId = String(session.userId || session.agentId || '');
+  const count = loadTasks().filter(t => String(t.agentId) === myId
+                                     && (t.status === 'pending' || t.status === 'in-progress')).length;
+  const el = document.getElementById('navCountMyTasks');
+  if (el) el.textContent = count > 0 ? count : '';
+}
+
+// ─── Notification toasts on SSE task events ──────────────
+// Keeps a snapshot of tasks (id → {agentId, notesCount}) and diffs on
+// each SSE refresh. New task assigned to me → toast. Notes count went
+// up on a task I created or am assigned to → toast.
+let _taskSnapshot = new Map();
+function _refreshTaskSnapshot() {
+  _taskSnapshot = new Map(loadTasks().map(t => [
+    String(t.id),
+    { agentId: String(t.agentId || ''), notesCount: t.notesCount || 0, createdById: String(t.createdById || ''), title: t.title }
+  ]));
+}
+function checkTaskNotifications() {
+  const session = getSession();
+  if (!session) return;
+  const myId = String(session.userId || session.agentId || '');
+  const myName = session.name || '';
+  const cur = loadTasks();
+  for (const t of cur) {
+    const id = String(t.id);
+    const prev = _taskSnapshot.get(id);
+    const taskAgent  = String(t.agentId || '');
+    const taskCreator = String(t.createdById || '');
+    const noteCount  = t.notesCount || 0;
+    if (!prev) {
+      // New task
+      if (taskAgent === myId && taskCreator !== myId) {
+        showToast(`📋 New task assigned: ${t.title}`, 'success');
+      }
+    } else {
+      // Reply added
+      if (noteCount > prev.notesCount) {
+        // Only notify if I'm involved AND I'm not the (most recent) author
+        const involved = taskAgent === myId || taskCreator === myId;
+        if (involved) {
+          showToast(`💬 New reply on: ${t.title}`, 'info');
+        }
+      }
+    }
+  }
+  _refreshTaskSnapshot();
 }
 
 // ═══════════════════════════════════════════════════════

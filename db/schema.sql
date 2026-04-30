@@ -225,19 +225,22 @@ CREATE TABLE pending_properties (
 
 -- ─── TASKS ───────────────────────────────────────────────────────
 CREATE TABLE tasks (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  title        TEXT    NOT NULL,
-  type         TEXT,    -- find-tenant, follow-up, site-visit, maintenance, documents, negotiation, other
-  description  TEXT,
-  agent_id     INTEGER,
-  property_id  INTEGER,
-  priority     TEXT    DEFAULT 'medium',  -- low, medium, high
-  status       TEXT    DEFAULT 'pending', -- pending, in-progress, done, cancelled
-  deadline     DATE,
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (agent_id)    REFERENCES users(id),
-  FOREIGN KEY (property_id) REFERENCES properties(id)
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  title           TEXT    NOT NULL,
+  type            TEXT,    -- find-tenant, follow-up, site-visit, maintenance, documents, negotiation, other
+  description     TEXT,
+  agent_id        INTEGER,
+  property_id     INTEGER,
+  priority        TEXT    DEFAULT 'medium',  -- low, medium, high
+  status          TEXT    DEFAULT 'pending', -- pending, in-progress, done, cancelled
+  deadline        DATE,
+  created_by_id   INTEGER, -- who created (assigned) this task; restricts who can delete it
+  created_by_name TEXT,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_id)      REFERENCES users(id),
+  FOREIGN KEY (created_by_id) REFERENCES users(id),
+  FOREIGN KEY (property_id)   REFERENCES properties(id)
 );
 CREATE INDEX idx_tasks_agent  ON tasks(agent_id);
 CREATE INDEX idx_tasks_status ON tasks(status);
