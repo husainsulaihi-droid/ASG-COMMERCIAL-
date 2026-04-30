@@ -8224,13 +8224,16 @@ boot = async function() {
     document.getElementById('appBody').style.display        = '';
     document.getElementById('agentHeader').style.display    = 'none';
     document.getElementById('agentDashboard').style.display = 'none';
+    // Switch to home BEFORE awaiting the network so the user doesn't
+    // see a flash of the default (warehouses) tab while data loads.
+    showTab('home');
     await openIDB();
     await fetchProperties();           // hydrate cache from backend before render
     await fetchAllEntities();          // hydrate every other entity (leads, tasks, leaves, etc.)
     bindUI();
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
-    showTab('home');
+    showTab('home');                   // re-render now that data is loaded
     renderNavCounts(loadProps());
     setInterval(() => renderAlerts(loadProps()), 60000);
     renderAlerts(loadProps());
