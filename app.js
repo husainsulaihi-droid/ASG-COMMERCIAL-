@@ -689,7 +689,8 @@ function bindUI() {
 
   $('closeDetailModal').addEventListener('click', closeDetailModal);
   $('closeDetailBtn').addEventListener('click', closeDetailModal);
-  $('editFromDetailBtn').addEventListener('click', () => { closeDetailModal(); openEditModal(currentDetailId); });
+  // editFromDetailBtn was removed from the detail modal — bind only if present (legacy guard).
+  $('editFromDetailBtn')?.addEventListener('click', () => { closeDetailModal(); openEditModal(currentDetailId); });
   $('deletePropertyBtn').addEventListener('click', handleDelete);
 
   $('searchInput').addEventListener('input', refresh);
