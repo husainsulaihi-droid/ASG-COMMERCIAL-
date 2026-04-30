@@ -1591,7 +1591,6 @@ async function openEditModal(id) {
   $('propArea').value          = p.area          || '';
   $('propOwnership').value     = p.ownership     || '';
   $('propPurchasePrice').value = p.purchasePrice || '';
-  $('propPartnerName').value   = p.partnerName   || '';
   $('propOurShare').value      = p.ourShare      || '';
   $('propOwnerName').value     = p.ownerName     || '';
   $('propOwnerPhone').value    = p.ownerPhone    || '';
