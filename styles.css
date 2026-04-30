@@ -1891,13 +1891,19 @@ body, button, input, select, textarea {
   font-size: 20px; font-weight: 800; color: #c9a84c; letter-spacing: -.3px;
 }
 
-.cheque-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.cheque-table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;     /* let it scroll horizontally if columns won't fit */
+  overflow-y: visible;
+}
 .cheque-head, .cheque-row {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 1fr 130px 110px;
+  grid-template-columns: 28px 110px 130px 130px 130px 110px;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
+  min-width: 690px;     /* never compress below sane minimum */
 }
 .cheque-head {
   background: #f8f9fa;
@@ -4303,11 +4309,14 @@ body, button, input, select, textarea {
   /* Two-column blocks in detail modal */
   .two-col-blocks { grid-template-columns: 1fr !important; }
 
-  /* Cheque schedule fields */
+  /* Cheque schedule fields — keep 6 logical columns at min-width
+     and allow horizontal scroll. Inputs stay legible. */
   .cheque-row, .cheque-head {
-    grid-template-columns: 30px 1fr 1fr 1fr !important;
+    grid-template-columns: 28px 100px 120px 120px 120px 100px !important;
     font-size: 11px;
+    min-width: 600px;
   }
+  .cheque-table { -webkit-overflow-scrolling: touch; }
 
   /* Quick actions wrap */
   .overview-quick-actions { flex-direction: column; }
