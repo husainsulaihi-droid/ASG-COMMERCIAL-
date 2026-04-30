@@ -72,6 +72,8 @@ CREATE TABLE properties (
   owner_phone         TEXT,
   mgmt_fee            REAL,
   mgmt_date           DATE,
+  mgmt_maintenance    REAL,    -- maintenance fees collected on behalf of managed-property owner
+  mgmt_admin_fee      REAL,    -- admin fees collected; adds to management income
   purchase_price      REAL,
   purchase_date       DATE,
   market_value        REAL,

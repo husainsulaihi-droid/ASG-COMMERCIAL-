@@ -1568,9 +1568,11 @@ async function openEditModal(id) {
   $('propOurShare').value      = p.ourShare      || '';
   $('propOwnerName').value     = p.ownerName     || '';
   $('propOwnerPhone').value    = p.ownerPhone    || '';
-  $('propMgmtFee').value       = p.mgmtFee       || '';
-  $('propMgmtDate').value      = p.mgmtDate      || '';
-  $('propPurchaseDate').value  = p.purchaseDate  || '';
+  $('propMgmtFee').value         = p.mgmtFee         || '';
+  $('propMgmtDate').value        = p.mgmtDate        || '';
+  $('propMgmtMaintenance').value = p.mgmtMaintenance || '';
+  $('propMgmtAdminFee').value    = p.mgmtAdminFee    || '';
+  $('propPurchaseDate').value    = p.purchaseDate    || '';
   $('propMarketValue').value   = p.marketValue   || '';
   $('propLandCharges').value   = p.landCharges   || '';
   $('propLicenseFees').value   = p.licenseFees   || '';
@@ -1982,8 +1984,10 @@ async function handleSave() {
     ourShare:      Number($('propOurShare').value)      || null,
     ownerName:     $('propOwnerName').value.trim()      || null,
     ownerPhone:    $('propOwnerPhone').value.trim()     || null,
-    mgmtFee:       Number($('propMgmtFee').value)       || null,
-    mgmtDate:      $('propMgmtDate').value              || null,
+    mgmtFee:        Number($('propMgmtFee').value)         || null,
+    mgmtDate:       $('propMgmtDate').value                 || null,
+    mgmtMaintenance: Number($('propMgmtMaintenance').value) || null,
+    mgmtAdminFee:    Number($('propMgmtAdminFee').value)    || null,
     purchasePrice: Number($('propPurchasePrice').value) || null,
     purchaseDate:  $('propPurchaseDate').value          || null,
     marketValue:   Number($('propMarketValue').value)   || null,
@@ -2253,8 +2257,10 @@ async function openDetailModal(id) {
             ${p.ownership === 'partnership' && p.ourShare    ? `<div class="detail-row"><span class="dr-label">Our Share</span><span class="dr-value">${p.ourShare}%</span></div>` : ''}
             ${p.ownership === 'management' && p.ownerName  ? `<div class="detail-row"><span class="dr-label">Property Owner</span><span class="dr-value">${h(p.ownerName)}</span></div>` : ''}
             ${p.ownership === 'management' && p.ownerPhone ? `<div class="detail-row"><span class="dr-label">Owner Phone</span><span class="dr-value"><a href="tel:${h(p.ownerPhone)}" class="contact-link phone-link">📞 ${h(p.ownerPhone)}</a></span></div>` : ''}
-            ${p.ownership === 'management' && p.mgmtFee    ? `<div class="detail-row"><span class="dr-label">Management Fee</span><span class="dr-value big">AED ${num(p.mgmtFee)} / year</span></div>` : ''}
-            ${p.ownership === 'management' && p.mgmtDate   ? `<div class="detail-row"><span class="dr-label">Agreement Date</span><span class="dr-value">${fmtDate(p.mgmtDate)}</span></div>` : ''}
+            ${p.ownership === 'management' && p.mgmtFee         ? `<div class="detail-row"><span class="dr-label">Management Fee</span><span class="dr-value big">AED ${num(p.mgmtFee)} / year</span></div>` : ''}
+            ${p.ownership === 'management' && p.mgmtMaintenance ? `<div class="detail-row"><span class="dr-label">Maintenance Fees</span><span class="dr-value">AED ${num(p.mgmtMaintenance)} / year</span></div>` : ''}
+            ${p.ownership === 'management' && p.mgmtAdminFee    ? `<div class="detail-row"><span class="dr-label">Admin Fees</span><span class="dr-value">AED ${num(p.mgmtAdminFee)} / year</span></div>` : ''}
+            ${p.ownership === 'management' && p.mgmtDate        ? `<div class="detail-row"><span class="dr-label">Agreement Date</span><span class="dr-value">${fmtDate(p.mgmtDate)}</span></div>` : ''}
             ${p.purchasePrice ? `<div class="detail-row"><span class="dr-label">Purchase Price</span><span class="dr-value big">AED ${num(p.purchasePrice)}</span></div>` : ''}
             ${p.purchaseDate  ? `<div class="detail-row"><span class="dr-label">Purchase Date</span><span class="dr-value">${fmtDate(p.purchaseDate)}</span></div>` : ''}
             ${p.marketValue   ? `<div class="detail-row"><span class="dr-label">Market Value</span><span class="dr-value">AED ${num(p.marketValue)}</span></div>` : ''}
@@ -8169,16 +8175,25 @@ function _finRenderBody(props) {
     p.status === 'vacant' && (p.ownership === 'own' || p.ownership === 'partnership')
   );
 
-  // ── Management fee income (managed properties — full annual fee) ──
+  // ── Management fee income (managed properties) ──
+  // Income components for managed properties:
+  //   mgmt fee + mgmt maintenance + mgmt admin fee
   const mgmtRows = pool
-    .filter(p => p.ownership === 'management' && (p.mgmtFee||0) > 0)
+    .filter(p => p.ownership === 'management'
+              && ((p.mgmtFee||0) > 0 || (p.mgmtMaintenance||0) > 0 || (p.mgmtAdminFee||0) > 0))
     .map(p => {
       const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
-      const annual = Number(p.mgmtFee) || 0;
-      return { p, months, annual, feeYr: annual };
+      const fee     = Number(p.mgmtFee)         || 0;
+      const maint   = Number(p.mgmtMaintenance) || 0;
+      const admin   = Number(p.mgmtAdminFee)    || 0;
+      const annual  = fee + maint + admin;
+      return { p, months, fee, maint, admin, annual, feeYr: annual };
     })
     .sort((a,b) => b.feeYr - a.feeYr);
 
+  const mgmtTotalFee   = mgmtRows.reduce((s,r)=>s+r.fee,   0);
+  const mgmtTotalMaint = mgmtRows.reduce((s,r)=>s+r.maint, 0);
+  const mgmtTotalAdmin = mgmtRows.reduce((s,r)=>s+r.admin, 0);
   const mgmtTotal = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
 
   // ── Additional charges (maintenance + VAT) ──
@@ -8228,9 +8243,9 @@ function _finRenderBody(props) {
         <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()} · Service ${rentTotalSvc.toLocaleString()} · DEWA ${rentTotalDewa.toLocaleString()} · Ejari ${rentTotalEjari.toLocaleString()} · CD ${rentTotalCD.toLocaleString()} · Legal ${rentTotalLegal.toLocaleString()} · Tax ${rentTotalCtax.toLocaleString()}</div>
       </div>` : ''}
       <div class="fin-kpi">
-        <div class="fin-kpi-label">Management Fees</div>
+        <div class="fin-kpi-label">Management Income</div>
         <div class="fin-kpi-value">AED ${mgmtTotal.toLocaleString()}</div>
-        <div class="fin-kpi-sub">${mgmtRows.length} managed propert${mgmtRows.length===1?'y':'ies'}</div>
+        <div class="fin-kpi-sub">${mgmtRows.length} managed propert${mgmtRows.length===1?'y':'ies'} · Fee ${mgmtTotalFee.toLocaleString()} · Maint ${mgmtTotalMaint.toLocaleString()} · Admin ${mgmtTotalAdmin.toLocaleString()}</div>
       </div>
       <div class="fin-kpi">
         <div class="fin-kpi-label">Maintenance + VAT</div>
@@ -8350,9 +8365,10 @@ function _finRenderBody(props) {
                 <th>Property</th>
                 <th>Property Owner</th>
                 <th>Tenant</th>
-                <th class="ta-r">Annual Mgmt Fee</th>
-                <th class="ta-c">Months Active</th>
-                <th class="ta-r">Year Income</th>
+                <th class="ta-r">Mgmt Fee</th>
+                <th class="ta-r">Maintenance</th>
+                <th class="ta-r">Admin Fee</th>
+                <th class="ta-r">Total / yr</th>
                 <th>Contract Period</th>
               </tr>
             </thead>
@@ -8363,9 +8379,10 @@ function _finRenderBody(props) {
                   <td><strong>${h(r.p.name)}</strong></td>
                   <td>${h(r.p.ownerName||'—')}</td>
                   <td>${h(r.p.tenantName||'—')}</td>
-                  <td class="ta-r">AED ${r.annual.toLocaleString()}</td>
-                  <td class="ta-c">${r.months}/12</td>
-                  <td class="ta-r fin-our">AED ${r.feeYr.toLocaleString()}</td>
+                  <td class="ta-r">${r.fee   ? 'AED '+num(r.fee)   : '—'}</td>
+                  <td class="ta-r">${r.maint ? 'AED '+num(r.maint) : '—'}</td>
+                  <td class="ta-r">${r.admin ? 'AED '+num(r.admin) : '—'}</td>
+                  <td class="ta-r fin-our"><strong>AED ${num(r.feeYr)}</strong></td>
                   <td class="fin-period">${_finFmtPeriod(r.p)}</td>
                 </tr>
               `).join('')}
@@ -8373,9 +8390,10 @@ function _finRenderBody(props) {
             <tfoot>
               <tr>
                 <td colspan="4" class="ta-r"><strong>TOTAL</strong></td>
-                <td class="ta-r"><strong>AED ${mgmtRows.reduce((s,r)=>s+r.annual,0).toLocaleString()}</strong></td>
-                <td></td>
-                <td class="ta-r fin-our"><strong>AED ${mgmtTotal.toLocaleString()}</strong></td>
+                <td class="ta-r"><strong>AED ${num(mgmtTotalFee)}</strong></td>
+                <td class="ta-r"><strong>AED ${num(mgmtTotalMaint)}</strong></td>
+                <td class="ta-r"><strong>AED ${num(mgmtTotalAdmin)}</strong></td>
+                <td class="ta-r fin-our"><strong>AED ${num(mgmtTotal)}</strong></td>
                 <td></td>
               </tr>
             </tfoot>

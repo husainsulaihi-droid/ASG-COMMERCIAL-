@@ -40,7 +40,8 @@ const PROP_FIELDS = [
   'premise_number', 'dewa_number',
   'ownership', 'partner_name', 'our_share', 'owner_name', 'owner_phone', 'owner_email',
   'partners',                                       // JSON array of {name, phone}
-  'mgmt_fee', 'mgmt_date', 'purchase_price', 'purchase_date', 'market_value',
+  'mgmt_fee', 'mgmt_date', 'mgmt_maintenance', 'mgmt_admin_fee',
+  'purchase_price', 'purchase_date', 'market_value',
   'land_charges', 'license_fees', 'sub_lease_fees',
   'dewa_charges', 'ejari_fees', 'civil_defense_charges', 'legal_fee',
   'corporate_tax', 'security_deposit', 'cash_amount', 'brokerage_amount',
@@ -52,7 +53,8 @@ const PROP_FIELDS = [
 
 const FINANCIAL_FIELDS = [
   'annualRent', 'purchasePrice', 'marketValue', 'serviceCharges',
-  'maintenanceFees', 'vat', 'mgmtFee', 'purchaseDate', 'mgmtDate',
+  'maintenanceFees', 'vat', 'mgmtFee', 'mgmtMaintenance', 'mgmtAdminFee',
+  'purchaseDate', 'mgmtDate',
   'ourShare', 'partnerName', 'partners',
   'landCharges', 'licenseFees', 'subLeaseFees',
   'dewaCharges', 'ejariFees', 'civilDefenseCharges', 'legalFee',
