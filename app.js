@@ -484,6 +484,7 @@ function closeChequeEditModal() {
   ov.classList.remove('active');
   ov.style.display = 'none';
   _chequeEditPropertyId = null;
+  if (typeof flushDeferredSseRefreshes === 'function') flushDeferredSseRefreshes();
 }
 
 function renderChequeEditFields(prefill) {
@@ -532,6 +533,7 @@ function renderChequeEditFields(prefill) {
 async function saveChequeEdit() {
   const propId = _chequeEditPropertyId;
   if (!propId) return;
+  if (typeof markLocalMutation === 'function') markLocalMutation();
 
   // Build cheques array from the form rows
   const rows = [];
@@ -1566,6 +1568,7 @@ async function openEditModal(id) {
 
 function closeAddModal() {
   $('propertyModalOverlay').classList.remove('active');
+  if (typeof flushDeferredSseRefreshes === 'function') flushDeferredSseRefreshes();
 }
 
 function toggleOwnership() {
@@ -1807,6 +1810,7 @@ async function renderMediaPreviews() {
 
 // ─── Save Property ────────────────────────────────
 async function handleSave() {
+  if (typeof markLocalMutation === 'function') markLocalMutation();
   const name = $('propName').value.trim();
   const type = $('propType').value;
   const status = getRadio('propStatus');
@@ -1962,6 +1966,7 @@ function quickDelete(id) {
 async function handleDelete() {
   if (!currentDetailId) return;
   if (!confirm('Delete this property? This cannot be undone.')) return;
+  if (typeof markLocalMutation === 'function') markLocalMutation();
   await doDelete(currentDetailId);
   closeDetailModal();
 }
@@ -2282,6 +2287,7 @@ async function downloadFile(fileId, fallbackName) {
 function closeDetailModal() {
   $('detailModalOverlay').classList.remove('active');
   currentDetailId = null;
+  if (typeof flushDeferredSseRefreshes === 'function') flushDeferredSseRefreshes();
 }
 
 // ─── Reminder Badge ───────────────────────────────
@@ -8269,27 +8275,89 @@ function startRealtimeSync() {
   };
 }
 
+// ─── Smoothing layer ──────────────────────────────────────
+// Three problems we fix here:
+//   1. Self-broadcast flicker: after the user saves, the server SSE
+//      arrives and triggers a redundant re-render. We mute SSE for a
+//      short window after any local mutation.
+//   2. Modal stomp: an SSE event re-rendering the underlying tab
+//      while a modal is open feels jarring. Defer the refresh until
+//      the modal closes, and apply only the cache update silently.
+//   3. Scroll jump: re-render resets scroll. Save + restore.
+let _sseMutedUntil      = 0;
+let _sseDeferredEntities = new Set();
+
+function markLocalMutation() { _sseMutedUntil = Date.now() + 1200; }
+
+function _isAnyModalOpen() {
+  return !!document.querySelector('.modal-overlay.active');
+}
+
 async function handleRealtimeEvent(evt) {
   const entity = evt.entity;
-  // Coalesce a burst of events (e.g. POST + cheque sync) into a single refresh.
+  // Suppress refresh during/right-after a local save — the save handler
+  // already updated the cache + re-rendered.
+  if (Date.now() < _sseMutedUntil) {
+    // But still pull the freshest state into the cache silently so
+    // subsequent navigation has up-to-date data.
+    _refreshCacheSilently(entity);
+    return;
+  }
+  // If any modal is open, queue the entity and refresh on close.
+  if (_isAnyModalOpen()) {
+    _sseDeferredEntities.add(entity);
+    _refreshCacheSilently(entity);
+    return;
+  }
   clearTimeout(_sseRebroadcastTimer);
-  _sseRebroadcastTimer = setTimeout(async () => {
-    try {
-      if (entity === 'properties' || entity === 'cheques' || entity === 'propertyFiles') {
-        await fetchProperties();
-        rerenderActiveTab();
-        renderNavCounts(loadProps());
-        renderAlerts(loadProps());
-      } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
-        await _api[entity].fetch();
-        rerenderActiveTab();
-      } else {
-        // Unknown entity — nothing to do
-      }
-    } catch (e) {
-      console.warn('[sse] refresh failed', e);
+  _sseRebroadcastTimer = setTimeout(() => _applySseRefresh(entity), 150);
+}
+
+async function _applySseRefresh(entity) {
+  // Save the user's scroll position so we can restore it after re-render.
+  const scrollY = window.scrollY;
+  try {
+    if (entity === 'properties' || entity === 'cheques' || entity === 'propertyFiles') {
+      await fetchProperties();
+      rerenderActiveTab();
+      renderNavCounts(loadProps());
+      renderAlerts(loadProps());
+    } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
+      await _api[entity].fetch();
+      rerenderActiveTab();
     }
-  }, 150);
+  } catch (e) {
+    console.warn('[sse] refresh failed', e);
+  }
+  // Restore scroll on the next frame so layout has settled.
+  requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
+}
+
+// Refresh just the cache (no re-render). Used when we don't want to
+// disturb the visible UI but need fresh data for the next interaction.
+async function _refreshCacheSilently(entity) {
+  try {
+    if (entity === 'properties' || entity === 'cheques' || entity === 'propertyFiles') {
+      await fetchProperties();
+    } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
+      await _api[entity].fetch();
+    }
+  } catch (_) { /* ignore */ }
+}
+
+// Hook called by closeDetailModal / closeAddModal. Flushes any deferred
+// refreshes once the user closes the modal.
+function flushDeferredSseRefreshes() {
+  if (_isAnyModalOpen()) return;          // another modal still open
+  if (!_sseDeferredEntities.size) return;
+  const entities = Array.from(_sseDeferredEntities);
+  _sseDeferredEntities.clear();
+  // Pick the most "global" entity to refresh — properties wins
+  if (entities.includes('properties') || entities.includes('cheques') || entities.includes('propertyFiles')) {
+    _applySseRefresh('properties');
+  } else {
+    for (const e of entities) _applySseRefresh(e);
+  }
 }
 
 // Re-render the currently visible tab without changing it.
