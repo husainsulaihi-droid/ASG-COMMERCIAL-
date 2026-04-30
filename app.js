@@ -377,11 +377,12 @@ async function fetchProperties() {
           const pid = String(c.propertyId);
           if (!byProp.has(pid)) byProp.set(pid, []);
           byProp.get(pid).push({
-            n:      c.chequeNum,
-            noText: c.chequeNoText || '',
-            date:   c.chequeDate,
-            amount: c.amount,
-            status: c.status,
+            n:        c.chequeNum,
+            noText:   c.chequeNoText || '',
+            date:     c.chequeDate,
+            amount:   c.amount,
+            status:   c.status,
+            lateFees: c.lateFees || null,
           });
         }
         _propsCache.forEach(p => { p.cheques = byProp.get(String(p.id)) || []; });
@@ -509,41 +510,66 @@ function renderChequeEditFields(prefill) {
   const existing = [];
   container.querySelectorAll('.cheque-row').forEach((row, i) => {
     existing[i] = {
-      noText: row.querySelector('.cheque-no-text')?.value || '',
-      date:   row.querySelector('.cheque-date')?.value    || '',
-      amount: row.querySelector('.cheque-amount')?.value  || '',
-      status: row.querySelector('.cheque-status')?.value  || 'pending',
+      noText:    row.querySelector('.cheque-no-text')?.value || '',
+      date:      row.querySelector('.cheque-date')?.value    || '',
+      amount:    row.querySelector('.cheque-amount')?.value  || '',
+      status:    row.querySelector('.cheque-status')?.value  || 'pending',
+      lateFees:  row.querySelector('.cheque-fees')?.value    || '',
     };
   });
   if (prefill && prefill.length) {
     prefill.forEach((c, i) => {
       existing[i] = {
-        noText: c.chequeNoText || c.noText || '',
-        date:   c.date   || c.chequeDate || '',
-        amount: c.amount != null ? String(c.amount) : '',
-        status: c.status || 'pending',
+        noText:   c.chequeNoText || c.noText || '',
+        date:     c.date   || c.chequeDate || '',
+        amount:   c.amount != null ? String(c.amount) : '',
+        status:   c.status || 'pending',
+        lateFees: c.lateFees != null ? String(c.lateFees) : '',
       };
     });
   }
 
   if (!n) { container.innerHTML = '<p style="color:var(--text-3);font-size:13px;">No cheques. Increase the count above to add rows.</p>'; return; }
-  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
+  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span><span>Fees (AED)</span></div>';
   for (let i = 0; i < n; i++) {
     const prev = existing[i] || {};
+    const showFees = prev.status === 'late' || prev.status === 'bounced';
     html += `<div class="cheque-row">
       <span class="cheque-num">${i + 1}</span>
       <input type="text" class="cheque-no-text" placeholder="e.g. 00012345" value="${prev.noText || ''}">
       <input type="date" class="cheque-date" value="${prev.date || ''}">
       <input type="number" class="cheque-amount" placeholder="e.g. 10,000" min="0" value="${prev.amount || ''}">
-      <select class="cheque-status">
+      <select class="cheque-status" onchange="onChequeStatusChange(this)">
         <option value="pending"  ${(!prev.status || prev.status==='pending')  ? 'selected':''}>⏳ Pending</option>
         <option value="received" ${prev.status==='received' ? 'selected':''}>✅ Received</option>
+        <option value="late"     ${prev.status==='late'     ? 'selected':''}>⚠️ Late Submission</option>
         <option value="bounced"  ${prev.status==='bounced'  ? 'selected':''}>❌ Bounced</option>
       </select>
+      <input type="number" class="cheque-fees" placeholder="${showFees ? 'fee amount' : '—'}" min="0" value="${prev.lateFees || ''}" ${showFees ? '' : 'disabled style="background:#f3f4f6;cursor:not-allowed;"'}>
     </div>`;
   }
   html += '</div>';
   container.innerHTML = html;
+}
+
+// Toggle fees input enabled when status is late/bounced
+function onChequeStatusChange(selectEl) {
+  const row = selectEl.closest('.cheque-row');
+  if (!row) return;
+  const fees = row.querySelector('.cheque-fees');
+  if (!fees) return;
+  const apply = (selectEl.value === 'late' || selectEl.value === 'bounced');
+  fees.disabled = !apply;
+  if (apply) {
+    fees.placeholder = 'fee amount';
+    fees.style.background = '';
+    fees.style.cursor = '';
+  } else {
+    fees.value = '';
+    fees.placeholder = '—';
+    fees.style.background = '#f3f4f6';
+    fees.style.cursor = 'not-allowed';
+  }
 }
 
 async function saveChequeEdit() {
@@ -555,11 +581,12 @@ async function saveChequeEdit() {
   const rows = [];
   document.getElementById('chequeEditFields').querySelectorAll('.cheque-row').forEach((row, i) => {
     rows.push({
-      n:      i + 1,
-      noText: row.querySelector('.cheque-no-text')?.value.trim() || null,
-      date:   row.querySelector('.cheque-date')?.value           || null,
-      amount: Number(row.querySelector('.cheque-amount')?.value) || null,
-      status: row.querySelector('.cheque-status')?.value         || 'pending',
+      n:        i + 1,
+      noText:   row.querySelector('.cheque-no-text')?.value.trim() || null,
+      date:     row.querySelector('.cheque-date')?.value           || null,
+      amount:   Number(row.querySelector('.cheque-amount')?.value) || null,
+      status:   row.querySelector('.cheque-status')?.value         || 'pending',
+      lateFees: Number(row.querySelector('.cheque-fees')?.value)   || null,
     });
   });
 
@@ -607,6 +634,7 @@ async function apiSyncPropertyCheques(propertyId, formCheques) {
         chequeDate:   c.date || null,
         amount:       c.amount || null,
         status:       c.status || 'pending',
+        lateFees:     c.lateFees || null,
       }),
     }).catch(() => {})
   ));
@@ -1596,7 +1624,12 @@ async function openEditModal(id) {
       if (noTextEl) noTextEl.value = c.noText || c.chequeNoText || '';
       row.querySelector('.cheque-date').value   = c.date   || '';
       row.querySelector('.cheque-amount').value = c.amount || '';
-      row.querySelector('.cheque-status').value = c.status || 'pending';
+      const statusEl = row.querySelector('.cheque-status');
+      statusEl.value = c.status || 'pending';
+      const feesEl   = row.querySelector('.cheque-fees');
+      if (feesEl) feesEl.value = c.lateFees != null ? c.lateFees : '';
+      // sync the fees input enabled state to match the loaded status
+      onChequeStatusChange(statusEl);
     });
   }
 
@@ -1686,25 +1719,29 @@ function renderChequeFields() {
   const existing = [];
   container.querySelectorAll('.cheque-row').forEach((row, i) => {
     existing[i] = {
-      noText: row.querySelector('.cheque-no-text')?.value || '',
-      date:   row.querySelector('.cheque-date')?.value    || '',
-      amount: row.querySelector('.cheque-amount')?.value  || '',
-      status: row.querySelector('.cheque-status')?.value  || 'pending',
+      noText:   row.querySelector('.cheque-no-text')?.value || '',
+      date:     row.querySelector('.cheque-date')?.value    || '',
+      amount:   row.querySelector('.cheque-amount')?.value  || '',
+      status:   row.querySelector('.cheque-status')?.value  || 'pending',
+      lateFees: row.querySelector('.cheque-fees')?.value    || '',
     };
   });
-  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span></div>';
+  let html = '<div class="cheque-table"><div class="cheque-head"><span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount (AED)</span><span>Status</span><span>Fees (AED)</span></div>';
   for (let i = 0; i < n; i++) {
     const prev = existing[i] || {};
+    const showFees = prev.status === 'late' || prev.status === 'bounced';
     html += `<div class="cheque-row">
       <span class="cheque-num">${i + 1}</span>
       <input type="text" class="cheque-no-text" placeholder="e.g. 00012345" value="${prev.noText || ''}">
       <input type="date" class="cheque-date" value="${prev.date || ''}">
       <input type="number" class="cheque-amount" placeholder="e.g. 45,000" min="0" value="${prev.amount || ''}">
-      <select class="cheque-status">
+      <select class="cheque-status" onchange="onChequeStatusChange(this)">
         <option value="pending"  ${(!prev.status || prev.status==='pending')  ? 'selected':''}>⏳ Pending</option>
         <option value="received" ${prev.status==='received' ? 'selected':''}>✅ Received</option>
+        <option value="late"     ${prev.status==='late'     ? 'selected':''}>⚠️ Late Submission</option>
         <option value="bounced"  ${prev.status==='bounced'  ? 'selected':''}>❌ Bounced</option>
       </select>
+      <input type="number" class="cheque-fees" placeholder="${showFees ? 'fee amount' : '—'}" min="0" value="${prev.lateFees || ''}" ${showFees ? '' : 'disabled style="background:#f3f4f6;cursor:not-allowed;"'}>
     </div>`;
   }
   html += '</div>';
@@ -2002,6 +2039,7 @@ async function handleSave() {
           date:     row.querySelector('.cheque-date')?.value            || null,
           amount:   Number(row.querySelector('.cheque-amount')?.value)  || null,
           status:   row.querySelector('.cheque-status')?.value          || 'pending',
+          lateFees: Number(row.querySelector('.cheque-fees')?.value)    || null,
         });
       });
       return rows.length ? rows : null;
@@ -2153,11 +2191,12 @@ async function openDetailModal(id) {
     try {
       const apiCheques = await apiListPropertyCheques(id);
       p.cheques = apiCheques.map(c => ({
-        n:      c.chequeNum,
-        noText: c.chequeNoText || '',
-        date:   c.chequeDate,
-        amount: c.amount,
-        status: c.status,
+        n:        c.chequeNum,
+        noText:   c.chequeNoText || '',
+        date:     c.chequeDate,
+        amount:   c.amount,
+        status:   c.status,
+        lateFees: c.lateFees || null,
       }));
     } catch (e) { console.warn('[openDetailModal] cheque fetch failed:', e); }
   }
@@ -2273,7 +2312,7 @@ async function openDetailModal(id) {
       <div class="detail-block">
         <div class="detail-block-header">💳 Cheque Schedule</div>
         <div class="cheque-detail-table">
-          <div class="cdt-head"><span>#</span><span>Cheque No.</span><span>Date</span><span>Amount</span><span>Status</span></div>
+          <div class="cdt-head"><span>#</span><span>Cheque No.</span><span>Date</span><span>Amount</span><span>Status</span><span>Fees</span></div>
           ${p.cheques.map((c, i) => `
           <div class="cdt-row">
             <span class="cdt-num">${i+1}</span>
@@ -2283,8 +2322,10 @@ async function openDetailModal(id) {
             <span class="cdt-badge cdt-${c.status||'pending'}">${
               c.status==='received' ? '✅ Received'
               : c.status==='bounced' ? '❌ Bounced'
+              : c.status==='late'    ? '⚠️ Late'
               : '⏳ Pending'
             }</span>
+            <span style="color:${c.lateFees?'var(--danger)':'#9ca3af'};font-weight:${c.lateFees?'600':'400'};">${c.lateFees ? 'AED '+num(c.lateFees) : '—'}</span>
           </div>`).join('')}
         </div>
       </div>` : ''}
@@ -2802,7 +2843,7 @@ function renderPayments() {
       </div>
       <div class="pmt-table">
         <div class="pmt-thead">
-          <span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount</span><span>Status</span>
+          <span>#</span><span>Cheque No.</span><span>Cheque Date</span><span>Amount</span><span>Status</span><span>Fees</span>
         </div>
         ${g.cheques.map((c, i) => `
         <div class="pmt-trow pmt-trow-${c.status || 'pending'}">
@@ -2814,9 +2855,11 @@ function renderPayments() {
             <span class="pmt-badge pmt-badge-${c.status || 'pending'}">${
               c.status === 'received' ? '✅ Received'
               : c.status === 'bounced' ? '❌ Bounced'
+              : c.status === 'late'    ? '⚠️ Late'
               : '⏳ Pending'
             }</span>
           </span>
+          <span style="color:${c.lateFees?'var(--danger)':'#9ca3af'};font-weight:${c.lateFees?'600':'400'};">${c.lateFees ? 'AED ' + num(c.lateFees) : '—'}</span>
         </div>`).join('')}
       </div>
       ${addTotal ? `
@@ -8108,6 +8151,19 @@ function _finRenderBody(props) {
     .sort((a,b) => b.amount - a.amount);
   const brokerTotal = brokerRows.reduce((s,r) => s + r.amount, 0);
 
+  // Late + Bounced cheque fees — collected per cheque, summed per property.
+  const feesByProp = [];
+  let feesTotal = 0;
+  for (const p of pool) {
+    if (!Array.isArray(p.cheques)) continue;
+    const items = p.cheques.filter(c => Number(c.lateFees) > 0);
+    if (!items.length) continue;
+    const sub = items.reduce((s,c) => s + Number(c.lateFees || 0), 0);
+    feesTotal += sub;
+    feesByProp.push({ p, items, sub });
+  }
+  feesByProp.sort((a,b) => b.sub - a.sub);
+
   // Vacant in year (warehouses we own/partner with that aren't generating)
   const vacantList = pool.filter(p =>
     p.status === 'vacant' && (p.ownership === 'own' || p.ownership === 'partnership')
@@ -8147,7 +8203,7 @@ function _finRenderBody(props) {
   const vatTotal     = addRows.reduce((s,r)=>s+r.vat,     0);
   const additionalTotal = maintTotalFin + vatTotal;
 
-  const grandTotal = rentTotalOurs + mgmtTotal + additionalTotal + brokerTotal;
+  const grandTotal = rentTotalOurs + mgmtTotal + additionalTotal + brokerTotal + feesTotal;
   const typeLabel  = _finType === 'all' ? 'Properties'
                    : _finType === 'warehouse' ? 'Warehouses'
                    : _finType === 'office' ? 'Offices' : 'Residential';
@@ -8408,6 +8464,36 @@ function _finRenderBody(props) {
       </div>
     </div>` : ''}
 
+    <!-- ── LATE / BOUNCED CHEQUE FEES ───────────── -->
+    ${feesByProp.length ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Late + Bounced Cheque Fees — ${typeLabel}</h2>
+          <span class="fin-section-sub">Penalty fees charged on late submissions and bounced cheques · adds to total income</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Total Fees</span>
+          <span class="fin-tot-value">AED ${feesTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead><tr><th style="width:34px">#</th><th>Property</th><th>Cheques (status · fee)</th><th class="ta-r">Sub-total</th></tr></thead>
+          <tbody>
+            ${feesByProp.map((g,i)=>`
+              <tr onclick="openDetailModal('${g.p.id}')" class="fin-row-click">
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(g.p.name)}</strong></td>
+                <td>${g.items.map(c => `<span style="display:inline-block;margin:1px 6px 1px 0;padding:2px 6px;border-radius:4px;background:${c.status==='bounced'?'#fee2e2':'#fef3c7'};color:${c.status==='bounced'?'#991b1b':'#92400e'};font-size:11px;">${c.status==='bounced'?'❌ #'+(c.n||'?'):'⚠️ #'+(c.n||'?')} · AED ${num(c.lateFees)}</span>`).join('')}</td>
+                <td class="ta-r fin-our"><strong>AED ${num(g.sub)}</strong></td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot><tr><td colspan="3" class="ta-r"><strong>TOTAL</strong></td><td class="ta-r fin-our"><strong>AED ${num(feesTotal)}</strong></td></tr></tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+
     <!-- ── CASH RECEIPTS ─────────────────────────── -->
     ${cashRows.length ? `
     <div class="fin-section">
@@ -8497,6 +8583,11 @@ function _finRenderBody(props) {
       <div class="fin-grand-row" style="color:#059669;">
         <span>Brokerage Income</span>
         <span>+ AED ${brokerTotal.toLocaleString()}</span>
+      </div>` : ''}
+      ${feesTotal ? `
+      <div class="fin-grand-row" style="color:#059669;">
+        <span>Late + Bounced Cheque Fees</span>
+        <span>+ AED ${feesTotal.toLocaleString()}</span>
       </div>` : ''}
       <div class="fin-grand-row fin-grand-total">
         <span>TOTAL INCOME — ${_finYear}</span>

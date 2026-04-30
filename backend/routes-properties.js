@@ -193,8 +193,8 @@ router.post('/:id/cheques', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const b = req.body || {};
   const result = getDb().prepare(
-    'INSERT INTO property_cheques (property_id, cheque_num, cheque_no_text, cheque_date, amount, status) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, b.chequeNum || null, b.chequeNoText || null, b.chequeDate || null, b.amount || null, b.status || 'pending');
+    'INSERT INTO property_cheques (property_id, cheque_num, cheque_no_text, cheque_date, amount, status, late_fees) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, b.chequeNum || null, b.chequeNoText || null, b.chequeDate || null, b.amount || null, b.status || 'pending', b.lateFees || null);
   const row = getDb().prepare('SELECT * FROM property_cheques WHERE id = ?').get(result.lastInsertRowid);
   folderExport.writePropertyFolder(id);
   res.status(201).json({ cheque: rowToApi(row) });
@@ -210,6 +210,7 @@ router.patch('/:id/cheques/:cid', requireAdmin, (req, res) => {
   if (b.chequeDate    !== undefined) { updates.push('cheque_date = ?');    values.push(b.chequeDate); }
   if (b.amount        !== undefined) { updates.push('amount = ?');         values.push(b.amount); }
   if (b.status        !== undefined) { updates.push('status = ?');         values.push(b.status); }
+  if (b.lateFees      !== undefined) { updates.push('late_fees = ?');      values.push(b.lateFees); }
   if (!updates.length) {
     const row = getDb().prepare('SELECT * FROM property_cheques WHERE id = ?').get(cid);
     return res.json({ cheque: rowToApi(row) });

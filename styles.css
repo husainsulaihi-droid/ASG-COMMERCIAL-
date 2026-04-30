@@ -1828,7 +1828,7 @@ body, button, input, select, textarea {
 .pmt-table { width: 100%; }
 .pmt-thead, .pmt-trow {
   display: grid;
-  grid-template-columns: 36px 1.1fr 1fr 1fr 140px;
+  grid-template-columns: 36px 1.1fr 1fr 1fr 140px 100px;
   align-items: center;
   gap: 8px;
   padding: 9px 18px;
@@ -1850,6 +1850,8 @@ body, button, input, select, textarea {
 .pmt-badge-pending  { background: var(--warn-bg);    color: var(--warn); }
 .pmt-badge-received { background: var(--success-bg); color: var(--success); }
 .pmt-badge-bounced  { background: var(--danger-bg);  color: var(--danger); }
+.pmt-badge-late     { background: #fef3c7;           color: #92400e; }
+.pmt-trow-late      { background: rgba(254,243,199,.35); }
 
 /* ─── MANAGEMENT NOTICE ──────────────────── */
 .mgmt-notice {
@@ -1892,7 +1894,7 @@ body, button, input, select, textarea {
 .cheque-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .cheque-head, .cheque-row {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 1fr 130px;
+  grid-template-columns: 28px 1fr 1fr 1fr 130px 110px;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
@@ -1918,7 +1920,7 @@ body, button, input, select, textarea {
 .cheque-detail-table { padding: 0 16px 12px; }
 .cdt-head, .cdt-row {
   display: grid;
-  grid-template-columns: 28px 1.1fr 1fr 1fr 120px;
+  grid-template-columns: 28px 1.1fr 1fr 1fr 120px 90px;
   align-items: center;
   gap: 8px;
   padding: 8px 0;
@@ -1936,6 +1938,7 @@ body, button, input, select, textarea {
 .cdt-pending  { background: var(--warn-bg);     color: var(--warn); }
 .cdt-received { background: var(--success-bg);  color: var(--success); }
 .cdt-bounced  { background: var(--danger-bg);   color: var(--danger); }
+.cdt-late     { background: #fef3c7;            color: #92400e; }
 
 /* ─── TEAM TAB ───────────────────────────── */
 .team-page {

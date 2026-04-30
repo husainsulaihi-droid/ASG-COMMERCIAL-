@@ -129,7 +129,8 @@ CREATE TABLE property_cheques (
   cheque_no_text TEXT,                          -- printed cheque number from the cheque book
   cheque_date    DATE,
   amount         REAL,
-  status         TEXT DEFAULT 'pending',        -- pending, received, bounced
+  status         TEXT DEFAULT 'pending',        -- pending, received, bounced, late
+  late_fees      REAL,                          -- fee charged for late submission or bounced cheque
   FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_cheques_property ON property_cheques(property_id);
