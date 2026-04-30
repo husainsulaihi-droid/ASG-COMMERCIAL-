@@ -359,8 +359,15 @@ let _propsCache = (() => {
   try { return JSON.parse(localStorage.getItem(PROPS_LS_KEY)) || []; }
   catch { return []; }
 })();
+// Debounced: serializing the entire props array to localStorage on every
+// fetch/mutation was a real source of jank when many writes landed in a
+// burst. We batch writes to one per ~150ms idle window.
+let _persistPropsTimer = null;
 function _persistPropsCache() {
-  try { localStorage.setItem(PROPS_LS_KEY, JSON.stringify(_propsCache)); } catch (_) {}
+  clearTimeout(_persistPropsTimer);
+  _persistPropsTimer = setTimeout(() => {
+    try { localStorage.setItem(PROPS_LS_KEY, JSON.stringify(_propsCache)); } catch (_) {}
+  }, 150);
 }
 
 async function fetchProperties() {
@@ -1410,8 +1417,8 @@ function cardHTML(p) {
     ? `<div class="card-media-strip count-${Math.min(p.media.length, 3)}" id="strip-${p.id}">
         ${p.media.slice(0, 3).map((m, i) =>
           isVideo(m.mime)
-            ? `<video id="strip-${p.id}-${i}" muted></video>`
-            : `<img id="strip-${p.id}-${i}" alt="">`
+            ? `<video id="strip-${p.id}-${i}" muted preload="none"></video>`
+            : `<img id="strip-${p.id}-${i}" alt="" loading="lazy" decoding="async">`
         ).join('')}
         ${p.media.length > 3 ? `<div class="card-media-more">+${p.media.length - 3}</div>` : ''}
       </div>`
@@ -8803,10 +8810,18 @@ boot = async function() {
 // ─── Real-time sync via Server-Sent Events ────────────────
 // One EventSource per browser. The backend pushes a small JSON payload
 // after every mutation; we refetch the affected entity cache and re-
-// render the active tab. EventSource auto-reconnects on transient errors.
+// render the active tab.
+//
+// Browser EventSource auto-reconnects on transient network errors, but
+// it does NOT reliably wake up after the tab goes to sleep (laptop
+// closed) or wifi drops/changes. We listen for visibility/online and
+// force a fresh stream if needed — and refetch caches so any updates
+// missed during the offline window are picked up.
 let _sse = null;
 let _sseRebroadcastTimer = null;
-function startRealtimeSync() {
+let _sseLastEventAt = 0;
+
+function _sseOpen() {
   if (_sse) { try { _sse.close(); } catch(_) {} }
   try {
     _sse = new EventSource('/api/events');
@@ -8814,15 +8829,41 @@ function startRealtimeSync() {
     console.warn('[sse] EventSource not supported:', e);
     return;
   }
-  _sse.onopen   = ()  => console.log('[sse] connected');
-  _sse.onerror  = (e) => console.warn('[sse] error (auto-reconnect)', e);
+  _sse.onopen   = ()  => { _sseLastEventAt = Date.now(); };
+  _sse.onerror  = (e) => { /* let the browser retry; visibility handler will force-reopen if needed */ };
   _sse.onmessage = (e) => {
+    _sseLastEventAt = Date.now();
     let evt;
     try { evt = JSON.parse(e.data); }
     catch (_) { return; }
     if (!evt || !evt.entity) return;
     handleRealtimeEvent(evt);
   };
+}
+
+function startRealtimeSync() {
+  _sseOpen();
+
+  // When the tab becomes visible after being hidden, or the network
+  // comes back, re-establish the stream and pull every cache fresh.
+  // We also resync if the EventSource is in CLOSED (readyState===2),
+  // since browsers occasionally give up silently.
+  const wakeup = async (reason) => {
+    if (!_sse || _sse.readyState === 2) {
+      _sseOpen();
+    }
+    // Pull every cache so we catch up on anything missed while offline.
+    try {
+      await fetchProperties();
+      if (typeof fetchAllEntities === 'function') await fetchAllEntities();
+      // Re-render the active tab once with fresh data.
+      if (typeof _rerenderActiveTabFast === 'function') _rerenderActiveTabFast();
+    } catch (_) {}
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) wakeup('visible');
+  });
+  window.addEventListener('online', () => wakeup('online'));
 }
 
 // ─── Smoothing layer ──────────────────────────────────────
@@ -9562,8 +9603,8 @@ function agentCardHTML(p) {
     ? `<div class="card-media-strip count-${Math.min(p.media.length, 3)}" id="strip-${p.id}">
         ${p.media.slice(0, 3).map((m, i) =>
           isVideo(m.mime)
-            ? `<video id="strip-${p.id}-${i}" muted></video>`
-            : `<img id="strip-${p.id}-${i}" alt="">`
+            ? `<video id="strip-${p.id}-${i}" muted preload="none"></video>`
+            : `<img id="strip-${p.id}-${i}" alt="" loading="lazy" decoding="async">`
         ).join('')}
         ${p.media.length > 3 ? `<div class="card-media-more">+${p.media.length - 3}</div>` : ''}
       </div>`
