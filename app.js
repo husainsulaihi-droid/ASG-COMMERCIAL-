@@ -8887,31 +8887,10 @@ renderNotesList = function(notes) {
   list.scrollTop = list.scrollHeight;
 };
 
-// Override submitTaskNote: store author info from session, allow admin to post
-submitTaskNote = function() {
-  const input = document.getElementById('taskNoteInput');
-  const text = (input?.value || '').trim();
-  if (!text) return;
-  const tasks = loadTasks();
-  const task = tasks.find(t => t.id === notesTaskId);
-  if (!task) return;
-  if (!task.notes) task.notes = [];
-  const a = getAuthorMeta();
-  task.notes.push({
-    text,
-    date: new Date().toISOString(),
-    authorType: a.type,
-    authorId:   a.id,
-    authorName: a.name
-  });
-  task.updatedAt = new Date().toISOString();
-  saveTasks(tasks);
-  input.value = '';
-  renderNotesList(task.notes);
-  showToast('Update posted', 'success');
-  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
-  else if (typeof renderTeamTab === 'function') renderTeamTab();
-};
+// (Legacy submitTaskNote override removed — the API-backed version
+// earlier in this file is now authoritative. Notes persist via
+// POST /api/tasks/:id/notes instead of being pushed onto task.notes,
+// which bodyToDb stripped — that's why replies never propagated.)
 
 // Override openTaskNotes: switch modal title for admin, ensure input is visible
 const _origOpenTaskNotes = openTaskNotes;
