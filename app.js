@@ -630,13 +630,14 @@ async function apiListPropertyCheques(propertyId) {
 async function apiSyncPropertyCheques(propertyId, formCheques) {
   // 1) wipe existing — fire all deletes in parallel
   const existing = await apiListPropertyCheques(propertyId);
-  await Promise.all(existing.map(c =>
+  const delResults = await Promise.all(existing.map(c =>
     fetch(`/api/properties/${propertyId}/cheques/${c.id}`, {
       method: 'DELETE', credentials: 'same-origin',
-    }).catch(() => {})
+    }).then(r => ({ ok: r.ok, status: r.status }))
+     .catch(e => ({ ok: false, error: e.message }))
   ));
   // 2) create new from the form — fire all creates in parallel
-  await Promise.all((formCheques || []).map(c =>
+  const insResults = await Promise.all((formCheques || []).map(c =>
     fetch(`/api/properties/${propertyId}/cheques`, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -648,8 +649,21 @@ async function apiSyncPropertyCheques(propertyId, formCheques) {
         status:       c.status || 'pending',
         lateFees:     c.lateFees || null,
       }),
-    }).catch(() => {})
+    }).then(async r => {
+      if (!r.ok) {
+        let body = '';
+        try { body = (await r.json()).error || ''; } catch (_) { try { body = await r.text(); } catch (_){} }
+        return { ok: false, status: r.status, body };
+      }
+      return { ok: true };
+    }).catch(e => ({ ok: false, error: e.message }))
   ));
+  const failed = [...delResults, ...insResults].filter(x => !x.ok);
+  if (failed.length) {
+    const first = failed[0];
+    const msg = first.body || first.error || `HTTP ${first.status}`;
+    throw new Error(`${failed.length} cheque op${failed.length>1?'s':''} failed: ${msg}`);
+  }
 }
 
 // Legacy persistProps shim. Some callers pass the entire mutated array.
