@@ -1475,6 +1475,8 @@ function openAddModal() {
   $('chequeFields').innerHTML = '';
   const partnerFieldsEl = $('partnerFields');
   if (partnerFieldsEl) partnerFieldsEl.innerHTML = '';
+  const cashGroupEl = document.getElementById('cashAmountGroup');
+  if (cashGroupEl) cashGroupEl.style.display = 'none';
   $('propertyModalOverlay').classList.add('active');
 }
 
@@ -1576,7 +1578,15 @@ async function openEditModal(id) {
   $('propLeaseEnd').value      = p.leaseEnd      || '';
   $('propNotes').value         = p.notes         || '';
 
-  $('propNumCheques').value = p.numCheques || '';
+  // Restore the payment-method dropdown: cash mode if a cashAmount is set,
+  // otherwise the cheque count.
+  if (Number(p.cashAmount) > 0) {
+    $('propNumCheques').value = 'cash';
+  } else {
+    $('propNumCheques').value = p.numCheques ? String(p.numCheques) : '';
+  }
+  $('propCashAmount').value = p.cashAmount  || '';
+  $('propBrokerage').value  = p.brokerageAmount || '';
   renderChequeFields();
   if (p.cheques?.length) {
     $('chequeFields').querySelectorAll('.cheque-row').forEach((row, i) => {
@@ -1664,8 +1674,14 @@ function recalcVat() {
 }
 
 function renderChequeFields() {
-  const n         = parseInt($('propNumCheques').value) || 0;
   const container = $('chequeFields');
+  // Toggle the Cash Amount field based on payment-method selection
+  const sel = $('propNumCheques')?.value || '';
+  const cashGroup = document.getElementById('cashAmountGroup');
+  if (cashGroup) cashGroup.style.display = sel === 'cash' ? '' : 'none';
+  // 'cash' mode: clear any cheque rows, the amount lives in cashAmount instead
+  if (sel === 'cash') { container.innerHTML = ''; return; }
+  const n = parseInt(sel) || 0;
   if (!n) { container.innerHTML = ''; return; }
   const existing = [];
   container.querySelectorAll('.cheque-row').forEach((row, i) => {
@@ -1942,6 +1958,8 @@ async function handleSave() {
     legalFee:              Number($('propLegalFee').value)              || null,
     corporateTax:          Number($('propCorporateTax').value)          || null,
     securityDeposit:       Number($('propSecurityDeposit').value)       || null,
+    cashAmount:            Number($('propCashAmount').value)            || null,
+    brokerageAmount:       Number($('propBrokerage').value)             || null,
     premiseNumber:         $('propPremiseNo').value.trim()  || null,
     dewaNumber:            $('propDewaNo').value.trim()     || null,
     ownerEmail:            $('propOwnerEmail').value.trim() || null,
@@ -1970,7 +1988,11 @@ async function handleSave() {
     leaseStart:    $('propLeaseStart').value           || null,
     leaseEnd:      $('propLeaseEnd').value             || null,
     notes:         $('propNotes').value.trim()          || null,
-    numCheques:    parseInt($('propNumCheques').value)  || null,
+    numCheques:    (() => {
+      const v = $('propNumCheques').value;
+      if (v === 'cash') return null;       // cash mode: tracked via cashAmount
+      return parseInt(v) || null;
+    })(),
     cheques:       (() => {
       const rows = [];
       $('chequeFields').querySelectorAll('.cheque-row').forEach((row, i) => {
@@ -2211,6 +2233,8 @@ async function openDetailModal(id) {
             ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">VAT (5%)</span><span class="dr-value">AED ${num(Math.round(Number(p.annualRent) * 0.05))}</span></div>` : ''}
             ${p.subLeaseFees         ? `<div class="detail-row"><span class="dr-label">Sub Lease Fees</span><span class="dr-value">AED ${num(p.subLeaseFees)}</span></div>` : ''}
             ${p.securityDeposit      ? `<div class="detail-row"><span class="dr-label">Security Deposit</span><span class="dr-value">AED ${num(p.securityDeposit)}</span></div>` : ''}
+            ${p.cashAmount           ? `<div class="detail-row"><span class="dr-label">Cash Received</span><span class="dr-value green">💵 AED ${num(p.cashAmount)}</span></div>` : ''}
+            ${p.brokerageAmount      ? `<div class="detail-row"><span class="dr-label">Brokerage</span><span class="dr-value green">+ AED ${num(p.brokerageAmount)}</span></div>` : ''}
             ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, p.purchasePrice)}</span></div>` : ''}
           </div>
         </div>
@@ -8070,6 +8094,20 @@ function _finRenderBody(props) {
     .sort((a,b) => b.amount - a.amount);
   const depTotal = depRows.reduce((s,r) => s + r.amount, 0);
 
+  // Cash Receipts (rent paid in cash, not via cheques)
+  const cashRows = pool
+    .filter(p => Number(p.cashAmount) > 0)
+    .map(p => ({ p, amount: Number(p.cashAmount) || 0 }))
+    .sort((a,b) => b.amount - a.amount);
+  const cashTotal = cashRows.reduce((s,r) => s + r.amount, 0);
+
+  // Brokerage Income (one-off brokerage fees earned per property; ADDS to income)
+  const brokerRows = pool
+    .filter(p => Number(p.brokerageAmount) > 0)
+    .map(p => ({ p, amount: Number(p.brokerageAmount) || 0 }))
+    .sort((a,b) => b.amount - a.amount);
+  const brokerTotal = brokerRows.reduce((s,r) => s + r.amount, 0);
+
   // Vacant in year (warehouses we own/partner with that aren't generating)
   const vacantList = pool.filter(p =>
     p.status === 'vacant' && (p.ownership === 'own' || p.ownership === 'partnership')
@@ -8109,7 +8147,7 @@ function _finRenderBody(props) {
   const vatTotal     = addRows.reduce((s,r)=>s+r.vat,     0);
   const additionalTotal = maintTotalFin + vatTotal;
 
-  const grandTotal = rentTotalOurs + mgmtTotal + additionalTotal;
+  const grandTotal = rentTotalOurs + mgmtTotal + additionalTotal + brokerTotal;
   const typeLabel  = _finType === 'all' ? 'Properties'
                    : _finType === 'warehouse' ? 'Warehouses'
                    : _finType === 'office' ? 'Offices' : 'Residential';
@@ -8341,6 +8379,65 @@ function _finRenderBody(props) {
       </div>
     </div>` : ''}
 
+    <!-- ── BROKERAGE INCOME ─────────────────────── -->
+    ${brokerRows.length ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Brokerage Income — ${typeLabel}</h2>
+          <span class="fin-section-sub">One-off brokerage fees per property · adds to total income</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Total</span>
+          <span class="fin-tot-value">AED ${brokerTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead><tr><th style="width:34px">#</th><th>Property</th><th class="ta-r">Brokerage</th></tr></thead>
+          <tbody>
+            ${brokerRows.map((r,i)=>`
+              <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(r.p.name)}</strong></td>
+                <td class="ta-r fin-our"><strong>AED ${num(r.amount)}</strong></td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot><tr><td colspan="2" class="ta-r"><strong>TOTAL</strong></td><td class="ta-r fin-our"><strong>AED ${num(brokerTotal)}</strong></td></tr></tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+
+    <!-- ── CASH RECEIPTS ─────────────────────────── -->
+    ${cashRows.length ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Cash Receipts — ${typeLabel}</h2>
+          <span class="fin-section-sub">Properties where rent was received in cash (not via cheques)</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">Total Cash</span>
+          <span class="fin-tot-value">AED ${cashTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead><tr><th style="width:34px">#</th><th>Property</th><th>Tenant</th><th class="ta-r">Cash Amount</th></tr></thead>
+          <tbody>
+            ${cashRows.map((r,i)=>`
+              <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(r.p.name)}</strong></td>
+                <td>${h(r.p.tenantName||'—')}</td>
+                <td class="ta-r"><strong>💵 AED ${num(r.amount)}</strong></td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot><tr><td colspan="3" class="ta-r"><strong>TOTAL</strong></td><td class="ta-r"><strong>AED ${num(cashTotal)}</strong></td></tr></tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+
     <!-- ── SECURITY DEPOSITS ────────────────────── -->
     ${depRows.length ? `
     <div class="fin-section">
@@ -8395,6 +8492,11 @@ function _finRenderBody(props) {
       <div class="fin-grand-row">
         <span>Maintenance + VAT</span>
         <span>AED ${additionalTotal.toLocaleString()}</span>
+      </div>` : ''}
+      ${brokerTotal ? `
+      <div class="fin-grand-row" style="color:#059669;">
+        <span>Brokerage Income</span>
+        <span>+ AED ${brokerTotal.toLocaleString()}</span>
       </div>` : ''}
       <div class="fin-grand-row fin-grand-total">
         <span>TOTAL INCOME — ${_finYear}</span>

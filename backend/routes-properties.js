@@ -43,7 +43,7 @@ const PROP_FIELDS = [
   'mgmt_fee', 'mgmt_date', 'purchase_price', 'purchase_date', 'market_value',
   'land_charges', 'license_fees', 'sub_lease_fees',
   'dewa_charges', 'ejari_fees', 'civil_defense_charges', 'legal_fee',
-  'corporate_tax', 'security_deposit',
+  'corporate_tax', 'security_deposit', 'cash_amount', 'brokerage_amount',
   'status', 'annual_rent', 'service_charges', 'maintenance_fees', 'vat',
   'tenant_name', 'tenant_phone', 'tenant_email', 'reminder_days',
   'lease_start', 'lease_end', 'num_cheques', 'notes', 'coords',
@@ -56,7 +56,7 @@ const FINANCIAL_FIELDS = [
   'ourShare', 'partnerName', 'partners',
   'landCharges', 'licenseFees', 'subLeaseFees',
   'dewaCharges', 'ejariFees', 'civilDefenseCharges', 'legalFee',
-  'corporateTax', 'securityDeposit'
+  'corporateTax', 'securityDeposit', 'cashAmount', 'brokerageAmount'
 ];
 const TENANT_FIELDS = [
   'tenantName', 'tenantPhone', 'tenantEmail', 'leaseStart', 'leaseEnd', 'numCheques'

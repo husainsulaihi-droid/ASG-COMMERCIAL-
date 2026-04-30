@@ -84,6 +84,8 @@ CREATE TABLE properties (
   legal_fee           REAL,    -- legal fee (deduction)
   corporate_tax       REAL,    -- corporate tax (deduction)
   security_deposit    REAL,    -- informational; surfaced as its own section in Financial tab
+  cash_amount         REAL,    -- amount of rent received in cash (when payment method is 'cash')
+  brokerage_amount    REAL,    -- one-off brokerage fee earned for this property; ADDS to income
   premise_number      TEXT,
   dewa_number         TEXT,
   owner_email         TEXT,
