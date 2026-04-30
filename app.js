@@ -2536,7 +2536,29 @@ function renderReminderBadge(props) {
 // ─── Reminders Page ───────────────────────────────
 function renderReminders() {
   const today = new Date();
+  today.setHours(0, 0, 0, 0);  // normalise so day math is calendar-based
   const props = loadProps();
+
+  // ── Cheque reminders ──
+  // Surface every pending cheque whose date is within the next 30 days
+  // (or already overdue and still pending). Received / late / bounced
+  // cheques are excluded — once a cheque has a definitive status, the
+  // reminder isn't actionable any more.
+  const chequeReminders = [];
+  for (const p of props) {
+    if (!Array.isArray(p.cheques) || !p.cheques.length) continue;
+    for (const c of p.cheques) {
+      if (!c || !c.date) continue;
+      if (c.status !== 'pending' && c.status !== undefined && c.status !== null && c.status !== '') continue;
+      const cd = new Date(c.date);
+      if (isNaN(cd)) continue;
+      cd.setHours(0, 0, 0, 0);
+      const days = Math.round((cd - today) / 86400000);
+      // 30-day lookahead; include overdue pending cheques (negative days)
+      if (days <= 30) chequeReminders.push({ p, c, days });
+    }
+  }
+  chequeReminders.sort((a, b) => a.days - b.days);
 
   // Only include rented properties within their reminder window
   const triggered = props.filter(p => {
@@ -2585,12 +2607,16 @@ function renderReminders() {
         ${c.label}
       </div>`).join('');
 
-  $('reminderSummaryChips').innerHTML = chips;
+  // Prepend a cheques-due chip if any are upcoming/overdue.
+  const chequesChip = chequeReminders.length
+    ? `<div class="summary-chip chip-cheque"><span class="chip-count">${chequeReminders.length}</span>Cheques Due</div>`
+    : '';
+  $('reminderSummaryChips').innerHTML = chequesChip + chips;
 
   const groupsEl  = $('reminderGroups');
   const emptyEl   = $('remindersEmpty');
 
-  if (!triggered.length) {
+  if (!triggered.length && !chequeReminders.length) {
     groupsEl.innerHTML  = '';
     emptyEl.style.display = 'block';
     return;
@@ -2598,6 +2624,23 @@ function renderReminders() {
   emptyEl.style.display = 'none';
 
   let html = '';
+
+  // ── Cheque section first (most actionable, sorted by date) ──
+  if (chequeReminders.length) {
+    const overdueCount  = chequeReminders.filter(x => x.days < 0).length;
+    const upcomingCount = chequeReminders.length - overdueCount;
+    html += `
+      <div class="reminder-group">
+        <div class="reminder-group-header rg-cheque">
+          💳 Cheques Due — Next 30 Days
+          <span class="rg-count">${chequeReminders.length} cheque${chequeReminders.length === 1 ? '' : 's'}${overdueCount ? ` · ${overdueCount} overdue` : ''}</span>
+        </div>
+        <div class="reminder-cards">
+          ${chequeReminders.map(x => chequeReminderCardHTML(x.p, x.c, x.days)).join('')}
+        </div>
+      </div>`;
+  }
+
   for (const grp of groups) {
     const items = triggered.filter(p => {
       const d = Math.ceil((new Date(p.leaseEnd) - today) / 86400000);
@@ -2617,6 +2660,45 @@ function renderReminders() {
       </div>`;
   }
   groupsEl.innerHTML = html;
+}
+
+function chequeReminderCardHTML(p, c, days) {
+  const typeIcon = p.type === 'warehouse' ? '🏭' : p.type === 'office' ? '🏢' : '🏠';
+  const overdue  = days < 0;
+  const todayDue = days === 0;
+  const cdLabel  = overdue ? 'Overdue' : todayDue ? 'Due Today' : 'Days Left';
+  const cdValue  = overdue ? Math.abs(days) : todayDue ? '0' : days;
+  const cdCls    = overdue ? 'cd-cheque-overdue' : todayDue ? 'cd-cheque-today' : days <= 7 ? 'cd-cheque-soon' : 'cd-cheque-upcoming';
+  const stripe   = overdue ? 'stripe-cheque-overdue' : todayDue ? 'stripe-cheque-today' : days <= 7 ? 'stripe-cheque-soon' : 'stripe-cheque-upcoming';
+  const amount   = c.amount ? `AED ${num(c.amount)}` : '—';
+  const chequeNo = c.noText || c.chequeNoText || `#${c.n || '?'}`;
+  const dateFmt  = c.date ? new Date(c.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—';
+
+  return `
+    <div class="reminder-card reminder-card-cheque" onclick="openDetailModal('${p.id}'); showTab('payment');">
+      <div class="reminder-card-stripe ${stripe}"></div>
+      <div class="reminder-card-inner">
+        <div class="rc-left">
+          <div class="rc-property-row">
+            <span class="rc-property-name">${typeIcon} ${h(p.name)}</span>
+            <span class="rc-type-pill">${p.type}</span>
+            ${p.location ? `<span class="rc-location">📍 ${h(p.location)}</span>` : ''}
+          </div>
+          <div class="rc-cheque-line">
+            <span class="rc-cheque-tag">💳 Cheque ${h(chequeNo)}</span>
+            <span class="rc-cheque-amt">${amount}</span>
+            <span class="rc-cheque-date">📅 ${dateFmt}</span>
+            ${p.tenantName ? `<span class="rc-cheque-tenant">👤 ${h(p.tenantName)}</span>` : ''}
+          </div>
+        </div>
+        <div class="rc-right">
+          <div class="rc-countdown ${cdCls}">
+            <div class="cd-num">${cdValue}</div>
+            <div class="cd-lbl">${cdLabel}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
 function reminderCardHTML(p, stripeClass, cdClass) {

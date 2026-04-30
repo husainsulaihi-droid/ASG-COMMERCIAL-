@@ -931,6 +931,7 @@ body, button, input, select, textarea {
 .chip-warning   { background: var(--warn-bg); color: var(--warn); border-color: #fcd34d; }
 .chip-upcoming  { background: #eff6ff; color: #1d4ed8;       border-color: #93c5fd; }
 .chip-advance   { background: var(--success-bg); color: var(--success); border-color: #6ee7b7; }
+.chip-cheque    { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
 
 /* ─── REMINDER GROUP ────────────────────── */
 .reminder-group { margin-bottom: 32px; }
@@ -953,6 +954,7 @@ body, button, input, select, textarea {
 .rg-warning  { background: #111; color: var(--gold);   border: 1.5px solid var(--gold); }
 .rg-upcoming { background: #111; color: #60a5fa;       border: 1.5px solid #60a5fa; }
 .rg-advance  { background: #111; color: #34d399;       border: 1.5px solid #34d399; }
+.rg-cheque   { background: #111; color: #c4b5fd;       border: 1.5px solid #c4b5fd; }
 
 .reminder-group-header .rg-count {
   margin-left: auto;
@@ -984,6 +986,29 @@ body, button, input, select, textarea {
 .stripe-warning  { background: var(--gold); }
 .stripe-upcoming { background: #3b82f6; }
 .stripe-advance  { background: var(--success); }
+.stripe-cheque-overdue  { background: #dc2626; }
+.stripe-cheque-today    { background: #f97316; }
+.stripe-cheque-soon     { background: #c9a84c; }
+.stripe-cheque-upcoming { background: #8b5cf6; }
+
+/* Cheque-specific reminder card */
+.reminder-card-cheque .rc-left { gap: 8px; }
+.rc-cheque-line {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  font-size: 13px; color: var(--text-2);
+}
+.rc-cheque-tag {
+  background: #ede9fe; color: #5b21b6; padding: 3px 9px;
+  border-radius: 6px; font-weight: 700; font-size: 12px;
+}
+.rc-cheque-amt { font-weight: 700; color: var(--text-1, #111); }
+.rc-cheque-date { color: var(--text-2); }
+.rc-cheque-tenant { color: var(--text-3); font-size: 12.5px; }
+
+.cd-cheque-overdue  { color: #dc2626; }
+.cd-cheque-today    { color: #f97316; }
+.cd-cheque-soon     { color: #c9a84c; }
+.cd-cheque-upcoming { color: #8b5cf6; }
 
 .reminder-card-inner {
   display: grid;
