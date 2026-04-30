@@ -8391,6 +8391,12 @@ async function _refreshCacheSilently(entity) {
     } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
       await _api[entity].fetch();
     }
+    // For tasks: also re-baseline the snapshot so the user doesn't
+    // get notified of their own reply once the mute window ends.
+    if (entity === 'tasks') {
+      _refreshTaskSnapshot();
+      updateMyTasksBadge();
+    }
   } catch (_) { /* ignore */ }
 }
 
