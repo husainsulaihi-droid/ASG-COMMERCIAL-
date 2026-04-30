@@ -9839,22 +9839,33 @@ renderNotesList = function(notes) {
     const grouped = authorKey === prevAuthorKey;
     prevAuthorKey = authorKey;
 
-    // Bubbles use a simple two-tone scheme: own = blue, received = white.
-    // The colored avatar still tells you who sent each message.
-    const bubbleStyle = '';
-    const authorLabel = !isMine && !grouped
-      ? `<div class="thread-msg-meta"><span class="thread-msg-author" style="color:${color.accent};">${isAdmin ? '👑 ' : ''}${h(author)}</span></div>`
+    // Per-author colored bubble for EVERYONE — including the viewer's own
+    // messages. Without that the conversation looks monochrome and you
+    // can't tell different speakers apart at a glance. The mine/other
+    // distinction is preserved by alignment (right/left) and by always
+    // showing the author label and timestamp in every bubble.
+    //
+    // Bubble background = per-author soft tint, with a 3px left/right
+    // accent strip in the same author's accent color so consecutive
+    // messages from the same speaker still feel grouped.
+    const accentSide = isMine ? 'border-right' : 'border-left';
+    const bubbleStyle = `style="background:${color.bg}; ${accentSide}:3px solid ${color.accent}; color:#111827;"`;
+    const timeStyle   = `style="color:${color.accent};"`;
+    const authorLabel = !grouped
+      ? `<div class="thread-msg-meta"><span class="thread-msg-author" style="color:${color.accent};">${isAdmin ? '👑 ' : ''}${h(author)}${isMine ? ' · You' : ''}</span></div>`
       : '';
-    const avatar = !isMine && !grouped
+    // Avatars on both sides — own avatar on the right, others' on the left.
+    // Spacer for grouped consecutive messages keeps alignment consistent.
+    const avatar = !grouped
       ? `<div class="thread-avatar" style="background:${color.accent};">${h(initials(author))}</div>`
-      : (!isMine ? `<div class="thread-avatar thread-avatar-spacer"></div>` : '');
+      : `<div class="thread-avatar thread-avatar-spacer"></div>`;
 
     out.push(`
       <div class="thread-row ${side}${grouped ? ' grouped' : ''}">
         ${avatar}
         <div class="thread-msg ${side}${grouped ? ' grouped' : ''}">
           ${authorLabel}
-          <div class="thread-msg-bubble" ${bubbleStyle}>${h(n.text)}<span class="thread-msg-time">${timeLabel(n.date)}</span></div>
+          <div class="thread-msg-bubble" ${bubbleStyle}>${h(n.text)}<span class="thread-msg-time" ${timeStyle}>${timeLabel(n.date)}</span></div>
         </div>
       </div>`);
   }
