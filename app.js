@@ -3873,6 +3873,16 @@ function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; 
 
 function loadAgents()  { return _api.users.load().filter(u => u.role !== 'admin'); }
 
+// Task assignees: agents PLUS admins (so an admin can give a task to
+// another admin). Returned objects always have a normalized .role for
+// chip display: agents keep their sub-role, admins get role='admin'.
+function loadTaskAssignees() {
+  return _api.users.load().map(u => ({
+    ...u,
+    role: u.role === 'admin' ? 'admin' : (u.agentRole || u.role || ''),
+  }));
+}
+
 // Custom saveAgents: the generic factory would diff against the FULL users
 // cache (which includes admin) and try to DELETE admin every time we mutate
 // agents. Scope the diff to the agent subset, and translate the frontend's
@@ -4106,7 +4116,7 @@ function deleteAgent(id) {
 
 // ── Task Modal ─────────────────────────────────────
 function openTaskModal(id) {
-  const agents = loadAgents().filter(a => a.active);
+  const assignees = loadTaskAssignees().filter(a => a.active);
   const props  = loadProps();
   const tasks  = loadTasks();
   const task   = id ? tasks.find(t => t.id === id) : null;
@@ -4114,9 +4124,14 @@ function openTaskModal(id) {
   $('taskModalTitle').textContent = task ? 'Edit Task' : 'Assign Task';
   $('taskId').value = task ? task.id : '';
 
-  // Populate agent dropdown
-  $('taskAgent').innerHTML = '<option value="">— Select agent —</option>' +
-    agents.map(a => `<option value="${a.id}"${task && task.agentId === a.id ? ' selected' : ''}>${h(a.name)}</option>`).join('');
+  // Populate assignee dropdown — agents + admins (admins are flagged
+  // with a 👑 prefix so it's clear who's who).
+  $('taskAgent').innerHTML = '<option value="">— Select assignee —</option>' +
+    assignees.map(a => {
+      const label = a.role === 'admin' ? `👑 ${h(a.name)} (Admin)` : h(a.name);
+      const selected = task && String(task.agentId) === String(a.id) ? ' selected' : '';
+      return `<option value="${a.id}"${selected}>${label}</option>`;
+    }).join('');
 
   // Populate property dropdown
   $('taskProp').innerHTML = '<option value="">— No specific property —</option>' +
@@ -4260,12 +4275,17 @@ function renderTeamTab() {
   const allTasks = loadTasks();
   const props   = loadProps();
 
-  // Update filter dropdown
+  // Update filter dropdown — include admins as filter options too so a
+  // task assigned to an admin can be isolated.
   const agentFilter = $('taskFilterAgent');
   if (agentFilter) {
     const cur = agentFilter.value;
-    agentFilter.innerHTML = '<option value="">All Agents</option>' +
-      agents.map(a => `<option value="${a.id}"${cur===a.id?' selected':''}>${h(a.name)}</option>`).join('');
+    const filterList = loadTaskAssignees();
+    agentFilter.innerHTML = '<option value="">All Assignees</option>' +
+      filterList.map(a => {
+        const label = a.role === 'admin' ? `👑 ${h(a.name)} (Admin)` : h(a.name);
+        return `<option value="${a.id}"${String(cur)===String(a.id)?' selected':''}>${label}</option>`;
+      }).join('');
   }
 
   // ── Agents list ──
@@ -4323,8 +4343,11 @@ function renderTeamTab() {
       grouped[key].push(t);
     });
 
+    // Use the wider assignees list so tasks assigned to other admins
+    // resolve to a name (and not "Unassigned").
+    const assigneeLookup = loadTaskAssignees();
     tasksList.innerHTML = Object.entries(grouped).map(([agId, agTasks]) => {
-      const ag = agents.find(a => a.id === agId);
+      const ag = assigneeLookup.find(a => String(a.id) === String(agId));
       const agName = ag ? ag.name : 'Unassigned';
 
       const tasksHTML = agTasks.sort((a,b) => {
