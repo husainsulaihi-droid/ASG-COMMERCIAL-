@@ -2091,44 +2091,57 @@ async function handleSave() {
     catch (e) { console.warn('cheque sync failed:', e); }
   }
 
-  // Upload pending document files in parallel — sequential awaits made
-  // saves take 10-30s when several files were attached.
-  const uploads = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license', 'tenantlicense', 'addendum']
+  // Build the full upload + delete plan and run EVERYTHING in parallel:
+  //   - document files (drec, ijari, ijari2, affection, tenancy, license, …)
+  //   - media file deletes
+  //   - photo uploads
+  // Previously each of these was sequential, which made saves with 10+
+  // photos take 1-4 minutes. With Promise.all the total is bounded by
+  // the slowest single upload, not the sum.
+  const docTasks = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license', 'tenantlicense', 'addendum']
     .filter(k => pendingFiles[k])
     .map(k => apiUploadPropertyFile(savedId, k, pendingFiles[k])
       .catch(e => { console.warn(`upload ${k} failed:`, e); showToast(`Upload of ${k} failed`, 'error'); })
     );
-  if (uploads.length) await Promise.all(uploads);
-
-  // Delete media flagged for removal
-  for (const id of removedMediaIds) {
+  const mediaDeleteTasks = removedMediaIds.map(id => {
     if (typeof id === 'number' || /^\d+$/.test(String(id))) {
-      try { await apiDeletePropertyFile(savedId, id); } catch (e) {}
-    } else {
-      // legacy IDB id
-      await idbDel(id).catch(() => {});
+      return apiDeletePropertyFile(savedId, id).catch(() => {});
     }
-  }
+    return idbDel(id).catch(() => {});
+  });
+  const mediaUploadTasks = pendingMedia.map(file =>
+    apiUploadPropertyFile(savedId, 'photo', file)
+      .catch(e => { console.warn('upload photo failed:', e); })
+  );
 
-  // Upload pending media (photos / videos)
-  for (let i = 0; i < pendingMedia.length; i++) {
-    const file = pendingMedia[i];
-    try { await apiUploadPropertyFile(savedId, 'photo', file); }
-    catch (e) { console.warn('upload photo failed:', e); }
-  }
+  const totalUploads = docTasks.length + mediaUploadTasks.length;
+  if (totalUploads > 0) $('saveBtnText').textContent = `Uploading ${totalUploads} file${totalUploads === 1 ? '' : 's'}…`;
 
-  await fetchProperties();
+  // Close the modal optimistically — the user doesn't need to wait
+  // for uploads to finish to see their property card. They keep
+  // running in the background and the SSE event refreshes everything
+  // when each upload completes.
   closeAddModal();
+  // Optimistically refresh local cache so the new property is visible.
+  await fetchProperties();
   refresh();
-  // Re-render whatever tab the user came from — Rentals/Financials/Home all
-  // read from the property cache and need to redraw with the new cheque /
-  // financial state. Without this they stay stale until a full page reload.
   if (typeof activeTab !== 'undefined' && activeTab) {
     if (activeTab === 'payment')         renderPayments();
     else if (activeTab === 'financials') renderFinancials();
     else if (activeTab === 'home')       renderHome();
   }
-  showToast(editId ? 'Property updated' : 'Property added', 'success');
+  showToast(editId ? 'Property updated · finishing uploads…' : 'Property added · finishing uploads…', 'success');
+
+  // Fire-and-forget the heavy uploads. Re-fetch properties once everything
+  // settles so the file tiles in the detail card pick up the new files.
+  Promise.all([...docTasks, ...mediaDeleteTasks, ...mediaUploadTasks])
+    .then(async () => {
+      if (totalUploads > 0) {
+        await fetchProperties();
+        showToast(`Uploads complete (${totalUploads} file${totalUploads === 1 ? '' : 's'})`, 'success');
+      }
+    })
+    .catch(() => {});
 
   btn.disabled = false;
   $('saveBtnText').textContent = 'Save Property';
