@@ -1992,11 +1992,14 @@ async function handleSave() {
     area:          Number($('propArea').value)          || null,
     compound:      getRadio('propCompound')             || 'no',
     mezzanine:     getRadio('propMezzanine')            || 'no',
-    ownership:     $('propOwnership').value             || null,
-    partnerName:   $('propPartnerName').value.trim()    || null,
-    ourShare:      Number($('propOurShare').value)      || null,
-    ownerName:     $('propOwnerName').value.trim()      || null,
-    ownerPhone:    $('propOwnerPhone').value.trim()     || null,
+    ownership:     $('propOwnership')?.value             || null,
+    // Legacy single-partner field was replaced by multi-partner rows
+    // (see partners JSON below). Keep the DB column writable via the
+    // first partner's name for backward compatibility, if present.
+    partnerName:   (document.querySelector('#partnerFields .partner-row .partner-name')?.value || '').trim() || null,
+    ourShare:      Number($('propOurShare')?.value)      || null,
+    ownerName:     ($('propOwnerName')?.value || '').trim()      || null,
+    ownerPhone:    ($('propOwnerPhone')?.value || '').trim()     || null,
     mgmtFee:        Number($('propMgmtFee').value)         || null,
     mgmtDate:       $('propMgmtDate').value                 || null,
     mgmtMaintenance: Number($('propMgmtMaintenance').value) || null,
