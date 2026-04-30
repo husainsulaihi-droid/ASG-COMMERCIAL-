@@ -8229,6 +8229,7 @@ boot = async function() {
     renderAlerts(loadProps());
     updateApiStatusUI();
     setupMetaAutoSync();
+    startRealtimeSync();
   } else if (session.type === 'agent') {
     document.getElementById('adminHeader').style.display    = 'none';
     document.getElementById('appBody').style.display        = 'none';
@@ -8238,8 +8239,66 @@ boot = async function() {
     await fetchAllEntities();          // and every other entity
     showAgentTab('overview');
     updateAgentBadges();
+    startRealtimeSync();
   }
 };
+
+// ─── Real-time sync via Server-Sent Events ────────────────
+// One EventSource per browser. The backend pushes a small JSON payload
+// after every mutation; we refetch the affected entity cache and re-
+// render the active tab. EventSource auto-reconnects on transient errors.
+let _sse = null;
+let _sseRebroadcastTimer = null;
+function startRealtimeSync() {
+  if (_sse) { try { _sse.close(); } catch(_) {} }
+  try {
+    _sse = new EventSource('/api/events');
+  } catch (e) {
+    console.warn('[sse] EventSource not supported:', e);
+    return;
+  }
+  _sse.onopen   = ()  => console.log('[sse] connected');
+  _sse.onerror  = (e) => console.warn('[sse] error (auto-reconnect)', e);
+  _sse.onmessage = (e) => {
+    let evt;
+    try { evt = JSON.parse(e.data); }
+    catch (_) { return; }
+    if (!evt || !evt.entity) return;
+    handleRealtimeEvent(evt);
+  };
+}
+
+async function handleRealtimeEvent(evt) {
+  const entity = evt.entity;
+  // Coalesce a burst of events (e.g. POST + cheque sync) into a single refresh.
+  clearTimeout(_sseRebroadcastTimer);
+  _sseRebroadcastTimer = setTimeout(async () => {
+    try {
+      if (entity === 'properties' || entity === 'cheques' || entity === 'propertyFiles') {
+        await fetchProperties();
+        rerenderActiveTab();
+        renderNavCounts(loadProps());
+        renderAlerts(loadProps());
+      } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
+        await _api[entity].fetch();
+        rerenderActiveTab();
+      } else {
+        // Unknown entity — nothing to do
+      }
+    } catch (e) {
+      console.warn('[sse] refresh failed', e);
+    }
+  }, 150);
+}
+
+// Re-render the currently visible tab without changing it.
+function rerenderActiveTab() {
+  try {
+    if (typeof activeTab === 'string' && typeof showTab === 'function') {
+      showTab(activeTab);
+    }
+  } catch (e) { /* ignore */ }
+}
 
 // ═══════════════════════════════════════════════════════
 //  TEAM MODULE EXPANSION

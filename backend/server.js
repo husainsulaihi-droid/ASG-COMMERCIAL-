@@ -32,6 +32,9 @@ const backupRoutes        = require('./routes-backup');
 const disputeRoutes       = require('./routes-disputes');
 const constructionRoutes  = require('./routes-construction');
 const calendarRoutes      = require('./routes-calendar');
+const sse                 = require('./sse');
+const broadcastMiddleware = require('./broadcast-middleware');
+const { requireAuth }     = require('./middleware');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -65,6 +68,16 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
+// ─── Real-time SSE ────────────────────────────────────
+// Open one long-lived stream per browser. Mutations on any entity
+// route are auto-broadcast by broadcastMiddleware (mounted below).
+app.get('/api/events', requireAuth, (req, res) => sse.addClient(req, res));
+
+// Auto-broadcast on every mutation (POST/PATCH/PUT/DELETE).
+// Must be mounted BEFORE the entity route handlers so res.on('finish')
+// fires after the handler completes.
+app.use('/api', broadcastMiddleware);
+
 // ─── Routes ───────────────────────────────────────────
 
 // Health check
@@ -83,7 +96,8 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     db: dbReachable,
     users: userCount,
-    version: '0.4.0'
+    sseClients: sse.clientCount(),
+    version: '0.5.0'
   });
 });
 
