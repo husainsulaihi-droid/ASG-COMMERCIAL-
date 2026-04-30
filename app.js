@@ -8338,16 +8338,17 @@ function _isAnyModalOpen() {
 
 async function handleRealtimeEvent(evt) {
   const entity = evt.entity;
+  console.log('[sse] event arrived:', evt, 'mutedUntil=', _sseMutedUntil, 'now=', Date.now(), 'modalOpen=', _isAnyModalOpen());
   // Suppress refresh during/right-after a local save — the save handler
   // already updated the cache + re-rendered.
   if (Date.now() < _sseMutedUntil) {
-    // But still pull the freshest state into the cache silently so
-    // subsequent navigation has up-to-date data.
+    console.log('[sse] muted — refreshing cache silently');
     _refreshCacheSilently(entity);
     return;
   }
   // If any modal is open, queue the entity and refresh on close.
   if (_isAnyModalOpen()) {
+    console.log('[sse] modal open — deferring');
     _sseDeferredEntities.add(entity);
     _refreshCacheSilently(entity);
     return;
