@@ -10,6 +10,7 @@
  */
 
 const { broadcast } = require('./sse');
+const excelSync = require('./excel-export-sync');
 
 const ENTITY_MAP = [
   ['/api/properties',          'properties'],
@@ -58,6 +59,9 @@ function broadcastMiddleware(req, res, next) {
       path:   fullPath,
       ts:     Date.now(),
     });
+    if (entity === 'properties' || entity === 'cheques') {
+      try { excelSync.trigger(); } catch (e) { console.warn('[excel-sync] trigger failed:', e.message); }
+    }
   });
   next();
 }
