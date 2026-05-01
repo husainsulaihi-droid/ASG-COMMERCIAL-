@@ -697,13 +697,15 @@
                 <input type="text" id="propName" required placeholder="e.g. Warehouse A — Al Quoz">
               </div>
               <div class="form-group">
-                <label>Property Type <span class="req">*</span></label>
-                <select id="propType" required>
-                  <option value="">Select type</option>
+                <label>Property Usage <span class="req">*</span></label>
+                <select id="propType" required onchange="togglePropTypeCustom()">
+                  <option value="">Select usage</option>
                   <option value="warehouse">🏭 Warehouse</option>
                   <option value="office">🏢 Office</option>
                   <option value="residential">🏠 Residential</option>
+                  <option value="__other__">+ Other (specify)</option>
                 </select>
+                <input type="text" id="propTypeCustom" placeholder="Type custom usage…" style="display:none;margin-top:8px;">
               </div>
             </div>
             <div class="form-row">
@@ -712,9 +714,9 @@
                 <input type="text" id="propUnitNo" placeholder="e.g. WH-04, Unit 12B">
               </div>
               <div class="form-group">
-                <label>Property Usage</label>
+                <label>Property Type</label>
                 <select id="propUsage" onchange="togglePropUsageCustom()">
-                  <option value="">Select usage</option>
+                  <option value="">Select type</option>
                   <option value="warehouse">Warehouse</option>
                   <option value="garage">Garage</option>
                   <option value="shed">Shed</option>
@@ -727,7 +729,7 @@
                   <option value="showroom">Showroom</option>
                   <option value="__other__">+ Other (specify)</option>
                 </select>
-                <input type="text" id="propUsageCustom" placeholder="Type custom usage…" style="display:none;margin-top:8px;">
+                <input type="text" id="propUsageCustom" placeholder="Type custom type…" style="display:none;margin-top:8px;">
               </div>
             </div>
             <div class="form-row">

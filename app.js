@@ -1533,6 +1533,7 @@ function openAddModal() {
   toggleOwnership();
   toggleRentalSection();
   if (typeof togglePropUsageCustom === 'function') togglePropUsageCustom();
+  if (typeof togglePropTypeCustom  === 'function') togglePropTypeCustom();
   $('propNumCheques').value = '';
   $('chequeFields').innerHTML = '';
   const partnerFieldsEl = $('partnerFields');
@@ -1546,6 +1547,19 @@ function openAddModal() {
 function togglePropUsageCustom() {
   const sel = $('propUsage');
   const custom = $('propUsageCustom');
+  if (!sel || !custom) return;
+  if (sel.value === '__other__') {
+    custom.style.display = '';
+    setTimeout(() => custom.focus(), 50);
+  } else {
+    custom.style.display = 'none';
+    custom.value = '';
+  }
+}
+
+function togglePropTypeCustom() {
+  const sel = $('propType');
+  const custom = $('propTypeCustom');
   if (!sel || !custom) return;
   if (sel.value === '__other__') {
     custom.style.display = '';
@@ -1570,7 +1584,25 @@ async function openEditModal(id) {
   resetFileZones();
 
   $('propName').value          = p.name          || '';
-  $('propType').value          = p.type          || '';
+  // Property type (now labeled "Property Usage" in the form): known options
+  // pre-fill the dropdown; anything else maps to "Other"
+  if ($('propType') && $('propTypeCustom')) {
+    const typeVal = (p.type || '').toLowerCase();
+    const knownTypes = ['warehouse','office','residential'];
+    if (!typeVal) {
+      $('propType').value = '';
+      $('propTypeCustom').value = '';
+      $('propTypeCustom').style.display = 'none';
+    } else if (knownTypes.includes(typeVal)) {
+      $('propType').value = typeVal;
+      $('propTypeCustom').value = '';
+      $('propTypeCustom').style.display = 'none';
+    } else {
+      $('propType').value = '__other__';
+      $('propTypeCustom').value = p.type;
+      $('propTypeCustom').style.display = '';
+    }
+  }
   if ($('propUnitNo'))       $('propUnitNo').value       = p.unitNo       || '';
   if ($('propTradeLicense')) $('propTradeLicense').value = p.tradeLicense || '';
   // Property usage: known options pre-fill the dropdown; anything else maps to "Other"
@@ -1980,9 +2012,11 @@ async function renderMediaPreviews() {
 async function handleSave() {
   if (typeof markLocalMutation === 'function') markLocalMutation();
   const name = $('propName').value.trim();
-  const type = $('propType').value;
+  const typeSel = $('propType').value;
+  const typeCustom = ($('propTypeCustom')?.value || '').trim();
+  const type = typeSel === '__other__' ? typeCustom : typeSel;
   const status = getRadio('propStatus');
-  if (!name || !type) { showToast('Property Name and Type are required', 'error'); return; }
+  if (!name || !type) { showToast('Property Name and Property Usage are required', 'error'); return; }
   if (!status || (status !== 'rented' && status !== 'vacant')) {
     showToast('Pick a Rental Status (Rented or Vacant)', 'error');
     return;
