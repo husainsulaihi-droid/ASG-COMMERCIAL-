@@ -793,7 +793,7 @@ function $(id) { return document.getElementById(id); }
 // ─── Tab Switching ────────────────────────────────
 function showTab(tab) {
   activeTab = tab;
-  const propTabs = ['warehouses', 'offices', 'residential'];
+  const propTabs = ['warehouses', 'offices', 'residential', 'land'];
   const isPropTab = propTabs.includes(tab);
 
   const homeEl = $('homeView');         if (homeEl) homeEl.style.display = tab === 'home' ? '' : 'none';
@@ -810,13 +810,13 @@ function showTab(tab) {
   const myTasksEl = $('myTasksView');   if (myTasksEl) myTasksEl.style.display = tab === 'mytasks' ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','MyTasks','Team','Financials'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','MyTasks','Team','Financials'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
 
   if (isPropTab) {
-    const typeMap = { warehouses: 'warehouse', offices: 'office', residential: 'residential' };
+    const typeMap = { warehouses: 'warehouse', offices: 'office', residential: 'residential', land: 'land' };
     activeTypeFilter = typeMap[tab];
     refresh();
   }
@@ -1289,9 +1289,11 @@ function renderNavCounts(props) {
   const wEl = $('navCountWarehouses');
   const oEl = $('navCountOffices');
   const rEl = $('navCountResidential');
+  const lEl = $('navCountLand');
   if (wEl) wEl.textContent = props.filter(p => p.type === 'warehouse').length  || '';
   if (oEl) oEl.textContent = props.filter(p => p.type === 'office').length     || '';
   if (rEl) rEl.textContent = props.filter(p => p.type === 'residential').length || '';
+  if (lEl) lEl.textContent = props.filter(p => p.type === 'land').length        || '';
   updateTaskBadge();
 }
 
@@ -1982,7 +1984,7 @@ async function handleSave() {
   const name = $('propName').value.trim();
   const type = $('propType').value;
   const status = getRadio('propStatus');
-  if (!name || !type) { showToast('Property Name and Property Usage are required', 'error'); return; }
+  if (!name || !type) { showToast('Property Name and Property Type are required', 'error'); return; }
   if (!status || (status !== 'rented' && status !== 'vacant')) {
     showToast('Pick a Rental Status (Rented or Vacant)', 'error');
     return;
@@ -4067,7 +4069,7 @@ function renderMapMarkers() {
           ${p.tenantName ? `<div style="font-size:12px;margin-top:4px;">👤 ${h(p.tenantName)}</div>` : ''}
           ${p.annualRent ? `<div style="font-size:13px;font-weight:700;color:#c9a84c;margin-top:4px;">AED ${num(p.annualRent)}/yr</div>` : ''}
           ${p.leaseEnd   ? `<div style="font-size:11px;color:#999;margin-top:4px;">Lease ends ${fmtDate(p.leaseEnd)}</div>` : ''}
-          <button onclick="showTab('${p.type==='warehouse'?'warehouses':p.type==='office'?'offices':'residential'}')" style="margin-top:10px;width:100%;background:#111;color:#fff;border:none;padding:7px 0;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">View Property →</button>
+          <button onclick="showTab('${p.type==='warehouse'?'warehouses':p.type==='office'?'offices':p.type==='land'?'land':'residential'}')" style="margin-top:10px;width:100%;background:#111;color:#fff;border:none;padding:7px 0;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">View Property →</button>
         </div>`);
 
     const marker = new maplibregl.Marker({ element: makePinEl(p), anchor: 'bottom' })
@@ -7978,6 +7980,7 @@ function renderHome() {
   const warehouses = props.filter(p => p.type === 'warehouse').length;
   const offices    = props.filter(p => p.type === 'office').length;
   const residential= props.filter(p => p.type === 'residential').length;
+  const land       = props.filter(p => p.type === 'land').length;
   const rented     = props.filter(p => p.status === 'rented').length;
   const vacant     = props.filter(p => p.status === 'vacant').length;
   const totalRent  = props.filter(p => p.status === 'rented').reduce((s,p) => s + ourRentShare(p), 0);
@@ -8009,6 +8012,8 @@ function renderHome() {
       svg:'<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="9" y1="7" x2="9" y2="7.01"/><line x1="15" y1="7" x2="15.01" y2="7"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="15" y1="12" x2="15.01" y2="12"/>' },
     { tab:'residential', label:'Residential',      group:'Properties',  count:residential, color:'#1c2b4a',
       svg:'<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' },
+    { tab:'land',        label:'Land',             group:'Properties',  count:land,        color:'#1c2b4a',
+      svg:'<path d="M2 20h20"/><path d="M4 20V12l8-6 8 6v8"/><path d="M9 20v-5h6v5"/>' },
     { tab:'offplan',     label:'Off-Plan',         group:'Properties',  count:offplanProjectCount, color:'#c9a84c',
       svg:'<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/>' },
     { tab:'secondary',   label:'Secondary',        group:'Properties',  count:secondaryCount,      color:'#7a5d1e',
@@ -8945,9 +8950,9 @@ async function handleRealtimeEvent(evt) {
 // silently but skip the re-render — that's the difference between every
 // background change feeling like jank vs. only relevant changes redrawing.
 const _ENTITY_TABS = {
-  properties:    new Set(['home','warehouses','offices','residential','reminders','calendar','contract','disputes','construction','payment','proposals','map','financials']),
+  properties:    new Set(['home','warehouses','offices','residential','land','reminders','calendar','contract','disputes','construction','payment','proposals','map','financials']),
   cheques:       new Set(['home','payment','financials']),
-  propertyFiles: new Set(['warehouses','offices','residential']),
+  propertyFiles: new Set(['warehouses','offices','residential','land']),
   tasks:         new Set(['team','mytasks']),
   agents:        new Set(['team']),
   leads:         new Set(['team']),
@@ -8995,7 +9000,8 @@ function _rerenderActiveTabFast() {
     case 'home':         return typeof renderHome      === 'function' && renderHome();
     case 'warehouses':
     case 'offices':
-    case 'residential':  return typeof refresh         === 'function' && refresh();
+    case 'residential':
+    case 'land':         return typeof refresh         === 'function' && refresh();
     case 'reminders':    return typeof renderReminders === 'function' && renderReminders();
     case 'calendar':     return typeof renderCalendar  === 'function' && renderCalendar();
     case 'disputes':     return typeof renderDisputes  === 'function' && renderDisputes();

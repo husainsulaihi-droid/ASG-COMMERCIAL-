@@ -184,6 +184,11 @@
           Residential
           <span class="nav-count" id="navCountResidential"></span>
         </button>
+        <button class="nav-item" id="tabLand" onclick="showTab('land')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20"/><path d="M4 20V12l8-6 8 6v8"/><path d="M9 20v-5h6v5"/></svg>
+          Land
+          <span class="nav-count" id="navCountLand"></span>
+        </button>
         <button class="nav-item" id="tabOffplan" onclick="showTab('offplan')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/></svg>
           Off-Plan
@@ -697,9 +702,9 @@
                 <input type="text" id="propName" required placeholder="e.g. Warehouse A — Al Quoz">
               </div>
               <div class="form-group">
-                <label>Property Usage <span class="req">*</span></label>
+                <label>Property Type <span class="req">*</span></label>
                 <select id="propType" required>
-                  <option value="">Select usage</option>
+                  <option value="">Select type</option>
                   <option value="warehouse">🏭 Warehouse</option>
                   <option value="office">🏢 Office</option>
                   <option value="residential">🏠 Residential</option>
@@ -713,7 +718,7 @@
                 <input type="text" id="propUnitNo" placeholder="e.g. WH-04, Unit 12B">
               </div>
               <div class="form-group">
-                <label>Property Type</label>
+                <label>Property Usage</label>
                 <select id="propUsage" onchange="togglePropUsageCustom()">
                   <option value="">Select type</option>
                   <option value="warehouse">Warehouse</option>
