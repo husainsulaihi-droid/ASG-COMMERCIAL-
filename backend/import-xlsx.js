@@ -1,8 +1,9 @@
 /**
  * Import properties + cheques from "Transaction List.xlsx".
  *
- *   node import-xlsx.js --plan      # dry-run, prints counts + warnings, no DB writes
- *   node import-xlsx.js --commit    # backup DB, then insert
+ *   node import-xlsx.js --plan                     # dry-run, prints counts + warnings, no DB writes
+ *   node import-xlsx.js --commit                   # backup DB, then insert (appends to existing rows)
+ *   node import-xlsx.js --commit --clear-first     # backup DB, wipe properties+cheques, then insert
  *
  * Inputs:
  *   /home/claude/projects/ASG-COMMERCIAL-/images/Transaction List.xlsx (default)
@@ -22,6 +23,7 @@ const XLSX_PATH = process.env.XLSX_PATH ||
   '/home/claude/projects/ASG-COMMERCIAL-/images/Transaction List.xlsx';
 
 const MODE = process.argv.includes('--commit') ? 'commit' : 'plan';
+const CLEAR_FIRST = process.argv.includes('--clear-first');
 
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
@@ -797,6 +799,15 @@ function main() {
   `);
 
   const tx = db.transaction(() => {
+    if (CLEAR_FIRST) {
+      const beforeP = db.prepare('SELECT COUNT(*) c FROM properties').get().c;
+      const beforeC = db.prepare('SELECT COUNT(*) c FROM property_cheques').get().c;
+      db.prepare('DELETE FROM property_cheques').run();
+      db.prepare('DELETE FROM properties').run();
+      // Reset autoincrement so new IDs start from 1
+      try { db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('properties','property_cheques')").run(); } catch (_) {}
+      console.log(`  --clear-first: deleted ${beforeP} existing properties + ${beforeC} cheques`);
+    }
     const idMap = new Map();   // properties[index] -> rowid
     properties.forEach((p, idx) => {
       const params = {
