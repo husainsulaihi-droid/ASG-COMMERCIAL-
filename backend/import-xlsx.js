@@ -164,16 +164,26 @@ function classifyMasterRow(row, currentSection, currentHolding) {
   // as holding headers with empty names and clobber the real holding context.
   if (c0 && /^(DREC CONTRACT EXP|LICENSE EXPIRY)/i.test(c0) && !c1) return { kind: 'subheader' };
 
+  // A row that has DATA (lease dates, plot, status, etc.) is data, never holding.
+  // Detect "looks like data" by presence of usage/plot/contract fields.
+  const hasDataIndicators =
+    !!clean(row[4]) ||  // usage
+    !!clean(row[5]) ||  // plot
+    !!clean(row[9]) ||  // lease from
+    !!clean(row[10]) || // lease to
+    !!clean(row[11]);   // contract value
+
   // Holding-company headers (within sister section). Have c0 with company name
-  // but no c1 (no "1, 2, 3" index) and no c2 (no Property Name).
+  // but no c1 (no "1, 2, 3" index) and no c2 (no Property Name) AND no data fields.
   // e.g. "ALI QADR GLASS INDUSTRIES …  DREC CONTRACT EXPIRY: …"
-  if (c0 && !c1 && !c2 && currentSection === 'sister') {
+  if (c0 && !c1 && !c2 && !hasDataIndicators && currentSection === 'sister') {
     const holding = c0.replace(/DREC.*/i, '').replace(/LICENSE EXP.*/i, '').replace(/\s*PLOT.*/i, '').trim();
     if (!holding) return { kind: 'subheader' };
     return { kind: 'holding', section: currentSection, holding };
   }
   // Some holding rows have just a name in c1 (R98 "AL SHAMS PERFUMES L.L.C")
-  if (!c0 && c1 && !c2 && currentSection === 'managed') {
+  // — these have NO data fields. R106 (SEPTEM warehouse) has data fields, so it's a data row.
+  if (!c0 && c1 && !c2 && !hasDataIndicators && currentSection === 'managed') {
     return { kind: 'holding', section: currentSection, holding: c1 };
   }
 
@@ -234,10 +244,23 @@ function buildPropertyFromMasterRow(row, ctx) {
   else if (/^(VACANT|FOR RENT|FOR SALE|COMPLETE CONTRACT|EXPIRED)/.test(sUp)) dbStatus = 'vacant';
   else if (split.tenantLine) dbStatus = 'rented';
 
-  // name (NOT NULL) — fall back to col 1 (e.g. "Warehouse 02") or a placeholder
+  // name (NOT NULL) — prefer the property CODE from col 0 (BAD-104, AAS-02, SBP-264).
+  // That's the identifier the user actually uses. Fall back to descriptive name only
+  // when col 0 is missing (e.g. orphan rows like the lone "Warehouse 02" under
+  // MILLENNIALS AUTO, or sub-rows under SEPTEM where col 0 is blank).
+  const codeCol0 = clean(row[0]);
+  const codeIsValid = codeCol0
+    && !/^(SOLD|COMMERCIAL|SISTER|COMPANY|DREC|LICENSE)/i.test(codeCol0)
+    && codeCol0.length < 30;
   const c1Name = cleanKeepCase(row[1]);
-  const c1IsName = c1Name && !/^\d+$/.test(c1Name);   // skip pure numbers (row index)
-  const name = split.propLine || propName || (c1IsName ? c1Name : null) || `Unit ${plot || '?'}`;
+  const c1IsName = c1Name && !/^\d+$/.test(c1Name);
+  const descName = split.propLine || propName || (c1IsName ? c1Name : null);
+  const name = codeIsValid ? codeCol0 : (descName || `Unit ${plot || '?'}`);
+
+  // Keep the descriptive label too — useful in UI / search. Stored on `unit_no`
+  // (since that field already shows the warehouse number for sub-units).
+  // If we have a code as name, put descriptive label in compound/notes.
+  const descLabel = (descName && descName !== name) ? descName : null;
 
   return {
     type,
@@ -264,6 +287,7 @@ function buildPropertyFromMasterRow(row, ctx) {
     lease_end: leaseTo,
     status: dbStatus,
     notes: [
+      descLabel ? `Label: ${descLabel}` : null,
       remarks ? `Remarks: ${remarks}` : null,
       sizeRaw && size.unit === 'sqm' ? `Size: ${sizeRaw}` : null,
       status && status !== 'ACTIVE' ? `Excel status: ${status}` : null,
@@ -411,17 +435,50 @@ function parseSubtenantTab(wb, sheetName, warnings) {
     if (/office/i.test(unitType || '')) type = 'office';
     else if (/garage|workshop|shed/i.test(unitType || '')) type = 'warehouse';
 
+    // Property code: prefer col 0 if it looks like a code (SAIFUDDIN tabs have
+    // codes there like "SLW-202-SH01"). Fall back to sub-contract column, then to
+    // a synthesized code (CALCON tab has only "5E+12" Excel scientific-notation
+    // truncations there, so we use "CALCON-S01" etc).
+    const explicitCol0 = clean(r[0]);
+    const isScientific = subContractNo && /^[\d.]+E[+-]?\d+$/i.test(subContractNo);
+    const isPureNum = subContractNo && /^\d+$/.test(subContractNo);
+    const tabCode = sheetName.replace(/[\s()]+/g, '').replace(/-+$/, '');
+    let code;
+    if (explicitCol0 && /^[A-Z]/.test(explicitCol0) && /[-]/.test(explicitCol0)) {
+      code = explicitCol0;
+      // Source sometimes has the same parent code on consecutive rows that are
+      // actually different sub-units (R8 + R9 both "SLW-202-SH01" but units SH01 / SH02).
+      // Replace the trailing segment with the actual sub-unit so the name is unique.
+      if (subUnit && code.includes('-')) {
+        const lastDash = code.lastIndexOf('-');
+        const tail = code.slice(lastDash + 1);
+        if (tail.toUpperCase() !== String(subUnit).toUpperCase()) {
+          code = code.slice(0, lastDash + 1) + subUnit;
+        }
+      }
+    } else if (subContractNo && !isScientific && !isPureNum && /[A-Z]/i.test(subContractNo)) {
+      code = subContractNo;
+    } else {
+      // Build a clean fallback like "SLW-202-SH05" from the plot suffix.
+      const plotSuffix = (dmPlot || '').split('-').pop() || '';
+      const compactPlotSuffix = plotSuffix.replace(/^0+/, '');
+      const tabPrefix = sheetName.match(/SAIFUDDIN/i) ? 'SLW'
+        : sheetName.match(/CALCON/i) ? 'CALCON'
+        : tabCode;
+      code = `${tabPrefix}-${compactPlotSuffix || tabCode}-${subUnit || '?'}`;
+    }
+
     props.push({
       type,
-      name: `${holdingCompany || sheetName} ${subUnit || ''}`.trim(),
+      name: code,
       unit_no: subUnit,
       trade_license: license,
       usage: unitType,
       location: location,
       size: area,
       compound: location,
-      ownership: 'partnership',
-      partner_name: holdingCompany,
+      ownership: 'management',
+      partner_name: null,
       holding_company: holdingCompany,
       plot_no: dmPlot,
       ejari_number: ejari,
@@ -583,15 +640,27 @@ function matchBlockToProperty(block, properties, sheetName) {
   const candidates = hasHints ? properties.filter(p => tabHits(p, sheetName)) : properties;
   const pool = candidates.length ? candidates : properties;
 
-  // If the tab narrows down to a single candidate, that's a strong signal —
-  // match it directly (the tab name itself is the disambiguator).
-  if (hasHints && candidates.length === 1) {
-    return { match: candidates[0], score: 99 };
+  // STRICT tenant-match policy (per user instruction "skip those cheques"):
+  // Only consider properties whose tenant_name has a real overlap with the
+  // block's tenant — otherwise we'd be attaching cheques from old/historical
+  // tenants (AL MASAR, OFFROAD past contracts, etc.) to whoever's in master now.
+  function tenantOverlap(p) {
+    const pn = normName(p.tenant_name);
+    if (!tenantNorm || !pn) return 0;
+    if (pn === tenantNorm) return 8;
+    // 8-char prefix overlap either way
+    const k = 8;
+    if (pn.length >= k && tenantNorm.length >= k && (pn.startsWith(tenantNorm.slice(0, k)) || tenantNorm.startsWith(pn.slice(0, k)))) return 5;
+    // shorter 6-char prefix as a softer signal
+    if (pn.length >= 6 && tenantNorm.length >= 6 && (pn.startsWith(tenantNorm.slice(0, 6)) || tenantNorm.startsWith(pn.slice(0, 6)))) return 3;
+    return 0;
   }
 
   let best = null, bestScore = -100;
   for (const p of pool) {
-    let score = 0;
+    const tMatch = tenantOverlap(p);
+    if (tMatch === 0) continue;   // strict: no tenant overlap → skip this candidate
+    let score = tMatch;
     const pPlot = plotKey(p.plot_no);
     if (blockPlot && pPlot) {
       if (pPlot === blockPlot) score += 6;
@@ -599,9 +668,6 @@ function matchBlockToProperty(block, properties, sheetName) {
     }
     if (whNum && p.unit_no && p.unit_no.replace(/[^A-Z0-9]/gi, '').toUpperCase().endsWith(whNum.toUpperCase())) score += 4;
     if (whNum && p.name && new RegExp(`(?:^|\\s|No\\.?\\s*)0*${whNum}\\b`, 'i').test(p.name)) score += 3;
-    const pName = normName(p.tenant_name);
-    if (tenantNorm && pName && pName === tenantNorm) score += 6;
-    else if (tenantKey && pName && (pName.startsWith(tenantKey) || tenantNorm.startsWith(pName.slice(0, 10)))) score += 3;
     if (periodFrom && p.lease_start === periodFrom) score += 4;
     if (score > bestScore) { bestScore = score; best = p; }
   }
@@ -640,11 +706,8 @@ function main() {
   const unmatched = [];
   for (const b of realBlocks) {
     const { match, score } = matchBlockToProperty(b, properties, b._sheet);
-    // Tab-narrowed candidates can match at score 3 (we trust the sister-co filter).
-    // Cross-tab matches need score >= 5 (must have multiple corroborating signals).
-    const hasTabFilter = !!(TAB_HINTS[b._sheet] || []).length;
-    const threshold = hasTabFilter ? 3 : 5;
-    if (match && score >= threshold) matched.push({ block: b, prop: match, score });
+    // With strict tenant-match, any positive score is a real match.
+    if (match && score >= 3) matched.push({ block: b, prop: match, score });
     else unmatched.push({ block: b, score, bestGuess: match });
   }
 
