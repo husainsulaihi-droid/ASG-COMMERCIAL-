@@ -50,14 +50,16 @@ function buildBuffer() {
 
 let _drive = null;
 function driveClient() {
-  if (DISABLED || !google) return null;
+  if (DISABLED) { console.log('[excel-sync] drive disabled via env'); return null; }
+  if (!google)  { console.log('[excel-sync] googleapis not loaded'); return null; }
   if (_drive) return _drive;
-  if (!fs.existsSync(CREDS_PATH)) return null;
+  if (!fs.existsSync(CREDS_PATH)) { console.log('[excel-sync] creds not found at', CREDS_PATH); return null; }
   const auth = new google.auth.GoogleAuth({
     keyFile: CREDS_PATH,
     scopes: ['https://www.googleapis.com/auth/drive'],
   });
   _drive = google.drive({ version: 'v3', auth });
+  console.log('[excel-sync] drive client initialised');
   return _drive;
 }
 
@@ -115,10 +117,13 @@ async function runSync() {
   try {
     ensureDir();
     fs.writeFileSync(EXPORT_PATH, buildBuffer());
+    console.log('[excel-sync] wrote', EXPORT_PATH);
     try {
-      await uploadToDrive(EXPORT_PATH);
+      const fileId = await uploadToDrive(EXPORT_PATH);
+      if (fileId) console.log('[excel-sync] drive upload ok, fileId=', fileId);
+      else        console.log('[excel-sync] drive upload skipped (no client)');
     } catch (e) {
-      console.warn('[excel-sync] drive upload failed:', e.message);
+      console.warn('[excel-sync] drive upload failed:', e.message, e.code || '', e.errors ? JSON.stringify(e.errors) : '');
     }
   } catch (e) {
     console.error('[excel-sync] regeneration failed:', e.message);
