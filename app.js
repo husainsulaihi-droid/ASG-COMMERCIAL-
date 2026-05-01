@@ -1588,7 +1588,7 @@ async function openEditModal(id) {
   // pre-fill the dropdown; anything else maps to "Other"
   if ($('propType') && $('propTypeCustom')) {
     const typeVal = (p.type || '').toLowerCase();
-    const knownTypes = ['warehouse','office','residential'];
+    const knownTypes = ['warehouse','office','residential','land'];
     if (!typeVal) {
       $('propType').value = '';
       $('propTypeCustom').value = '';
