@@ -7536,11 +7536,12 @@ function _finRenderBody(props) {
       const cd     = Number(p.civilDefenseCharges) || 0;
       const legal  = Number(p.legalFee)    || 0;
       const ctax   = Number(p.corporateTax) || 0;
-      const totalDed = land + lic + svc + dewa + ejari + cd + legal + ctax;
+      const mfee   = Number(p.managementFees) || 0;   // paid to mgmt arm — also counted in mgmt income below
+      const totalDed = land + lic + svc + dewa + ejari + cd + legal + ctax + mfee;
       const net    = Math.max(0, annual - totalDed);
       const sharePct = p.ownership === 'partnership' ? (Number(p.ourShare)||100) : 100;
       const ourIncome = Math.round(net * (sharePct/100));
-      return { p, months, annual, land, lic, svc, dewa, ejari, cd, legal, ctax, totalDed, net,
+      return { p, months, annual, land, lic, svc, dewa, ejari, cd, legal, ctax, mfee, totalDed, net,
                incomeYr: net, sharePct, ourIncome };
     })
     .sort((a,b) => b.ourIncome - a.ourIncome);
@@ -7554,10 +7555,11 @@ function _finRenderBody(props) {
   const rentTotalCD    = rentRows.reduce((s,r)=>s+r.cd,     0);
   const rentTotalLegal = rentRows.reduce((s,r)=>s+r.legal,  0);
   const rentTotalCtax  = rentRows.reduce((s,r)=>s+r.ctax,   0);
+  const rentTotalMFee  = rentRows.reduce((s,r)=>s+r.mfee,   0);
   const rentTotalNet   = rentRows.reduce((s,r)=>s+r.net,    0);
   const deductionsTotal = rentTotalLand + rentTotalLic + rentTotalSvc
                         + rentTotalDewa + rentTotalEjari + rentTotalCD
-                        + rentTotalLegal + rentTotalCtax;
+                        + rentTotalLegal + rentTotalCtax + rentTotalMFee;
   const rentTotalOurs  = rentRows.reduce((s,r)=>s+r.ourIncome, 0);
 
   // Security Deposit list (informational, ALL properties with a value)
@@ -7599,27 +7601,30 @@ function _finRenderBody(props) {
     p.status === 'vacant' && (p.ownership === 'own' || p.ownership === 'partnership')
   );
 
-  // ── Management fee income (managed properties) ──
-  // Income components for managed properties:
-  //   mgmt fee + mgmt maintenance + mgmt admin fee
-  // Show every managed property here (even with no fee filled in) so the
-  // user sees the full managed portfolio on the financials view.
-  const mgmtRows = pool
-    .filter(p => p.ownership === 'management')
-    .map(p => {
-      const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
-      const fee     = Number(p.mgmtFee)         || 0;
-      const maint   = Number(p.mgmtMaintenance) || 0;
-      const admin   = Number(p.mgmtAdminFee)    || 0;
-      const annual  = fee + maint + admin;
-      return { p, months, fee, maint, admin, annual, feeYr: annual };
-    })
-    .sort((a,b) => b.feeYr - a.feeYr);
+  // ── Management fee income ──
+  // Two streams:
+  //   1. Managed properties — fee + maintenance + admin from owners
+  //   2. Owned/partnered rented properties — internal management_fees
+  //      charged from the rental side to the management arm
+  const mgmtRows = [];
+  for (const p of pool) {
+    const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
+    if (p.ownership === 'management') {
+      const fee   = Number(p.mgmtFee)         || 0;
+      const maint = Number(p.mgmtMaintenance) || 0;
+      const admin = Number(p.mgmtAdminFee)    || 0;
+      mgmtRows.push({ p, months, source: 'managed', fee, maint, admin, annual: fee + maint + admin, feeYr: fee + maint + admin });
+    } else if ((Number(p.managementFees) || 0) > 0) {
+      const fee = Number(p.managementFees) || 0;
+      mgmtRows.push({ p, months, source: 'internal', fee, maint: 0, admin: 0, annual: fee, feeYr: fee });
+    }
+  }
+  mgmtRows.sort((a,b) => b.feeYr - a.feeYr);
 
   const mgmtTotalFee   = mgmtRows.reduce((s,r)=>s+r.fee,   0);
   const mgmtTotalMaint = mgmtRows.reduce((s,r)=>s+r.maint, 0);
   const mgmtTotalAdmin = mgmtRows.reduce((s,r)=>s+r.admin, 0);
-  const mgmtTotal = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
+  const mgmtTotal      = mgmtRows.reduce((s,r)=>s+r.feeYr, 0);
 
   // ── Additional charges (maintenance + VAT) ──
   // Raw values exactly as entered on the property card. NOT scaled by
@@ -7670,7 +7675,7 @@ function _finRenderBody(props) {
       <div class="fin-kpi">
         <div class="fin-kpi-label">Deductions</div>
         <div class="fin-kpi-value fin-kpi-warn">− AED ${deductionsTotal.toLocaleString()}</div>
-        <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()} · Service ${rentTotalSvc.toLocaleString()} · DEWA ${rentTotalDewa.toLocaleString()} · Ejari ${rentTotalEjari.toLocaleString()} · CD ${rentTotalCD.toLocaleString()} · Legal ${rentTotalLegal.toLocaleString()} · Tax ${rentTotalCtax.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()} · Service ${rentTotalSvc.toLocaleString()} · DEWA ${rentTotalDewa.toLocaleString()} · Ejari ${rentTotalEjari.toLocaleString()} · CD ${rentTotalCD.toLocaleString()} · Legal ${rentTotalLegal.toLocaleString()} · Tax ${rentTotalCtax.toLocaleString()}${rentTotalMFee?` · Mgmt ${rentTotalMFee.toLocaleString()}`:''}</div>
       </div>` : ''}
       <div class="fin-kpi">
         <div class="fin-kpi-label">Management Income</div>
@@ -7811,8 +7816,8 @@ function _finRenderBody(props) {
               ${mgmtRows.map((r,i)=>`
                 <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
                   <td class="fin-num">${i+1}</td>
-                  <td><strong>${h(r.p.name)}</strong></td>
-                  <td>${h(r.p.ownerName||'—')}</td>
+                  <td><strong>${h(r.p.name)}</strong>${r.source==='internal'?' <span class="chip" style="font-size:10px;background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:8px;">internal</span>':''}</td>
+                  <td>${h(r.p.ownerName||(r.source==='internal'?'(own)':'—'))}</td>
                   <td>${h(r.p.tenantName||'—')}</td>
                   <td class="ta-r">${r.fee   ? 'AED '+num(r.fee)   : '—'}</td>
                   <td class="ta-r">${r.maint ? 'AED '+num(r.maint) : '—'}</td>
@@ -8055,7 +8060,7 @@ function _finRenderBody(props) {
       </div>
       ${deductionsTotal ? `
       <div class="fin-grand-row" style="color:var(--danger);font-weight:500;">
-        <span>&nbsp;&nbsp;↳ Deductions applied (Land + License + Service + DEWA + Ejari + Civil Defense + Legal + Corporate Tax)</span>
+        <span>&nbsp;&nbsp;↳ Deductions applied (Land + License + Service + DEWA + Ejari + Civil Defense + Legal + Corporate Tax + Management Fee)</span>
         <span>− AED ${deductionsTotal.toLocaleString()}</span>
       </div>` : ''}
       <div class="fin-grand-row">
@@ -8410,6 +8415,7 @@ function _buildFinancialReportHTML(s) {
     <div class="ded-cell"><div class="ded-cell-name">Civil Defense</div>    <div class="ded-cell-val">${fmt(ded.civilDefense)}</div></div>
     <div class="ded-cell"><div class="ded-cell-name">Legal Fees</div>       <div class="ded-cell-val">${fmt(ded.legal)}</div></div>
     <div class="ded-cell"><div class="ded-cell-name">Corporate Tax</div>    <div class="ded-cell-val">${fmt(ded.corporateTax)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">Management Fees</div>  <div class="ded-cell-val">${fmt(ded.managementFees || 0)}</div></div>
   </div>
 
   <h2>Management Portfolio</h2>
@@ -8430,8 +8436,8 @@ function _buildFinancialReportHTML(s) {
       ${s.mgmtRows.map((r, i) => `
         <tr>
           <td>${i+1}</td>
-          <td><strong>${esc(r.name)}</strong> ${_typeBadge(r.type)}</td>
-          <td>${esc(r.ownerName || '—')}</td>
+          <td><strong>${esc(r.name)}</strong> ${_typeBadge(r.type)}${r.source==='internal'?' <span class="badge" style="background:#e0e7ff;color:#3730a3;">internal</span>':''}</td>
+          <td>${esc(r.ownerName || (r.source==='internal' ? '(own)' : '—'))}</td>
           <td class="num">${fmt(r.fee)}</td>
           <td class="num">${fmt(r.maint)}</td>
           <td class="num">${fmt(r.admin)}</td>

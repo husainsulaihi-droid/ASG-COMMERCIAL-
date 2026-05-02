@@ -33,7 +33,8 @@ function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function totalDeductions(p) {
   return num(p.landCharges) + num(p.licenseFees) + num(p.serviceCharges)
        + num(p.dewaCharges) + num(p.ejariFees) + num(p.civilDefenseCharges)
-       + num(p.legalFee)    + num(p.corporateTax);
+       + num(p.legalFee)    + num(p.corporateTax)
+       + num(p.managementFees);   // paid to mgmt arm — also counted as mgmt income
 }
 
 function activeInYear(p, year) {
@@ -70,25 +71,36 @@ router.get('/summary', requireAdmin, (req, res) => {
         serviceCharges: num(p.serviceCharges), dewaCharges: num(p.dewaCharges),
         ejariFees: num(p.ejariFees), civilDefenseCharges: num(p.civilDefenseCharges),
         legalFee: num(p.legalFee), corporateTax: num(p.corporateTax),
+        managementFees: num(p.managementFees),
         tenantName: p.tenantName || '',
       };
     })
     .sort((a, b) => b.ourIncome - a.ourIncome);
 
-  // ── Management rows: every management property ──
-  const mgmtRows = pool
-    .filter(p => p.ownership === 'management')
-    .map(p => {
+  // ── Management rows: managed-ownership AND any rented property where
+  // we paid an internal management fee (counts as income to mgmt arm). ──
+  const mgmtRows = [];
+  for (const p of pool) {
+    if (p.ownership === 'management') {
       const fee   = num(p.mgmtFee);
       const maint = num(p.mgmtMaintenance);
       const admin = num(p.mgmtAdminFee);
-      return {
-        id: p.id, name: p.name, type: p.type,
+      mgmtRows.push({
+        id: p.id, name: p.name, type: p.type, source: 'managed',
         fee, maint, admin, annual: fee + maint + admin,
         ownerName: p.ownerName || '', ownerPhone: p.ownerPhone || '',
-      };
-    })
-    .sort((a, b) => b.annual - a.annual);
+      });
+    } else if (num(p.managementFees) > 0) {
+      // Internal management fee charged on an owned/partnered property.
+      const fee = num(p.managementFees);
+      mgmtRows.push({
+        id: p.id, name: p.name, type: p.type, source: 'internal',
+        fee, maint: 0, admin: 0, annual: fee,
+        ownerName: '', ownerPhone: '',
+      });
+    }
+  }
+  mgmtRows.sort((a, b) => b.annual - a.annual);
 
   // ── Vacant: own/partnership only (managed vacancies aren't our missed income) ──
   const vacantRows = pool
@@ -118,14 +130,15 @@ router.get('/summary', requireAdmin, (req, res) => {
   }
 
   const deductionsBreakdown = {
-    land:          rentalRows.reduce((s, r) => s + r.landCharges, 0),
-    license:       rentalRows.reduce((s, r) => s + r.licenseFees, 0),
-    service:       rentalRows.reduce((s, r) => s + r.serviceCharges, 0),
-    dewa:          rentalRows.reduce((s, r) => s + r.dewaCharges, 0),
-    ejari:         rentalRows.reduce((s, r) => s + r.ejariFees, 0),
-    civilDefense:  rentalRows.reduce((s, r) => s + r.civilDefenseCharges, 0),
-    legal:         rentalRows.reduce((s, r) => s + r.legalFee, 0),
-    corporateTax:  rentalRows.reduce((s, r) => s + r.corporateTax, 0),
+    land:           rentalRows.reduce((s, r) => s + r.landCharges, 0),
+    license:        rentalRows.reduce((s, r) => s + r.licenseFees, 0),
+    service:        rentalRows.reduce((s, r) => s + r.serviceCharges, 0),
+    dewa:           rentalRows.reduce((s, r) => s + r.dewaCharges, 0),
+    ejari:          rentalRows.reduce((s, r) => s + r.ejariFees, 0),
+    civilDefense:   rentalRows.reduce((s, r) => s + r.civilDefenseCharges, 0),
+    legal:          rentalRows.reduce((s, r) => s + r.legalFee, 0),
+    corporateTax:   rentalRows.reduce((s, r) => s + r.corporateTax, 0),
+    managementFees: rentalRows.reduce((s, r) => s + r.managementFees, 0),
   };
 
   const rentalNet   = rentalRows.reduce((s, r) => s + r.ourIncome, 0);
