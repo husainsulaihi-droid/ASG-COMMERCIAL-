@@ -7341,9 +7341,10 @@ function _finRenderBody(props) {
   // Using FULL annual values (no months proration) so the figures match
   // what the home tile shows. Land charges + license fees + service
   // charges are deducted from the gross rent BEFORE applying ownership
-  // share.
+  // share. Managed properties are excluded — their rent belongs to the
+  // owner, not to us; we only earn the management fee (counted below).
   const rentRows = pool
-    .filter(p => p.status === 'rented' && (p.annualRent||0) > 0)
+    .filter(p => p.status === 'rented' && (p.annualRent||0) > 0 && p.ownership !== 'management')
     .map(p => {
       const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const annual = Number(p.annualRent)  || 0;
@@ -7421,9 +7422,10 @@ function _finRenderBody(props) {
   // ── Management fee income (managed properties) ──
   // Income components for managed properties:
   //   mgmt fee + mgmt maintenance + mgmt admin fee
+  // Show every managed property here (even with no fee filled in) so the
+  // user sees the full managed portfolio on the financials view.
   const mgmtRows = pool
-    .filter(p => p.ownership === 'management'
-              && ((p.mgmtFee||0) > 0 || (p.mgmtMaintenance||0) > 0 || (p.mgmtAdminFee||0) > 0))
+    .filter(p => p.ownership === 'management')
     .map(p => {
       const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const fee     = Number(p.mgmtFee)         || 0;
