@@ -58,6 +58,7 @@ const cols = [
   ['properties', 'maintenance_fees',     'REAL'],
   ['properties', 'vat',                  'REAL'],
   ['properties', 'annual_rent',          'REAL'],
+  ['properties', 'management_fees',      'REAL'],
 
   // tasks
   ['tasks',           'created_by_id',   'INTEGER'],

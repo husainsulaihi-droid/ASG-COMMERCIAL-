@@ -998,13 +998,20 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>VAT (5%) <span class="optional-label">auto-calculated from rent</span></label>
-                <input type="number" id="propVat" readonly placeholder="0" style="background:#f9fafb;cursor:not-allowed;">
+                <label>Management Fees (AED / year) <span class="optional-label">paid to property manager</span></label>
+                <input type="number" id="propManagementFees" placeholder="e.g. 8,000" min="0">
               </div>
               <div class="form-group">
                 <label>Sub Lease Fees (AED) <span class="optional-label">manual entry · informational only</span></label>
                 <input type="number" id="propSubLeaseFees" placeholder="e.g. 12,000" min="0">
               </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>VAT (5%) <span class="optional-label">auto-calculated from rent</span></label>
+                <input type="number" id="propVat" readonly placeholder="0" style="background:#f9fafb;cursor:not-allowed;">
+              </div>
+              <div class="form-group"></div>
             </div>
 
             <!-- Tenant section — hidden when Vacant -->
@@ -3292,6 +3299,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260502I"></script>
+  <script src="app.js?v=20260502J"></script>
 </body>
 </html>

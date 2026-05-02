@@ -1627,6 +1627,7 @@ async function openEditModal(id) {
   $('propRent').value          = p.annualRent    || '';
   $('propServiceCharges').value = p.serviceCharges || '';
   $('propMaintenanceFees').value = p.maintenanceFees || '';
+  $('propManagementFees').value  = p.managementFees  || '';
   $('propSubLeaseFees').value    = p.subLeaseFees    || '';
   recalcVat();
   $('propTenantName').value    = p.tenantName    || '';
@@ -2064,6 +2065,7 @@ async function handleSave() {
     annualRent:    Number($('propRent').value)          || null,
     serviceCharges:  Number($('propServiceCharges').value)  || null,
     maintenanceFees: Number($('propMaintenanceFees').value) || null,
+    managementFees:  Number($('propManagementFees').value)  || null,
     vat:             Number($('propVat').value)             || null,
     subLeaseFees:    Number($('propSubLeaseFees').value)    || null,
     coords:        $('propCoords').value.trim()        || null,
@@ -2333,6 +2335,7 @@ async function openDetailModal(id) {
             ${p.corporateTax         ? `<div class="detail-row"><span class="dr-label">Corporate Tax</span><span class="dr-value red">− AED ${num(p.corporateTax)}</span></div>` : ''}
             ${p.annualRent && totalDeductions(p) ? `<div class="detail-row"><span class="dr-label">Net Annual Rent</span><span class="dr-value big green">AED ${num(Math.max(0, Number(p.annualRent) - totalDeductions(p)))}</span></div>` : ''}
             ${p.maintenanceFees      ? `<div class="detail-row"><span class="dr-label">Annual Maintenance</span><span class="dr-value">AED ${num(p.maintenanceFees)} / yr</span></div>` : ''}
+            ${p.managementFees       ? `<div class="detail-row"><span class="dr-label">Management Fees</span><span class="dr-value red">− AED ${num(p.managementFees)} / yr</span></div>` : ''}
             ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">VAT (5%)</span><span class="dr-value">AED ${num(Math.round(Number(p.annualRent) * 0.05))}</span></div>` : ''}
             ${p.subLeaseFees         ? `<div class="detail-row"><span class="dr-label">Sub Lease Fees</span><span class="dr-value">AED ${num(p.subLeaseFees)}</span></div>` : ''}
             ${p.securityDeposit      ? `<div class="detail-row"><span class="dr-label">Security Deposit</span><span class="dr-value">AED ${num(p.securityDeposit)}</span></div>` : ''}
