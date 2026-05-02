@@ -7274,6 +7274,10 @@ function renderFinancials() {
             ${allYears.map(y=>`<option value="${y}" ${y===_finYear?'selected':''}>${y}</option>`).join('')}
           </select>
         </label>
+        <button class="btn-primary" onclick="downloadFinancialReport()" style="height:36px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:4px;"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Report
+        </button>
       </div>
     </div>
     <div id="finBody"></div>
@@ -7866,6 +7870,451 @@ function _finFmtPeriod(p) {
   if (!s && !e) return '—';
   const fmt = d => d ? new Date(d).toLocaleDateString('en-GB',{month:'short',year:'2-digit'}) : '—';
   return `${fmt(s)} → ${fmt(e)}`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  FINANCIAL REPORT — printable PDF view with SVG charts
+// ═══════════════════════════════════════════════════════
+async function downloadFinancialReport() {
+  let summary;
+  try {
+    showToast('Building financial report…', 'info');
+    const r = await fetch(`/api/financials/summary?year=${_finYear}&type=${encodeURIComponent(_finType)}`,
+                         { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    summary = await r.json();
+  } catch (e) {
+    showToast('Report build failed: ' + e.message, 'error');
+    return;
+  }
+  const html = _buildFinancialReportHTML(summary);
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Popup blocked — allow popups for this site', 'error'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  // Give the new window a tick to render the SVG before triggering print.
+  setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 400);
+}
+
+// Build a self-contained printable HTML doc. Charts are inline SVG so
+// browser "Save as PDF" preserves them perfectly.
+function _buildFinancialReportHTML(s) {
+  const fmt = n => 'AED ' + Math.round(Number(n) || 0).toLocaleString();
+  const esc = str => String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const k = s.kpis;
+  const typeLabel = s.type === 'all' ? 'All Properties'
+                  : s.type === 'warehouse' ? 'Warehouses'
+                  : s.type === 'office'    ? 'Offices'
+                  : s.type === 'residential' ? 'Residential'
+                  : s.type === 'land'      ? 'Land'
+                  : s.type;
+  const generated = new Date().toLocaleString('en-GB', {
+    day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit',
+  });
+
+  // ── Donut chart: income composition ──
+  const donutSegs = [
+    { label: 'Rental Income',     value: k.rentalNet,                color: '#1c2b4a' },
+    { label: 'Management Income', value: k.mgmtIncome,               color: '#c9a84c' },
+    { label: 'Maintenance + VAT', value: k.additional,               color: '#7c3aed' },
+    { label: 'Brokerage + Fees',  value: k.brokerage + k.lateFees,   color: '#0d9488' },
+  ].filter(seg => seg.value > 0);
+  const donut = _svgDonut(donutSegs, 180);
+
+  // ── Bar chart: top 10 earning properties ──
+  const top = s.rentalRows.slice(0, 10);
+  const barMax = top.length ? Math.max(...top.map(r => r.ourIncome)) : 1;
+  const barChart = _svgBarChart(
+    top.map(r => ({ label: r.name, value: r.ourIncome })),
+    barMax, 720, 280
+  );
+
+  const ded = s.deductionsBreakdown;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ASG Financial Report — ${esc(typeLabel)} — ${s.year}</title>
+<style>
+  @page { size: A4 portrait; margin: 14mm 12mm; }
+  * { box-sizing: border-box; }
+  html, body { background:#fff; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color:#1c2b4a; font-size: 11.5px; line-height: 1.45; margin:0;
+  }
+  .rep-header {
+    display:flex; justify-content:space-between; align-items:flex-end;
+    border-bottom: 3px solid #1c2b4a; padding-bottom: 10px; margin-bottom: 16px;
+  }
+  .rep-brand { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; color:#1c2b4a; }
+  .rep-brand span { color:#c9a84c; }
+  .rep-sub { font-size: 11px; color:#6b7280; margin-top: 2px; }
+  .rep-meta { font-size: 11px; color:#374151; text-align: right; line-height: 1.5; }
+  .rep-meta strong { color:#1c2b4a; }
+
+  h2 {
+    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color:#1c2b4a; border-bottom: 2px solid #c9a84c; padding-bottom: 4px;
+    margin: 22px 0 10px; page-break-after: avoid;
+  }
+
+  .kpi-grid {
+    display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px;
+  }
+  .kpi {
+    border:1px solid #d1d5db; border-radius: 6px; padding: 10px 12px;
+    background:#f9fafb; page-break-inside: avoid;
+  }
+  .kpi-primary { background:#1c2b4a; color:#fff; border-color:#1c2b4a; }
+  .kpi-primary .kpi-label, .kpi-primary .kpi-sub { color:#cbd5e1; }
+  .kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color:#6b7280; }
+  .kpi-value { font-size: 18px; font-weight: 800; margin-top: 4px; }
+  .kpi-sub   { font-size: 10px; color:#6b7280; margin-top: 2px; }
+  .kpi-warn  { color:#b91c1c; }
+  .kpi-good  { color:#059669; }
+
+  .chart-row {
+    display:grid; grid-template-columns: 220px 1fr; gap: 18px;
+    margin-bottom: 18px; page-break-inside: avoid;
+  }
+  .chart-card {
+    border:1px solid #e5e7eb; border-radius: 6px; padding: 12px; background:#fff;
+  }
+  .donut-legend { font-size: 10.5px; margin-top: 8px; }
+  .donut-legend .leg-row { display:flex; align-items:center; gap:6px; margin-top: 4px; }
+  .donut-legend .leg-dot { width: 10px; height: 10px; border-radius: 2px; flex:none; }
+  .donut-legend .leg-name { flex:1; color:#374151; }
+  .donut-legend .leg-val  { font-weight: 700; color:#1c2b4a; }
+
+  table { width:100%; border-collapse: collapse; font-size: 10.5px; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th { text-align: left; background:#f3f4f6; color:#374151;
+       padding: 6px 8px; border-bottom: 2px solid #d1d5db;
+       font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tfoot td { font-weight: 700; background:#f9fafb; border-top: 2px solid #d1d5db; }
+
+  .badge { display:inline-block; padding:1px 6px; border-radius: 8px; font-size: 9.5px; font-weight: 700; }
+  .badge-own  { background:#dbeafe; color:#1e40af; }
+  .badge-prt  { background:#fef3c7; color:#92400e; }
+  .badge-mgt  { background:#fde68a; color:#78350f; }
+  .badge-wh   { background:#e0e7ff; color:#3730a3; }
+  .badge-of   { background:#ede9fe; color:#5b21b6; }
+  .badge-rs   { background:#dcfce7; color:#166534; }
+  .badge-ld   { background:#fef9c3; color:#854d0e; }
+
+  .ded-grid {
+    display:grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    font-size: 10.5px; margin-top: 8px;
+  }
+  .ded-cell {
+    background:#fef2f2; border-left: 3px solid #dc2626;
+    padding: 6px 8px; border-radius: 0 4px 4px 0;
+  }
+  .ded-cell-name { color:#7f1d1d; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ded-cell-val  { font-weight: 700; color:#7f1d1d; }
+
+  .empty { text-align: center; padding: 18px; color:#9ca3af; font-size: 11px; font-style: italic; }
+
+  .footer {
+    margin-top: 24px; padding-top: 10px; border-top: 1px solid #e5e7eb;
+    text-align:center; font-size: 9.5px; color:#9ca3af;
+  }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display:none; }
+  }
+  .toolbar {
+    position: sticky; top: 0; background:#fff; border-bottom: 1px solid #e5e7eb;
+    padding: 8px 12px; display:flex; gap: 8px; justify-content: flex-end;
+    margin: -14mm -12mm 14px; padding: 10px 14mm;
+  }
+  .toolbar button {
+    background:#1c2b4a; color:#fff; border: 0; border-radius: 4px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer;
+  }
+  .toolbar button.secondary { background:#fff; color:#374151; border:1px solid #d1d5db; }
+</style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <button class="secondary" onclick="window.close()">Close</button>
+    <button onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </div>
+
+  <div class="rep-header">
+    <div>
+      <div class="rep-brand">ASG <span>COMMERCIAL</span></div>
+      <div class="rep-sub">Financial Report · ${esc(typeLabel)} · ${s.year}</div>
+    </div>
+    <div class="rep-meta">
+      <div><strong>Generated</strong> · ${esc(generated)}</div>
+      <div><strong>Year</strong> · ${s.year}</div>
+      <div><strong>Scope</strong> · ${esc(typeLabel)}</div>
+    </div>
+  </div>
+
+  <h2>Headline Figures</h2>
+  <div class="kpi-grid">
+    <div class="kpi kpi-primary">
+      <div class="kpi-label">Total Income</div>
+      <div class="kpi-value">${fmt(k.grandTotal)}</div>
+      <div class="kpi-sub">Rental + Management + Add-ons</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Rental Income (Net)</div>
+      <div class="kpi-value">${fmt(k.rentalNet)}</div>
+      <div class="kpi-sub">${k.rentedCount} active rental${k.rentedCount===1?'':'s'} · after deductions, our share</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Management Income</div>
+      <div class="kpi-value">${fmt(k.mgmtIncome)}</div>
+      <div class="kpi-sub">${k.managedCount} managed propert${k.managedCount===1?'y':'ies'}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Deductions</div>
+      <div class="kpi-value kpi-warn">− ${fmt(k.deductions)}</div>
+      <div class="kpi-sub">Land · License · Service · DEWA · Ejari · CD · Legal · Tax</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Maintenance + VAT</div>
+      <div class="kpi-value">${fmt(k.additional)}</div>
+      <div class="kpi-sub">Recoverable from tenants</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Brokerage + Late Fees</div>
+      <div class="kpi-value">${fmt(k.brokerage + k.lateFees)}</div>
+      <div class="kpi-sub">Brokerage ${fmt(k.brokerage)} · Late ${fmt(k.lateFees)}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Cash Receipts</div>
+      <div class="kpi-value">${fmt(k.cash)}</div>
+      <div class="kpi-sub">Rent collected outside cheque cycle</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Vacant ${esc(typeLabel)}</div>
+      <div class="kpi-value kpi-warn">${k.vacantCount}</div>
+      <div class="kpi-sub">Not generating rent</div>
+    </div>
+  </div>
+
+  <h2>Income Composition</h2>
+  <div class="chart-row">
+    <div class="chart-card" style="text-align:center;">
+      ${donut.svg}
+      <div class="donut-legend">
+        ${donutSegs.length === 0 ? '<div class="empty">No income recorded.</div>' :
+        donutSegs.map(seg => `
+          <div class="leg-row">
+            <span class="leg-dot" style="background:${seg.color};"></span>
+            <span class="leg-name">${esc(seg.label)}</span>
+            <span class="leg-val">${fmt(seg.value)}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+    <div class="chart-card">
+      <div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;">Top Earning Properties (Our Share)</div>
+      ${top.length === 0 ? '<div class="empty">No active rentals in this period.</div>' : barChart}
+    </div>
+  </div>
+
+  <h2>Rental Income — ${esc(typeLabel)}</h2>
+  ${s.rentalRows.length === 0 ? '<div class="empty">No active rentals in this period.</div>' : `
+  <table>
+    <thead>
+      <tr>
+        <th style="width:24px;">#</th>
+        <th>Property</th>
+        <th>Tenant</th>
+        <th>Ownership</th>
+        <th class="num">Gross Rent</th>
+        <th class="num">Deductions</th>
+        <th class="num">Net</th>
+        <th class="num">Our Share</th>
+        <th class="num">Our Income</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${s.rentalRows.map((r, i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td><strong>${esc(r.name)}</strong> ${_typeBadge(r.type)}</td>
+          <td>${esc(r.tenantName || '—')}</td>
+          <td>${_ownershipBadge(r.ownership)}</td>
+          <td class="num">${fmt(r.annual)}</td>
+          <td class="num" style="color:#b91c1c;">− ${fmt(r.totalDed)}</td>
+          <td class="num">${fmt(r.net)}</td>
+          <td class="num">${r.sharePct}%</td>
+          <td class="num"><strong>${fmt(r.ourIncome)}</strong></td>
+        </tr>`).join('')}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4">TOTAL · ${s.rentalRows.length} ${s.rentalRows.length===1?'property':'properties'}</td>
+        <td class="num">${fmt(s.rentalRows.reduce((x,r)=>x+r.annual,0))}</td>
+        <td class="num" style="color:#b91c1c;">− ${fmt(k.deductions)}</td>
+        <td class="num">${fmt(s.rentalRows.reduce((x,r)=>x+r.net,0))}</td>
+        <td></td>
+        <td class="num">${fmt(k.rentalNet)}</td>
+      </tr>
+    </tfoot>
+  </table>
+  `}
+
+  <h2>Deductions Breakdown</h2>
+  <div class="ded-grid">
+    <div class="ded-cell"><div class="ded-cell-name">Land Charges</div>      <div class="ded-cell-val">${fmt(ded.land)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">License Fees</div>     <div class="ded-cell-val">${fmt(ded.license)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">Service Charges</div>  <div class="ded-cell-val">${fmt(ded.service)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">DEWA</div>             <div class="ded-cell-val">${fmt(ded.dewa)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">Ejari</div>            <div class="ded-cell-val">${fmt(ded.ejari)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">Civil Defense</div>    <div class="ded-cell-val">${fmt(ded.civilDefense)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">Legal Fees</div>       <div class="ded-cell-val">${fmt(ded.legal)}</div></div>
+    <div class="ded-cell"><div class="ded-cell-name">Corporate Tax</div>    <div class="ded-cell-val">${fmt(ded.corporateTax)}</div></div>
+  </div>
+
+  <h2>Management Portfolio</h2>
+  ${s.mgmtRows.length === 0 ? '<div class="empty">No managed properties.</div>' : `
+  <table>
+    <thead>
+      <tr>
+        <th style="width:24px;">#</th>
+        <th>Property</th>
+        <th>Owner</th>
+        <th class="num">Mgmt Fee</th>
+        <th class="num">Maintenance</th>
+        <th class="num">Admin Fee</th>
+        <th class="num">Total / Year</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${s.mgmtRows.map((r, i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td><strong>${esc(r.name)}</strong> ${_typeBadge(r.type)}</td>
+          <td>${esc(r.ownerName || '—')}</td>
+          <td class="num">${fmt(r.fee)}</td>
+          <td class="num">${fmt(r.maint)}</td>
+          <td class="num">${fmt(r.admin)}</td>
+          <td class="num"><strong>${fmt(r.annual)}</strong></td>
+        </tr>`).join('')}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3">TOTAL · ${s.mgmtRows.length} managed</td>
+        <td class="num">${fmt(s.mgmtRows.reduce((x,r)=>x+r.fee,0))}</td>
+        <td class="num">${fmt(s.mgmtRows.reduce((x,r)=>x+r.maint,0))}</td>
+        <td class="num">${fmt(s.mgmtRows.reduce((x,r)=>x+r.admin,0))}</td>
+        <td class="num">${fmt(k.mgmtIncome)}</td>
+      </tr>
+    </tfoot>
+  </table>
+  `}
+
+  ${s.vacantRows.length === 0 ? '' : `
+  <h2>Vacant Properties</h2>
+  <table>
+    <thead>
+      <tr><th style="width:24px;">#</th><th>Property</th><th>Type</th><th>Ownership</th></tr>
+    </thead>
+    <tbody>
+      ${s.vacantRows.map((v, i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td><strong>${esc(v.name)}</strong></td>
+          <td>${_typeBadge(v.type)}</td>
+          <td>${_ownershipBadge(v.ownership)}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+  `}
+
+  <div class="footer">
+    ASG Commercial CRM · Generated ${esc(generated)} · Confidential — internal use
+  </div>
+</body>
+</html>`;
+}
+
+// ── SVG helpers ────────────────────────────────────
+function _typeBadge(type) {
+  const map = {
+    warehouse:   ['badge-wh',  '🏭 Warehouse'],
+    office:      ['badge-of',  '🏢 Office'],
+    residential: ['badge-rs',  '🏠 Residential'],
+    land:        ['badge-ld',  '🟫 Land'],
+  };
+  const [cls, lbl] = map[type] || ['', String(type || '—')];
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+function _ownershipBadge(o) {
+  if (o === 'own')         return `<span class="badge badge-own">100% Own</span>`;
+  if (o === 'partnership') return `<span class="badge badge-prt">Partnership</span>`;
+  if (o === 'management')  return `<span class="badge badge-mgt">Managed</span>`;
+  return '<span class="badge">—</span>';
+}
+
+function _svgDonut(segs, size) {
+  if (!segs.length) {
+    return { svg: `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${size/2}" cy="${size/2}" r="${size/2-20}" fill="none" stroke="#e5e7eb" stroke-width="32"/></svg>` };
+  }
+  const total = segs.reduce((s, x) => s + x.value, 0) || 1;
+  const cx = size/2, cy = size/2;
+  const r  = size/2 - 12;
+  const inner = r - 28;
+  let angle = -Math.PI / 2; // start at 12 o'clock
+  const arcs = [];
+  for (const seg of segs) {
+    const sweep = (seg.value / total) * 2 * Math.PI;
+    const a0 = angle, a1 = angle + sweep;
+    const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    const xi0 = cx + inner * Math.cos(a0), yi0 = cy + inner * Math.sin(a0);
+    const xi1 = cx + inner * Math.cos(a1), yi1 = cy + inner * Math.sin(a1);
+    const large = sweep > Math.PI ? 1 : 0;
+    arcs.push(`<path d="M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} L ${xi1} ${yi1} A ${inner} ${inner} 0 ${large} 0 ${xi0} ${yi0} Z" fill="${seg.color}"/>`);
+    angle = a1;
+  }
+  const totalLbl = 'AED ' + Math.round(total).toLocaleString();
+  return {
+    svg: `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+      ${arcs.join('')}
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" fill="#6b7280" font-size="9" font-family="sans-serif" letter-spacing="0.05em">TOTAL</text>
+      <text x="${cx}" y="${cy + 12}" text-anchor="middle" fill="#1c2b4a" font-size="13" font-weight="700" font-family="sans-serif">${totalLbl}</text>
+    </svg>`
+  };
+}
+
+function _svgBarChart(items, maxVal, width, height) {
+  if (!items.length) return '';
+  const padL = 140, padR = 70, padY = 8;
+  const rowH = (height - padY*2) / items.length;
+  const barH = Math.max(10, rowH - 6);
+  const innerW = width - padL - padR;
+  const fmt = n => 'AED ' + Math.round(Number(n)||0).toLocaleString();
+  const escSvg = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const bars = items.map((it, i) => {
+    const y = padY + i * rowH;
+    const w = Math.max(2, (it.value / maxVal) * innerW);
+    const truncated = it.label.length > 22 ? it.label.slice(0, 21) + '…' : it.label;
+    return `
+      <g>
+        <text x="${padL - 6}" y="${y + barH/2 + 3}" text-anchor="end" font-size="10" fill="#374151" font-family="sans-serif">${escSvg(truncated)}</text>
+        <rect x="${padL}" y="${y}" width="${w}" height="${barH}" fill="#1c2b4a" rx="2"/>
+        <text x="${padL + w + 4}" y="${y + barH/2 + 3}" font-size="10" fill="#1c2b4a" font-family="sans-serif" font-weight="700">${fmt(it.value)}</text>
+      </g>`;
+  }).join('');
+
+  return `<svg width="100%" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
 }
 
 // ── Boot update for agent ──────────────────────────
