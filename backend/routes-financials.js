@@ -128,17 +128,22 @@ router.get('/summary', requireAdmin, (req, res) => {
     corporateTax:  rentalRows.reduce((s, r) => s + r.corporateTax, 0),
   };
 
-  const rentalNet  = rentalRows.reduce((s, r) => s + r.ourIncome, 0);
-  const deductions = Object.values(deductionsBreakdown).reduce((s, n) => s + n, 0);
-  const mgmtIncome = mgmtRows.reduce((s, r) => s + r.annual, 0);
-  const additional = additionalRows.reduce((s, r) => s + r.sub, 0);
+  const rentalNet   = rentalRows.reduce((s, r) => s + r.ourIncome, 0);
+  const deductions  = Object.values(deductionsBreakdown).reduce((s, n) => s + n, 0);
+  const mgmtIncome  = mgmtRows.reduce((s, r) => s + r.annual, 0);
+  const maintenance = additionalRows.reduce((s, r) => s + r.maint, 0);  // INCOME (we keep)
+  const vat         = additionalRows.reduce((s, r) => s + r.vat,   0);  // OUTFLOW (passes to govt)
+
+  // Grand total: incomes minus VAT (which is collected then paid out).
+  const grandTotal = rentalNet + mgmtIncome + maintenance + brokerageTotal + lateFees - vat;
 
   res.json({
     year, type: typeFilter,
     kpis: {
-      rentalNet, deductions, mgmtIncome, additional,
+      rentalNet, deductions, mgmtIncome,
+      maintenance, vat,
       brokerage: brokerageTotal, cash: cashTotal, lateFees,
-      grandTotal: rentalNet + mgmtIncome + additional + brokerageTotal + lateFees,
+      grandTotal,
       vacantCount: vacantRows.length,
       rentedCount: rentalRows.length,
       managedCount: mgmtRows.length,

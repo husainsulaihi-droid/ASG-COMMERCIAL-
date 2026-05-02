@@ -7465,9 +7465,11 @@ function _finRenderBody(props) {
 
   const maintTotalFin= addRows.reduce((s,r)=>s+r.maint,   0);
   const vatTotal     = addRows.reduce((s,r)=>s+r.vat,     0);
-  const additionalTotal = maintTotalFin + vatTotal;
 
-  const grandTotal = rentTotalOurs + mgmtTotal + additionalTotal + brokerTotal + feesTotal;
+  // Maintenance is income (we collect & keep). VAT is an outflow
+  // (collected on top of rent, paid through to the government). So the
+  // grand total ADDS maintenance and SUBTRACTS VAT.
+  const grandTotal = rentTotalOurs + mgmtTotal + maintTotalFin + brokerTotal + feesTotal - vatTotal;
   const typeLabel  = _finType === 'all' ? 'Properties'
                    : _finType === 'warehouse' ? 'Warehouses'
                    : _finType === 'office' ? 'Offices' : 'Residential';
@@ -7497,9 +7499,14 @@ function _finRenderBody(props) {
         <div class="fin-kpi-sub">${mgmtRows.length} managed propert${mgmtRows.length===1?'y':'ies'} · Fee ${mgmtTotalFee.toLocaleString()} · Maint ${mgmtTotalMaint.toLocaleString()} · Admin ${mgmtTotalAdmin.toLocaleString()}</div>
       </div>
       <div class="fin-kpi">
-        <div class="fin-kpi-label">Maintenance + VAT</div>
-        <div class="fin-kpi-value">AED ${additionalTotal.toLocaleString()}</div>
-        <div class="fin-kpi-sub">Maint. ${maintTotalFin.toLocaleString()} · VAT ${vatTotal.toLocaleString()}</div>
+        <div class="fin-kpi-label">Maintenance Income</div>
+        <div class="fin-kpi-value">+ AED ${maintTotalFin.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Recovered from tenants — kept as income</div>
+      </div>
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">VAT (Outflow)</div>
+        <div class="fin-kpi-value fin-kpi-warn">− AED ${vatTotal.toLocaleString()}</div>
+        <div class="fin-kpi-sub">Collected on rent · paid to government</div>
       </div>
       <div class="fin-kpi">
         <div class="fin-kpi-label">Vacant ${typeLabel}</div>
@@ -7651,17 +7658,17 @@ function _finRenderBody(props) {
       `}
     </div>
 
-    <!-- ── ADDITIONAL CHARGES TABLE ───────────────── -->
-    ${addRows.length ? `
+    <!-- ── MAINTENANCE INCOME (kept) ──────────────── -->
+    ${maintTotalFin ? `
     <div class="fin-section">
       <div class="fin-section-hdr">
         <div>
-          <h2>Maintenance &amp; VAT — ${typeLabel}</h2>
-          <span class="fin-section-sub">Additional revenue beyond base rent — ${_finYear}</span>
+          <h2>Maintenance Income — ${typeLabel}</h2>
+          <span class="fin-section-sub">Maintenance recovered from tenants · adds to income</span>
         </div>
         <div class="fin-section-total">
-          <span class="fin-tot-label">Total</span>
-          <span class="fin-tot-value">AED ${additionalTotal.toLocaleString()}</span>
+          <span class="fin-tot-label">+ Total</span>
+          <span class="fin-tot-value">AED ${maintTotalFin.toLocaleString()}</span>
         </div>
       </div>
       <div class="fin-tbl-wrap">
@@ -7671,31 +7678,66 @@ function _finRenderBody(props) {
               <th style="width:34px">#</th>
               <th>Property</th>
               <th>Tenant</th>
-              <th class="ta-c">Months</th>
               <th class="ta-r">Maintenance</th>
-              <th class="ta-r">VAT (5%)</th>
-              <th class="ta-r">Sub-total</th>
             </tr>
           </thead>
           <tbody>
-            ${addRows.map((r,i)=>`
+            ${addRows.filter(r=>r.maint>0).map((r,i)=>`
               <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
                 <td class="fin-num">${i+1}</td>
                 <td><strong>${h(r.p.name)}</strong></td>
                 <td>${h(r.p.tenantName||'—')}</td>
-                <td class="ta-c">${r.months}/12</td>
-                <td class="ta-r">${r.maint ? 'AED '+num(r.maint) : '—'}</td>
-                <td class="ta-r">${r.vat   ? 'AED '+num(r.vat)   : '—'}</td>
-                <td class="ta-r fin-our"><strong>AED ${num(r.sub)}</strong></td>
+                <td class="ta-r fin-our"><strong>AED ${num(r.maint)}</strong></td>
               </tr>
             `).join('')}
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="4" class="ta-r"><strong>TOTAL</strong></td>
-              <td class="ta-r"><strong>AED ${num(maintTotalFin)}</strong></td>
-              <td class="ta-r"><strong>AED ${num(vatTotal)}</strong></td>
-              <td class="ta-r fin-our"><strong>AED ${num(additionalTotal)}</strong></td>
+              <td colspan="3" class="ta-r"><strong>TOTAL</strong></td>
+              <td class="ta-r fin-our"><strong>AED ${num(maintTotalFin)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>` : ''}
+
+    <!-- ── VAT (outflow, paid to government) ─────── -->
+    ${vatTotal ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>VAT — ${typeLabel}</h2>
+          <span class="fin-section-sub">Collected on rent · paid to the government — subtracted from income</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">− Total</span>
+          <span class="fin-tot-value" style="color:var(--danger);">AED ${vatTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead>
+            <tr>
+              <th style="width:34px">#</th>
+              <th>Property</th>
+              <th>Tenant</th>
+              <th class="ta-r">VAT (5%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${addRows.filter(r=>r.vat>0).map((r,i)=>`
+              <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(r.p.name)}</strong></td>
+                <td>${h(r.p.tenantName||'—')}</td>
+                <td class="ta-r" style="color:var(--danger);"><strong>− AED ${num(r.vat)}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="ta-r"><strong>TOTAL</strong></td>
+              <td class="ta-r" style="color:var(--danger);"><strong>− AED ${num(vatTotal)}</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -7841,10 +7883,15 @@ function _finRenderBody(props) {
         <span>Management Fee Income</span>
         <span>AED ${mgmtTotal.toLocaleString()}</span>
       </div>
-      ${additionalTotal ? `
-      <div class="fin-grand-row">
-        <span>Maintenance + VAT</span>
-        <span>AED ${additionalTotal.toLocaleString()}</span>
+      ${maintTotalFin ? `
+      <div class="fin-grand-row" style="color:#059669;">
+        <span>Maintenance Income</span>
+        <span>+ AED ${maintTotalFin.toLocaleString()}</span>
+      </div>` : ''}
+      ${vatTotal ? `
+      <div class="fin-grand-row" style="color:#dc2626;">
+        <span>VAT (paid to govt)</span>
+        <span>− AED ${vatTotal.toLocaleString()}</span>
       </div>` : ''}
       ${brokerTotal ? `
       <div class="fin-grand-row" style="color:#059669;">
@@ -7915,11 +7962,11 @@ function _buildFinancialReportHTML(s) {
     day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit',
   });
 
-  // ── Donut chart: income composition ──
+  // ── Donut chart: income composition (positive only — VAT excluded) ──
   const donutSegs = [
     { label: 'Rental Income',     value: k.rentalNet,                color: '#1c2b4a' },
     { label: 'Management Income', value: k.mgmtIncome,               color: '#c9a84c' },
-    { label: 'Maintenance + VAT', value: k.additional,               color: '#7c3aed' },
+    { label: 'Maintenance',       value: k.maintenance,              color: '#7c3aed' },
     { label: 'Brokerage + Fees',  value: k.brokerage + k.lateFees,   color: '#0d9488' },
   ].filter(seg => seg.value > 0);
   const donut = _svgDonut(donutSegs, 180);
@@ -8085,9 +8132,14 @@ function _buildFinancialReportHTML(s) {
       <div class="kpi-sub">Land · License · Service · DEWA · Ejari · CD · Legal · Tax</div>
     </div>
     <div class="kpi">
-      <div class="kpi-label">Maintenance + VAT</div>
-      <div class="kpi-value">${fmt(k.additional)}</div>
-      <div class="kpi-sub">Recoverable from tenants</div>
+      <div class="kpi-label">Maintenance Income</div>
+      <div class="kpi-value kpi-good">+ ${fmt(k.maintenance)}</div>
+      <div class="kpi-sub">Recovered from tenants — kept</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">VAT (Outflow)</div>
+      <div class="kpi-value kpi-warn">− ${fmt(k.vat)}</div>
+      <div class="kpi-sub">Collected on rent · paid to government</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Brokerage + Late Fees</div>
