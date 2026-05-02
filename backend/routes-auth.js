@@ -32,23 +32,52 @@ function cookieOptions(req) {
   };
 }
 
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (fwd) return String(fwd).split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || null;
+}
+
+function recordLogin({ userId, username, ip, ua, success, reason }) {
+  try {
+    getDb().prepare(`
+      INSERT INTO login_audit (user_id, username, ip, user_agent, success, reason)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(userId || null, username || null, ip || null, ua || null, success ? 1 : 0, reason || null);
+  } catch (e) {
+    console.warn('[auth] login_audit insert failed:', e.message);
+  }
+}
+
 // ─── POST /api/auth/login ─────────────────────────
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};
+  const ip = clientIp(req);
+  const ua = req.headers['user-agent'] || null;
+
   if (!username || !password) {
+    recordLogin({ username, ip, ua, success: false, reason: 'missing-credentials' });
     return res.status(400).json({ error: 'Username and password required' });
   }
 
+  const trimmedUsername = String(username).trim();
   const user = getDb().prepare(
     'SELECT * FROM users WHERE username = ? AND active = 1'
-  ).get(String(username).trim());
+  ).get(trimmedUsername);
 
   // Generic error message — don't leak which half was wrong
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!user) {
+    recordLogin({ username: trimmedUsername, ip, ua, success: false, reason: 'no-such-user' });
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
 
   const ok = await verifyPassword(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!ok) {
+    recordLogin({ userId: user.id, username: trimmedUsername, ip, ua, success: false, reason: 'wrong-password' });
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
 
+  recordLogin({ userId: user.id, username: trimmedUsername, ip, ua, success: true, reason: null });
   const { token } = createSession(user.id);
   res.cookie(COOKIE_NAME, token, cookieOptions(req));
   return res.json({ user: sanitizeUser(user) });

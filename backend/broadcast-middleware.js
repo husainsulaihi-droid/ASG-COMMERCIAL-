@@ -15,7 +15,6 @@ const excelSync = require('./excel-export-sync');
 const ENTITY_MAP = [
   ['/api/properties',          'properties'],
   ['/api/leads',               'leads'],
-  ['/api/tasks',               'tasks'],
   ['/api/meetings',            'meetings'],
   ['/api/announcements',       'announcements'],
   ['/api/leaves',              'leaves'],
@@ -24,9 +23,6 @@ const ENTITY_MAP = [
   ['/api/disputes',            'disputes'],
   ['/api/construction',        'construction'],
   ['/api/calendar',            'calendar'],
-  ['/api/secondary',           'secondary'],
-  ['/api/offplan/developers',  'offplanDevs'],
-  ['/api/offplan/projects',    'offplanProjects'],
   ['/api/users',               'users'],
 ];
 

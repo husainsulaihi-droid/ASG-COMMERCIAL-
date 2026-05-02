@@ -41,6 +41,22 @@ function initDb() {
   } else {
     console.log(`[db] Opened existing database at ${DB_PATH}.`);
   }
+
+  // Idempotent: ensure login_audit exists on every boot.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS login_audit (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER,
+      username    TEXT,
+      ip          TEXT,
+      user_agent  TEXT,
+      success     INTEGER NOT NULL DEFAULT 0,
+      reason      TEXT,
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_login_audit_user    ON login_audit(user_id);
+  `);
   return db;
 }
 

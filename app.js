@@ -328,15 +328,11 @@ const _api = {
   disputes:        makeApiList('/api/disputes',                'disputes'),
   construction:    makeApiList('/api/construction',            'projects'),
   leads:           makeApiList('/api/leads',                   'leads'),
-  tasks:           makeApiList('/api/tasks',                   'tasks'),
   pending:         makeApiList('/api/pending-properties',      'submissions'),
   announcements:   makeApiList('/api/announcements',           'announcements'),
   leaves:          makeApiList('/api/leaves',                  'leaves'),
   proposals:       makeApiList('/api/proposals',               'proposals'),
   meetings:        makeApiList('/api/meetings',                'meetings'),
-  offplanDevs:     makeApiList('/api/offplan/developers',      'developers'),
-  offplanProjects: makeApiList('/api/offplan/projects',        'projects'),
-  secondary:       makeApiList('/api/secondary',               'listings'),
   users:           makeApiList('/api/users',                   'users'),
   calendar:        makeApiList('/api/calendar',                'events'),
 };
@@ -806,11 +802,10 @@ function showTab(tab) {
   $('paymentView').style.display      = tab === 'payment'      ? '' : 'none';
   const proposalsEl = $('proposalsView'); if (proposalsEl) proposalsEl.style.display = tab === 'proposals' ? '' : 'none';
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
-  $('teamView').style.display         = tab === 'team'         ? '' : 'none';
-  const myTasksEl = $('myTasksView');   if (myTasksEl) myTasksEl.style.display = tab === 'mytasks' ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
+  const loginsEl = $('loginsView');     if (loginsEl) loginsEl.style.display = tab === 'logins' ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','MyTasks','Team','Financials'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','Financials','Logins'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -829,9 +824,8 @@ function showTab(tab) {
   if (tab === 'payment')      renderPayments();
   if (tab === 'proposals')    renderProposals();
   if (tab === 'map')          initMapTab();
-  if (tab === 'team')         renderTeamTab();
-  if (tab === 'mytasks')      renderMyTasks();
   if (tab === 'financials')   renderFinancials();
+  if (tab === 'logins')       renderLogins();
 }
 
 // ─── Contract Builder ─────────────────────────────
@@ -1294,7 +1288,6 @@ function renderNavCounts(props) {
   if (oEl) oEl.textContent = props.filter(p => p.type === 'office').length     || '';
   if (rEl) rEl.textContent = props.filter(p => p.type === 'residential').length || '';
   if (lEl) lEl.textContent = props.filter(p => p.type === 'land').length        || '';
-  updateTaskBadge();
 }
 
 function renderAlerts(props) {
@@ -4139,9 +4132,8 @@ function flyToPin(lat, lng) {
   }, 1300);
 }
 
-// ─── Agents & Tasks ───────────────────────────────
+// ─── Agent roles ───────────────────────────────────
 const AGENTS_KEY = 'asg_agents';
-const TASKS_KEY  = 'asg_tasks';
 
 // ── Agent role definitions ──────────────────────────
 // Each role controls what the agent sees in their dashboard's Inventory
@@ -4191,16 +4183,6 @@ const AGENT_ROLES = {
 function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; }
 
 function loadAgents()  { return _api.users.load().filter(u => u.role !== 'admin'); }
-
-// Task assignees: agents PLUS admins (so an admin can give a task to
-// another admin). Returned objects always have a normalized .role for
-// chip display: agents keep their sub-role, admins get role='admin'.
-function loadTaskAssignees() {
-  return _api.users.load().map(u => ({
-    ...u,
-    role: u.role === 'admin' ? 'admin' : (u.agentRole || u.role || ''),
-  }));
-}
 
 // Custom saveAgents: the generic factory would diff against the FULL users
 // cache (which includes admin) and try to DELETE admin every time we mutate
@@ -4260,494 +4242,6 @@ function saveAgents(arr) {
     await _api.users.fetch();   // re-sync the full users cache (includes admin)
   })();
 }
-function loadTasks()   { return _api.tasks.load(); }
-function saveTasks(t)  { _api.tasks.save(t); }
-
-const TASK_TYPE_META = {
-  'find-tenant':  { icon: '🔍', label: 'Find Tenant' },
-  'follow-up':    { icon: '📞', label: 'Follow Up' },
-  'site-visit':   { icon: '🏗️', label: 'Site Visit' },
-  'maintenance':  { icon: '🔧', label: 'Maintenance' },
-  'documents':    { icon: '📄', label: 'Documents' },
-  'negotiation':  { icon: '🤝', label: 'Negotiation' },
-  'other':        { icon: '📌', label: 'Other' }
-};
-
-const TASK_STATUS_META = {
-  'pending':     { label: 'Pending',     cls: 'ts-pending' },
-  'in-progress': { label: 'In Progress', cls: 'ts-inprogress' },
-  'done':        { label: 'Done',        cls: 'ts-done' },
-  'cancelled':   { label: 'Cancelled',  cls: 'ts-cancelled' }
-};
-
-const PRIORITY_META = {
-  'high':   { label: 'High',   cls: 'tp-high' },
-  'medium': { label: 'Medium', cls: 'tp-medium' },
-  'low':    { label: 'Low',    cls: 'tp-low' }
-};
-
-// ── Agent Modal ────────────────────────────────────
-function openAgentModal(id) {
-  const agents = loadAgents();
-  const ag = id ? agents.find(a => a.id === id) : null;
-  $('agentModalTitle').textContent = ag ? 'Edit Agent' : 'Add Agent';
-  $('agentId').value       = ag ? ag.id : '';
-  $('agentName').value     = ag ? ag.name     : '';
-  // Role: legacy free-text agents may have arbitrary strings; map them to 'general' so the dropdown still works
-  const roleVal = ag ? (ag.role || '') : 'sales';   // default new agents to "sales" since that's the most common case
-  $('agentRole').value     = AGENT_ROLES[roleVal] ? roleVal : 'general';
-  $('agentPhone').value    = ag ? (ag.phone   || '') : '';
-  $('agentEmail').value    = ag ? (ag.email   || '') : '';
-  $('agentUsername').value = ag ? ag.username : '';
-  $('agentPassword').value = ag ? ag.password : '';
-  const p = ag ? (ag.permissions || agentRoleMeta($('agentRole').value).defaultPerms) : agentRoleMeta($('agentRole').value).defaultPerms;
-  $('permViewFinancials').checked = p.viewFinancials || false;
-  $('permViewTenant').checked     = p.viewTenant !== false;
-  $('permUpdateStatus').checked   = p.updateStatus !== false;
-  $('permAddNotes').checked       = p.addNotes !== false;
-
-  // Team hierarchy fields
-  const isLeaderEl = $('agentIsLeader');
-  if (isLeaderEl) isLeaderEl.checked = !!(ag && ag.isTeamLeader);
-  populateReportsToDropdown(ag ? ag.id : '');
-  const reportsTo = $('agentReportsTo');
-  if (reportsTo) reportsTo.value = (ag && ag.teamLeaderId) || '';
-  onTeamLeaderToggle();
-
-  updateAgentRoleHint();
-  // Re-bind role change to live-update hint and (for new agents) prefill perms
-  const sel = $('agentRole');
-  if (sel && !sel._asgBound) {
-    sel.addEventListener('change', () => {
-      updateAgentRoleHint();
-      // Only auto-update permissions when adding a new agent, never on edit (user might have customised)
-      if (!$('agentId').value) {
-        const dp = agentRoleMeta(sel.value).defaultPerms;
-        $('permViewFinancials').checked = dp.viewFinancials || false;
-        $('permViewTenant').checked     = dp.viewTenant !== false;
-        $('permUpdateStatus').checked   = dp.updateStatus !== false;
-        $('permAddNotes').checked       = dp.addNotes !== false;
-      }
-    });
-    sel._asgBound = true;
-  }
-  $('agentModalOverlay').classList.add('active');
-  setTimeout(() => $('agentName').focus(), 100);
-}
-
-function updateAgentRoleHint() {
-  const meta = agentRoleMeta($('agentRole').value);
-  const hint = $('agentRoleHint');
-  if (hint) hint.textContent = meta.hint || '';
-}
-
-// Team-leader helpers
-function populateReportsToDropdown(excludeId) {
-  const sel = document.getElementById('agentReportsTo');
-  if (!sel) return;
-  const leaders = loadAgents().filter(a => a.active !== false && a.isTeamLeader && a.id !== excludeId);
-  sel.innerHTML = '<option value="">— Independent (no team leader) —</option>' +
-    leaders.map(l => `<option value="${l.id}">${h(l.name)}</option>`).join('');
-}
-function onTeamLeaderToggle() {
-  const isLeader = !!(document.getElementById('agentIsLeader') && document.getElementById('agentIsLeader').checked);
-  const reportsToGroup = document.getElementById('agentReportsToGroup');
-  if (reportsToGroup) reportsToGroup.style.display = isLeader ? 'none' : '';
-  // A team leader can't also report to another leader (no nested hierarchy)
-  if (isLeader) {
-    const sel = document.getElementById('agentReportsTo');
-    if (sel) sel.value = '';
-  }
-}
-
-function closeAgentModal() { $('agentModalOverlay').classList.remove('active'); }
-
-function saveAgent() {
-  const name     = $('agentName').value.trim();
-  const username = $('agentUsername').value.trim();
-  const password = $('agentPassword').value;
-  if (!name)                { showToast('Name is required', 'error'); return; }
-  if (!username)            { showToast('Username is required', 'error'); return; }
-  if (password.length < 6)  { showToast('Password must be at least 6 characters', 'error'); return; }
-
-  const agents = loadAgents();
-  const id = $('agentId').value;
-
-  // Check username uniqueness
-  const adminCreds = getCredentials();
-  if (username === adminCreds.user) { showToast('Username already taken by admin', 'error'); return; }
-  const conflict = agents.find(a => a.username === username && a.id !== id);
-  if (conflict) { showToast('Username already taken by another agent', 'error'); return; }
-
-  const isTeamLeader = !!($('agentIsLeader') && $('agentIsLeader').checked);
-  const teamLeaderId = isTeamLeader ? '' : (($('agentReportsTo') && $('agentReportsTo').value) || '');
-
-  const agentObj = {
-    id:       id || ('agent_' + uid()),
-    name, username, password,
-    role:     $('agentRole').value.trim(),
-    phone:    $('agentPhone').value.trim(),
-    email:    $('agentEmail').value.trim(),
-    active:   true,
-    isTeamLeader,
-    teamLeaderId,
-    createdAt: id ? (agents.find(a=>a.id===id)||{}).createdAt : new Date().toISOString(),
-    permissions: {
-      viewFinancials: $('permViewFinancials').checked,
-      viewTenant:     $('permViewTenant').checked,
-      updateStatus:   $('permUpdateStatus').checked,
-      addNotes:       $('permAddNotes').checked
-    }
-  };
-
-  if (id) {
-    const idx = agents.findIndex(a => a.id === id);
-    if (idx > -1) agents[idx] = agentObj; else agents.push(agentObj);
-  } else {
-    agents.push(agentObj);
-  }
-  saveAgents(agents);
-  closeAgentModal();
-  showToast(id ? 'Agent updated' : 'Agent added', 'success');
-  renderTeamTab();
-}
-
-function toggleAgentActive(id) {
-  const agents = loadAgents();
-  const ag = agents.find(a => a.id === id);
-  if (!ag) return;
-  ag.active = !ag.active;
-  saveAgents(agents);
-  renderTeamTab();
-  showToast(ag.active ? 'Agent activated' : 'Agent deactivated', 'success');
-}
-
-function deleteAgent(id) {
-  if (!confirm('Delete this agent? Their tasks will remain but will be unassigned.')) return;
-  const agents = loadAgents().filter(a => a.id !== id);
-  saveAgents(agents);
-  // unassign tasks
-  const tasks = loadTasks().map(t => t.agentId === id ? { ...t, agentId: '' } : t);
-  saveTasks(tasks);
-  renderTeamTab();
-  showToast('Agent deleted', 'success');
-}
-
-// ── Task Modal ─────────────────────────────────────
-function openTaskModal(id) {
-  const assignees = loadTaskAssignees().filter(a => a.active);
-  const props  = loadProps();
-  const tasks  = loadTasks();
-  const task   = id ? tasks.find(t => t.id === id) : null;
-
-  $('taskModalTitle').textContent = task ? 'Edit Task' : 'Assign Task';
-  $('taskId').value = task ? task.id : '';
-
-  // Populate assignee dropdown — agents + admins (admins are flagged
-  // with a 👑 prefix so it's clear who's who).
-  $('taskAgent').innerHTML = '<option value="">— Select assignee —</option>' +
-    assignees.map(a => {
-      const label = a.role === 'admin' ? `👑 ${h(a.name)} (Admin)` : h(a.name);
-      const selected = task && String(task.agentId) === String(a.id) ? ' selected' : '';
-      return `<option value="${a.id}"${selected}>${label}</option>`;
-    }).join('');
-
-  // Populate property dropdown
-  $('taskProp').innerHTML = '<option value="">— No specific property —</option>' +
-    props.map(p => `<option value="${p.id}"${task && task.propId === p.id ? ' selected' : ''}>${h(p.name)}</option>`).join('');
-
-  if (task) {
-    $('taskType').value     = task.type     || 'find-tenant';
-    $('taskTitle').value    = task.title    || '';
-    $('taskPriority').value = task.priority || 'medium';
-    $('taskDeadline').value = task.deadline || '';
-    $('taskDesc').value     = task.description || '';
-    // Show read-only status (agent controls this)
-    const sm = TASK_STATUS_META[task.status] || TASK_STATUS_META['pending'];
-    $('taskStatusDisplay').innerHTML = `<span class="task-status-badge ${sm.cls}" style="display:inline-block;">${sm.label}</span><span style="font-size:11px;color:var(--text-3);display:block;margin-top:4px;">🔒 Only the agent can update this</span>`;
-  } else {
-    $('taskType').value     = 'find-tenant';
-    $('taskTitle').value    = '';
-    $('taskPriority').value = 'medium';
-    $('taskDeadline').value = '';
-    $('taskDesc').value     = '';
-    $('taskStatusDisplay').innerHTML = `<span class="task-status-badge ts-pending" style="display:inline-block;">Pending</span><span style="font-size:11px;color:var(--text-3);display:block;margin-top:4px;">🔒 Agent updates this when they start</span>`;
-  }
-
-  $('taskModalOverlay').classList.add('active');
-  setTimeout(() => $('taskTitle').focus(), 100);
-}
-function closeTaskModal() { $('taskModalOverlay').classList.remove('active'); }
-
-function saveTask() {
-  const agentId = $('taskAgent').value;
-  const title   = $('taskTitle').value.trim();
-  if (!agentId) { showToast('Please select an agent', 'error'); return; }
-  if (!title)   { showToast('Task title is required', 'error'); return; }
-
-  const tasks  = loadTasks();
-  const id     = $('taskId').value;
-  const existing = id ? tasks.find(t => t.id === id) : null;
-
-  const taskObj = {
-    id:          id || ('task_' + uid()),
-    agentId,
-    propId:      $('taskProp').value,
-    type:        $('taskType').value,
-    title,
-    priority:    $('taskPriority').value,
-    deadline:    $('taskDeadline').value,
-    // Status is ONLY changed by the agent — preserve existing status on edit
-    status:      existing ? existing.status : 'pending',
-    description: $('taskDesc').value.trim(),
-    notes:       existing ? existing.notes : [],
-    createdAt:   existing ? existing.createdAt : new Date().toISOString(),
-    updatedAt:   new Date().toISOString()
-  };
-
-  if (id) {
-    const idx = tasks.findIndex(t => t.id === id);
-    if (idx > -1) tasks[idx] = taskObj; else tasks.push(taskObj);
-  } else {
-    tasks.push(taskObj);
-  }
-  saveTasks(tasks);
-  closeTaskModal();
-  showToast(id ? 'Task updated' : 'Task assigned', 'success');
-  renderTeamTab();
-  updateTaskBadge();
-}
-
-function deleteTask(id) {
-  if (!confirm('Delete this task?')) return;
-  saveTasks(loadTasks().filter(t => t.id !== id));
-  renderTeamTab();
-  updateTaskBadge();
-  showToast('Task deleted', 'success');
-}
-
-function updateTaskStatus(id, status) {
-  const tasks = loadTasks();
-  const t = tasks.find(x => x.id === id);
-  if (!t) return;
-  t.status = status;
-  t.updatedAt = new Date().toISOString();
-  saveTasks(tasks);
-  // re-render whichever view is showing
-  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
-  else renderTeamTab();
-  updateTaskBadge();
-}
-
-function updateTaskBadge() {
-  const pending = loadTasks().filter(t => t.status === 'pending' || t.status === 'in-progress').length;
-  const el = $('navCountTasks');
-  if (el) { el.textContent = pending || ''; el.style.display = pending ? '' : 'none'; }
-  if (typeof updateMyTasksBadge === 'function') updateMyTasksBadge();
-}
-
-// ── Task Notes ─────────────────────────────────────
-let notesTaskId = null;
-function openTaskNotes(taskId) {
-  notesTaskId = taskId;
-  const task = loadTasks().find(t => t.id === taskId);
-  if (!task) return;
-  $('taskNotesPropName').textContent = task.title;
-  $('taskNotesTaskId').value = taskId;
-  $('taskNoteInput').value = '';
-  renderNotesList(task.notes || []);
-  $('taskNotesOverlay').classList.add('active');
-}
-function closeTaskNotes() { $('taskNotesOverlay').classList.remove('active'); notesTaskId = null; }
-
-function renderNotesList(notes) {
-  if (!notes.length) {
-    $('taskNotesList').innerHTML = `<p style="color:var(--text-3);font-size:13px;text-align:center;padding:8px 0;">No notes yet.</p>`;
-    return;
-  }
-  $('taskNotesList').innerHTML = notes.slice().reverse().map(n => `
-    <div class="task-note-item">
-      <div class="task-note-text">${h(n.text)}</div>
-      <div class="task-note-date">${formatDate(n.date)}</div>
-    </div>`).join('');
-}
-
-function submitTaskNote() {
-  const text = $('taskNoteInput').value.trim();
-  if (!text) return;
-  const tasks = loadTasks();
-  const task = tasks.find(t => t.id === notesTaskId);
-  if (!task) return;
-  if (!task.notes) task.notes = [];
-  task.notes.push({ text, date: new Date().toISOString() });
-  task.updatedAt = new Date().toISOString();
-  saveTasks(tasks);
-  $('taskNoteInput').value = '';
-  renderNotesList(task.notes);
-  showToast('Note added', 'success');
-  if (isAgentUser()) { showAgentTab(currentAgentTab); updateAgentBadges(); }
-  else renderTeamTab();
-}
-
-// ── Team Tab Render (admin) ────────────────────────
-function renderTeamTab() {
-  const agents  = loadAgents();
-  const allTasks = loadTasks();
-  const props   = loadProps();
-
-  // Update filter dropdown — include admins as filter options too so a
-  // task assigned to an admin can be isolated.
-  const agentFilter = $('taskFilterAgent');
-  if (agentFilter) {
-    const cur = agentFilter.value;
-    const filterList = loadTaskAssignees();
-    agentFilter.innerHTML = '<option value="">All Assignees</option>' +
-      filterList.map(a => {
-        const label = a.role === 'admin' ? `👑 ${h(a.name)} (Admin)` : h(a.name);
-        return `<option value="${a.id}"${String(cur)===String(a.id)?' selected':''}>${label}</option>`;
-      }).join('');
-  }
-
-  // ── Agents list ──
-  const agentsList = $('agentsList');
-  if (!agents.length) {
-    agentsList.innerHTML = `<div class="team-empty"><div class="empty-icon">👥</div><p>No agents yet. Add your first team member above.</p></div>`;
-  } else {
-    agentsList.innerHTML = agents.map(ag => {
-      const agTasks = allTasks.filter(t => t.agentId === ag.id);
-      const done    = agTasks.filter(t => t.status === 'done').length;
-      const active  = agTasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
-      return `
-        <div class="agent-card${ag.active ? '' : ' agent-inactive'}">
-          <div class="agent-card-avatar">${ag.name.charAt(0).toUpperCase()}</div>
-          <div class="agent-card-body">
-            <div class="agent-card-name">${h(ag.name)} ${ag.isTeamLeader ? '<span class="chip" style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;">⭐ Team Leader</span>' : ''} ${ag.active ? '' : '<span class="chip" style="background:#fee2e2;color:#dc2626;font-size:10px;">Inactive</span>'}</div>
-            <div class="agent-card-role">${(()=>{const m=agentRoleMeta(ag.role); return m.icon+' '+h(m.label);})()} ${ag.phone ? '· '+h(ag.phone) : ''}${(() => {
-              if (ag.teamLeaderId) {
-                const leader = loadAgents().find(x => x.id === ag.teamLeaderId);
-                return leader ? ` · <span style="color:var(--text-3);">reports to ${h(leader.name)}</span>` : '';
-              }
-              return '';
-            })()}</div>
-            <div class="agent-card-stats">
-              <span class="agent-stat"><strong>${active}</strong> active tasks</span>
-              <span class="agent-stat"><strong>${done}</strong> done</span>
-              <span class="agent-stat" style="color:var(--text-3);">@${h(ag.username)}</span>
-            </div>
-          </div>
-          <div class="agent-card-actions">
-            <button class="btn-icon-sm" onclick="openAgentModal('${ag.id}')" title="Edit">✏️</button>
-            <button class="btn-icon-sm" onclick="toggleAgentActive('${ag.id}')" title="${ag.active?'Deactivate':'Activate'}">${ag.active?'🔒':'🔓'}</button>
-            <button class="btn-icon-sm btn-danger-sm" onclick="deleteAgent('${ag.id}')" title="Delete">🗑️</button>
-          </div>
-        </div>`;
-    }).join('');
-  }
-
-  // ── Tasks list ──
-  const agentF  = ($('taskFilterAgent')  || {}).value || '';
-  const statusF = ($('taskFilterStatus') || {}).value || '';
-  let tasks = allTasks;
-  if (agentF)  tasks = tasks.filter(t => t.agentId === agentF);
-  if (statusF) tasks = tasks.filter(t => t.status  === statusF);
-
-  const tasksList = $('tasksList');
-  if (!tasks.length) {
-    tasksList.innerHTML = `<div class="team-empty"><div class="empty-icon">📋</div><p>No tasks yet. Use "Assign Task" to create the first one.</p></div>`;
-  } else {
-    // Group by agent
-    const grouped = {};
-    tasks.forEach(t => {
-      const key = t.agentId || '__unassigned__';
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(t);
-    });
-
-    // Use the wider assignees list so tasks assigned to other admins
-    // resolve to a name (and not "Unassigned").
-    const assigneeLookup = loadTaskAssignees();
-    tasksList.innerHTML = Object.entries(grouped).map(([agId, agTasks]) => {
-      const ag = assigneeLookup.find(a => String(a.id) === String(agId));
-      const agName = ag ? ag.name : 'Unassigned';
-
-      const tasksHTML = agTasks.sort((a,b) => {
-        const ord = { 'in-progress':0, pending:1, done:2, cancelled:3 };
-        return (ord[a.status]||9) - (ord[b.status]||9);
-      }).map(t => {
-        const prop    = t.propId ? props.find(p => p.id === t.propId) : null;
-        const tm      = TASK_TYPE_META[t.type] || TASK_TYPE_META['other'];
-        const sm      = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
-        const pm      = PRIORITY_META[t.priority] || PRIORITY_META['medium'];
-        const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
-        const lastNote = t.notes && t.notes.length ? t.notes[t.notes.length - 1] : null;
-        const progressBar = t.status === 'done' ? 100
-                          : t.status === 'in-progress' ? 55
-                          : t.status === 'cancelled' ? 0 : 10;
-        return `
-          <div class="task-card${t.status === 'done' ? ' task-done' : ''}${overdue ? ' task-overdue' : ''}">
-            <div class="task-card-top">
-              <div class="task-type-badge">${tm.icon} ${tm.label}</div>
-              <div style="display:flex;gap:6px;align-items:center;">
-                <span class="task-priority ${pm.cls}">${pm.label}</span>
-                <span class="task-status-badge ${sm.cls}">${sm.label}</span>
-              </div>
-            </div>
-            <div class="task-card-title">${isTaskUnread(t.id) ? '<span class="unread-dot" title="Unread reply"></span>' : ''}${h(t.title)}</div>
-            ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}</div>` : ''}
-            ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
-
-            <!-- Progress bar (read-only for admin) -->
-            <div class="task-progress-wrap">
-              <div class="task-progress-bar">
-                <div class="task-progress-fill ${t.status === 'done' ? 'prog-done' : t.status === 'in-progress' ? 'prog-active' : t.status === 'cancelled' ? 'prog-cancelled' : 'prog-pending'}"
-                     style="width:${progressBar}%"></div>
-              </div>
-              <span class="task-progress-label">${progressBar}%</span>
-            </div>
-
-            ${lastNote ? `
-            <div class="task-last-note">
-              <span class="task-last-note-icon">${lastNote.authorType === 'admin' ? '👑' : '💬'}</span>
-              <div>
-                <div class="task-last-note-text">${h(lastNote.text)}</div>
-                <div class="task-last-note-date">${formatDate(lastNote.date)} — ${h(lastNote.authorName || (lastNote.authorType === 'admin' ? 'Admin' : (ag ? ag.name : agName)))}</div>
-              </div>
-            </div>` : ''}
-
-            <div class="task-card-meta">
-              ${t.deadline ? `<span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span>` : ''}
-              ${t.notes && t.notes.length ? `<span class="task-note-count">💬 ${t.notes.length} update${t.notes.length>1?'s':''}</span>` : '<span class="task-note-count" style="color:#bbb;">No updates yet</span>'}
-            </div>
-            <div class="task-card-actions">
-              <button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Reply (${t.notesCount != null ? t.notesCount : (t.notes ? t.notes.length : 0)})</button>
-              <button class="btn-sm btn-ghost" onclick="openTaskModal('${t.id}')">✏️ Edit Task</button>
-              <div class="task-readonly-badge">🔒 Status set by assignee</div>
-              ${(() => {
-                // Only the task creator (or the primary 'admin' user) can delete.
-                const sess = getSession();
-                const myId = String(sess?.userId || '');
-                const isPrimary = sess?.name === 'Administrator' || myId === '1';
-                const canDel = isPrimary || String(t.createdById || '') === myId;
-                return canDel ? `<button class="btn-sm btn-danger" onclick="deleteTask('${t.id}')">🗑️</button>` : '';
-              })()}
-            </div>
-          </div>`;
-      }).join('');
-
-      return `
-        <div class="task-agent-group">
-          <div class="task-agent-label">
-            <div class="task-agent-avatar">${agName.charAt(0)}</div>
-            ${h(agName)}
-            <span style="font-size:12px;color:var(--text-3);font-weight:400;">${agTasks.length} task${agTasks.length>1?'s':''}</span>
-          </div>
-          ${tasksHTML}
-        </div>`;
-    }).join('');
-  }
-
-  updateTaskBadge();
-}
 
 // ── Agent Add Property ─────────────────────────────
 function openAgentPropModal() {
@@ -4800,20 +4294,12 @@ function saveAgentProperty() {
 function renderAgentDashboard() {
   const session = getSession();
   if (!session || session.type !== 'agent') return;
-  const { agentId, name, perms } = session;
+  const { agentId, name } = session;
 
   const allProps  = loadProps();
-  const myTasks   = loadTasks().filter(t => t.agentId === agentId);
   const ag        = loadAgents().find(a => a.id === agentId) || {};
-
-  const activeTasks = myTasks.filter(t => t.status === 'pending' || t.status === 'in-progress');
-  const doneTasks   = myTasks.filter(t => t.status === 'done');
   const myAddedProps = allProps.filter(p => p.addedByAgent === agentId);
 
-  // Wins = done tasks of type find-tenant or negotiation
-  const wins = doneTasks.filter(t => t.type === 'find-tenant' || t.type === 'negotiation');
-
-  // ── Welcome ──
   $('agentWelcome').innerHTML = `
     <div class="agent-welcome-inner">
       <div class="agent-welcome-avatar">${name.charAt(0).toUpperCase()}</div>
@@ -4821,102 +4307,16 @@ function renderAgentDashboard() {
         <div class="agent-welcome-name">Welcome back, ${h(name)}</div>
         <div class="agent-welcome-role">${(()=>{const m=agentRoleMeta(ag.role); return m.icon+' '+h(m.label);})()}</div>
       </div>
-      ${wins.length ? `<div class="agent-wins-chip">🏆 ${wins.length} Client Win${wins.length>1?'s':''}</div>` : ''}
     </div>`;
 
-  // ── Stats bar ──
   $('agentStats').innerHTML = `
-    <div class="agent-stat-card">
-      <div class="agent-stat-num" style="color:#2563eb;">${activeTasks.length}</div>
-      <div class="agent-stat-label">Active Tasks</div>
-    </div>
-    <div class="agent-stat-card">
-      <div class="agent-stat-num" style="color:var(--success);">${doneTasks.length}</div>
-      <div class="agent-stat-label">Completed</div>
-    </div>
-    <div class="agent-stat-card">
-      <div class="agent-stat-num" style="color:var(--gold);">${wins.length}</div>
-      <div class="agent-stat-label">Clients Won</div>
-    </div>
     <div class="agent-stat-card">
       <div class="agent-stat-num" style="color:#8b5cf6;">${myAddedProps.length}</div>
       <div class="agent-stat-label">Properties Sourced</div>
     </div>`;
 
-  // ── Client Wins ──
   const winsSection = $('agentWins');
-  const winsList    = $('agentWinsList');
-  if (wins.length) {
-    winsSection.style.display = '';
-    $('agentWinsCount').textContent = wins.length;
-    winsList.innerHTML = wins.map(t => {
-      const prop = t.propId ? allProps.find(p => p.id === t.propId) : null;
-      const lastNote = t.notes && t.notes.length ? t.notes[t.notes.length - 1] : null;
-      return `
-        <div class="agent-win-card">
-          <div class="agent-win-trophy">🏆</div>
-          <div class="agent-win-body">
-            <div class="agent-win-title">${h(t.title)}</div>
-            ${prop ? `<div class="agent-win-prop">📍 ${h(prop.name)}${prop.location?' — '+h(prop.location):''}</div>` : ''}
-            ${lastNote ? `<div class="agent-win-note">"${h(lastNote.text)}"</div>` : ''}
-            <div class="agent-win-date">✅ Completed ${t.updatedAt ? formatDate(t.updatedAt) : ''}</div>
-          </div>
-        </div>`;
-    }).join('');
-  } else {
-    winsSection.style.display = 'none';
-  }
-
-  // ── Tasks (legacy section — now also rendered by renderAgentTasksTab) ──
-  const container = $('agentTasksList');
-  if (!container) return;   // guard: tasks tab may not be in view
-  if (!myTasks.length) {
-    container.innerHTML = `<div class="team-empty"><div class="empty-icon">🎯</div><p>No tasks assigned yet. Check back soon.</p></div>`;
-    return;
-  }
-
-  const order = { 'in-progress':0, pending:1, done:2, cancelled:3 };
-  const sortedTasks = [...myTasks].sort((a,b) => (order[a.status]||9) - (order[b.status]||9));
-
-  container.innerHTML = sortedTasks.map(t => {
-    const prop = t.propId ? allProps.find(p => p.id === t.propId) : null;
-    const tm   = TASK_TYPE_META[t.type] || TASK_TYPE_META['other'];
-    const sm   = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
-    const pm   = PRIORITY_META[t.priority]  || PRIORITY_META['medium'];
-    const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
-    const notesCount = t.notes ? t.notes.length : 0;
-    const lastNote   = notesCount ? t.notes[notesCount - 1] : null;
-
-    return `
-      <div class="agent-task-card${t.status==='done'?' agent-task-done':''}${overdue?' task-overdue':''}">
-        <div class="task-card-top">
-          <div class="task-type-badge">${tm.icon} ${tm.label}</div>
-          <div style="display:flex;gap:6px;">
-            <span class="task-priority ${pm.cls}">${pm.label}</span>
-            <span class="task-status-badge ${sm.cls}">${sm.label}</span>
-          </div>
-        </div>
-        <div class="task-card-title">${h(t.title)}</div>
-        ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
-        ${prop ? `
-          <div class="agent-task-prop-pill">
-            🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}
-            ${prop.status==='vacant'?'<span style="color:var(--danger);font-size:11px;margin-left:6px;">● Vacant</span>':'<span style="color:var(--success);font-size:11px;margin-left:6px;">● Rented</span>'}
-          </div>` : ''}
-        <div class="task-card-meta">
-          ${t.deadline ? `<span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span>` : ''}
-          ${notesCount ? `<span class="task-note-count">💬 ${notesCount} update${notesCount>1?'s':''}</span>` : ''}
-        </div>
-        ${lastNote ? `<div class="task-last-note"><span class="task-last-note-icon">💬</span><div class="task-last-note-text">${h(lastNote.text)}</div></div>` : ''}
-        <div class="task-card-actions">
-          ${perms.addNotes !== false ? `<button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Add Update (${notesCount})</button>` : ''}
-          ${perms.updateStatus !== false && t.status !== 'done' && t.status !== 'cancelled' ? `
-            ${t.status !== 'in-progress' ? `<button class="btn-sm btn-primary" onclick="updateTaskStatus('${t.id}','in-progress')">▶ Start</button>` : `<button class="btn-sm btn-ghost" disabled>⏳ In Progress</button>`}
-            <button class="btn-sm btn-success" onclick="if(confirm('Mark this task as done?')) updateTaskStatus('${t.id}','done')">✓ Mark Done</button>
-          ` : t.status === 'done' ? `<span style="color:var(--success);font-size:13px;font-weight:600;">✅ Completed</span>` : ''}
-        </div>
-      </div>`;
-  }).join('');
+  if (winsSection) winsSection.style.display = 'none';
 }
 
 // Helper: format date nicely
@@ -5405,7 +4805,6 @@ async function syncMetaLeads() {
 
   showToast(`✅ ${totalImported} new lead${totalImported!==1?'s':''} imported${totalSkipped?' · '+totalSkipped+' duplicates skipped':''}`, 'success');
   updateApiStatusUI();
-  renderLeadsPipeline();
 
   // Update result in modal if open
   const res = $('metaTestResult');
@@ -5486,7 +4885,6 @@ async function syncGoogleLeads() {
     if (newLeads.length) saveLeads([...newLeads, ...existingLeads]);
     result.textContent = `✅ Imported ${newLeads.length} new lead${newLeads.length!==1?'s':''}`;
     result.className   = 'api-test-result api-test-success';
-    renderLeadsPipeline();
     showToast(`${newLeads.length} leads imported from Google Sheets`, 'success');
   } catch(e) {
     result.textContent = `❌ ${e.message}`;
@@ -5808,7 +5206,6 @@ async function pullLeadsFromHubSpot() {
 
     if (newLeads.length) {
       saveLeads([...newLeads, ...existing]);
-      renderLeadsPipeline();
     }
 
     // Update settings
@@ -5999,26 +5396,12 @@ function saveLead() {
   saveLeads(leads);
   closeLeadModal();
   showToast(id ? 'Lead updated' : 'Lead added', 'success');
-  renderLeadsPipeline();
 }
 
 function deleteLead(id) {
   if (!confirm('Delete this lead?')) return;
   saveLeads(loadLeads().filter(l => l.id !== id));
-  renderLeadsPipeline();
   showToast('Lead deleted', 'success');
-}
-
-function assignLeadToAgent(leadId, agentId) {
-  const leads = loadLeads();
-  const lead  = leads.find(l => l.id === leadId);
-  if (!lead) return;
-  lead.assignedTo = agentId;
-  lead.assignedAt = new Date().toISOString();
-  lead.updatedAt  = new Date().toISOString();
-  saveLeads(leads);
-  renderLeadsPipeline();
-  showToast('Lead assigned', 'success');
 }
 
 // ── Lead Detail Modal ──────────────────────────────
@@ -6135,182 +5518,6 @@ function submitLeadActivity() {
   showToast('Activity logged', 'success');
 }
 
-// ── Admin Lead Pipeline Render ─────────────────────
-function renderLeadsPipeline() {
-  const agents  = loadAgents();
-  const allLeads = loadLeads();
-
-  // Update agent filter
-  const agF = $('leadFilterAgent');
-  if (agF) {
-    const cur = agF.value;
-    agF.innerHTML = '<option value="">All Agents</option>' +
-      agents.map(a => `<option value="${a.id}"${cur===a.id?' selected':''}>${h(a.name)}</option>`).join('') +
-      '<option value="__unassigned__">Unassigned</option>';
-  }
-
-  let leads = allLeads;
-  const agentF  = (agF || {}).value || '';
-  const stageF  = ($('leadFilterStage')  || {}).value || '';
-  const sourceF = ($('leadFilterSource') || {}).value || '';
-  if (agentF === '__unassigned__') leads = leads.filter(l => !l.assignedTo);
-  else if (agentF) leads = leads.filter(l => l.assignedTo === agentF);
-  if (stageF)  leads = leads.filter(l => l.stage  === stageF);
-  if (sourceF) leads = leads.filter(l => l.source === sourceF);
-
-  // Stage bar
-  const stageBar = $('pipelineStageBar');
-  if (stageBar) {
-    const stageOrder = ['new','contacted','meeting','qualified','proposal','negotiation','won','lost'];
-    stageBar.innerHTML = stageOrder.map(s => {
-      const cnt = allLeads.filter(l => l.stage === s).length;
-      const meta = LEAD_STAGES[s];
-      return cnt ? `<div class="pipeline-stage-pill ${meta.cls}" onclick="$('leadFilterStage').value='${s}';renderLeadsPipeline()">
-        ${meta.icon} ${meta.label} <strong>${cnt}</strong>
-      </div>` : '';
-    }).join('');
-  }
-
-  const table = $('leadsTable');
-  if (!leads.length) {
-    table.innerHTML = `<div class="team-empty"><div class="empty-icon">👥</div><p>No leads found. Add your first lead above.</p></div>`;
-    return;
-  }
-
-  // Sort: won/lost last, then by updatedAt
-  const sorted = [...leads].sort((a,b) => {
-    const aLast = (a.stage==='won'||a.stage==='lost') ? 1 : 0;
-    const bLast = (b.stage==='won'||b.stage==='lost') ? 1 : 0;
-    if (aLast !== bLast) return aLast - bLast;
-    return new Date(b.updatedAt||b.createdAt) - new Date(a.updatedAt||a.createdAt);
-  });
-
-  table.innerHTML = sorted.map(lead => {
-    const ag    = lead.assignedTo ? agents.find(a => a.id === lead.assignedTo) : null;
-    const stage = LEAD_STAGES[lead.stage] || LEAD_STAGES['new'];
-    const lastAct = lead.activities && lead.activities.length ? lead.activities[lead.activities.length-1] : null;
-    const actCount = lead.activities ? lead.activities.length : 0;
-
-    // Last potential from activities
-    const potentials = (lead.activities||[]).filter(a => a.potential).map(a => a.potential);
-    const lastPot = potentials.length ? potentials[potentials.length-1] : null;
-
-    return `
-      <div class="lead-card${lead.stage==='won'?' lead-won':lead.stage==='lost'?' lead-lost':''}" onclick="openLeadDetail('${lead.id}')">
-        <div class="lead-card-top">
-          <div class="lead-card-left">
-            <div class="lead-avatar">${lead.name.charAt(0).toUpperCase()}</div>
-            <div>
-              <div class="lead-name">${h(lead.name)} ${lead.company?'<span class="lead-co">'+h(lead.company)+'</span>':''}</div>
-              <div class="lead-meta">${LEAD_SOURCES[lead.source]||'Unknown'} · ${lead.propType||'Any'} · ${lead.phone}</div>
-            </div>
-          </div>
-          <div class="lead-card-right">
-            <span class="lead-stage-badge ${stage.cls}">${stage.icon} ${stage.label}</span>
-            ${lastPot ? `<span class="act-potential act-pot-${lastPot}">${lastPot==='high'?'🔥 High':lastPot==='medium'?'⚡ Med':'❄️ Low'}</span>` : ''}
-          </div>
-        </div>
-        ${lastAct ? `<div class="lead-last-act"><span>${(ACT_TYPES[lastAct.type]||{icon:'📝'}).icon}</span> <em>${h(lastAct.note.length>80?lastAct.note.slice(0,80)+'…':lastAct.note)}</em> <span class="lead-act-date">${formatDate(lastAct.date)}</span></div>` : '<div class="lead-last-act" style="color:var(--text-3);">No activity yet</div>'}
-        <div class="lead-card-footer">
-          <span>${ag ? '👤 '+h(ag.name) : '<span style="color:var(--text-3);">⚠️ Unassigned</span>'}</span>
-          <span>${actCount} update${actCount!==1?'s':''}</span>
-          ${lead.budget ? `<span>💰 AED ${Number(lead.budget).toLocaleString()}</span>` : ''}
-          <div class="lead-card-actions" onclick="event.stopPropagation()">
-            <select class="task-status-select" style="font-size:11px;" onchange="assignLeadToAgent('${lead.id}',this.value)">
-              <option value="">Assign to…</option>
-              ${agents.filter(a=>a.active).map(a=>`<option value="${a.id}"${lead.assignedTo===a.id?' selected':''}>${h(a.name)}</option>`).join('')}
-            </select>
-            <button class="btn-sm btn-ghost" onclick="openLeadModal('${lead.id}')">✏️</button>
-            <button class="btn-sm btn-danger" onclick="deleteLead('${lead.id}')">🗑️</button>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
-}
-
-// ── Pending Property Submissions (admin) ───────────
-function renderPendingProps() {
-  const pending = loadPendingProps();
-  const el = $('pendingPropsList');
-  const badge = $('pendingBadge');
-  if (!el) return;
-
-  const waitingCount = pending.filter(p => p.status === 'pending').length;
-  if (badge) { badge.textContent = waitingCount ? `${waitingCount} awaiting`:''; badge.style.display = waitingCount ? '':'none'; }
-
-  if (!pending.length) {
-    el.innerHTML = `<div class="team-empty"><div class="empty-icon">📭</div><p>No submissions from agents yet.</p></div>`;
-    return;
-  }
-
-  const typeIcon = { warehouse:'🏭', office:'🏢', residential:'🏠' };
-  el.innerHTML = [...pending].reverse().map(p => {
-    const isP = p.status === 'pending';
-    return `
-      <div class="pending-prop-card${p.status==='approved'?' pend-approved':p.status==='rejected'?' pend-rejected':''}">
-        <div class="pending-prop-icon">${typeIcon[p.type]||'🏗️'}</div>
-        <div class="pending-prop-body">
-          <div class="pending-prop-name">${h(p.name)}</div>
-          <div class="pending-prop-meta">
-            ${h(p.addedByAgentName||'Agent')} · ${p.type} ${p.location?'· '+h(p.location):''}
-            ${p.annualRent?'· AED '+Number(p.annualRent).toLocaleString():''} / yr
-          </div>
-          ${p.clientName ? `<div class="pending-prop-client">🤝 Client: ${h(p.clientName)} ${p.clientPhone?'· '+h(p.clientPhone):''}</div>` : ''}
-          ${p.description ? `<div class="pending-prop-notes">${h(p.description)}</div>` : ''}
-          <div class="pending-prop-date">Submitted ${formatDate(p.submittedAt)}</div>
-          ${p.adminNote ? `<div class="pending-prop-admin-note">💬 ${h(p.adminNote)}</div>` : ''}
-        </div>
-        <div class="pending-prop-actions">
-          ${isP ? `
-            <button class="btn-sm btn-success" onclick="approvePendingProp('${p.id}')">✓ Approve</button>
-            <button class="btn-sm btn-danger"  onclick="rejectPendingProp('${p.id}')">✗ Reject</button>
-          ` : `<span class="pend-status-chip pend-${p.status}">${p.status==='approved'?'✓ Approved':'✗ Rejected'}</span>`}
-        </div>
-      </div>`;
-  }).join('');
-}
-
-function approvePendingProp(pendingId) {
-  const pending = loadPendingProps();
-  const item    = pending.find(p => p.id === pendingId);
-  if (!item) return;
-  item.status = 'approved';
-
-  // Move to main props
-  const props = loadProps();
-  const newProp = { ...item };
-  delete newProp.status;
-  delete newProp.submittedAt;
-  delete newProp.adminNote;
-  newProp.id = 'prop_' + uid();
-  props.push(newProp);
-  persistProps(props);
-  savePendingProps(pending);
-
-  renderPendingProps();
-  refresh();
-  showToast(`Property "${item.name}" approved and added to dashboard`, 'success');
-}
-
-function rejectPendingProp(pendingId) {
-  const note = prompt('Reason for rejection (optional):');
-  const pending = loadPendingProps();
-  const item    = pending.find(p => p.id === pendingId);
-  if (!item) return;
-  item.status    = 'rejected';
-  item.adminNote = note || '';
-  savePendingProps(pending);
-  renderPendingProps();
-  showToast('Submission rejected', 'success');
-}
-
-// ── Update renderTeamTab to include new sections ───
-const _origRenderTeamTab = renderTeamTab;
-renderTeamTab = function() {
-  _origRenderTeamTab();
-  renderLeadsPipeline();
-  renderPendingProps();
-};
 
 // ── Update saveAgentProperty to use pending queue ──
 saveAgentProperty = function() {
@@ -6364,7 +5571,6 @@ function showAgentTab(tab) {
   if (tab === 'overview')     renderAgentOverview();
   if (tab === 'inventory')    renderAgentInventory();
   if (tab === 'leads')        renderAgentLeads();
-  if (tab === 'tasks')        renderAgentTasksTab();
   if (tab === 'map')          initAgentMap();
   if (tab === 'submissions')  renderAgentSubmissions();
 }
@@ -6375,13 +5581,11 @@ function updateAgentBadges() {
   const { agentId } = sess;
 
   const props   = loadProps();
-  const myTasks = loadTasks().filter(t => t.agentId === agentId && (t.status==='pending'||t.status==='in-progress'));
   const myLeads = loadLeads().filter(l => l.assignedTo === agentId && l.stage !== 'won' && l.stage !== 'lost');
   const mySubs  = loadPendingProps().filter(p => p.addedByAgent === agentId && p.status === 'pending');
 
   const inv = $('agentInvCount');  if(inv)  { inv.textContent  = props.length || ''; }
   const lc  = $('agentLeadCount'); if(lc)   { lc.textContent   = myLeads.length || ''; }
-  const tc  = $('agentTaskCount'); if(tc)   { tc.textContent   = myTasks.length || ''; }
   const sc  = $('agentSubCount');  if(sc)   { sc.textContent   = mySubs.length  || ''; }
 }
 
@@ -6391,14 +5595,10 @@ function renderAgentOverview() {
   if (!sess || sess.type !== 'agent') return;
   const { agentId, name, perms } = sess;
   const ag      = loadAgents().find(a => a.id === agentId) || {};
-  const myTasks = loadTasks().filter(t => t.agentId === agentId);
   const myLeads = loadLeads().filter(l => l.assignedTo === agentId);
   const allProps = loadProps();
-  const wins    = myTasks.filter(t => t.status==='done' && (t.type==='find-tenant'||t.type==='negotiation'));
   const wonLeads = myLeads.filter(l => l.stage==='won');
 
-  const activeT = myTasks.filter(t => t.status==='pending'||t.status==='in-progress').length;
-  const doneT   = myTasks.filter(t => t.status==='done').length;
   const activeL = myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length;
 
   const _roleMeta = agentRoleMeta(ag.role);
@@ -6413,20 +5613,16 @@ function renderAgentOverview() {
         <div class="agent-welcome-name">Welcome back, ${h(name)}</div>
         <div class="agent-welcome-role">${_roleMeta.icon} ${h(_roleMeta.label)}</div>
       </div>
-      ${(wins.length+wonLeads.length) ? `<div class="agent-wins-chip">🏆 ${wins.length+wonLeads.length} Win${wins.length+wonLeads.length>1?'s':''}</div>` : ''}
+      ${wonLeads.length ? `<div class="agent-wins-chip">🏆 ${wonLeads.length} Win${wonLeads.length>1?'s':''}</div>` : ''}
     </div>`;
 
   $('agentStats').innerHTML = `
-    <div class="agent-stat-card"><div class="agent-stat-num" style="color:#2563eb;">${activeT}</div><div class="agent-stat-label">Active Tasks</div></div>
-    <div class="agent-stat-card"><div class="agent-stat-num" style="color:var(--success);">${doneT}</div><div class="agent-stat-label">Tasks Done</div></div>
     <div class="agent-stat-card"><div class="agent-stat-num" style="color:#8b5cf6;">${activeL}</div><div class="agent-stat-label">Active Leads</div></div>
-    <div class="agent-stat-card"><div class="agent-stat-num" style="color:var(--gold);">${wonLeads.length+wins.length}</div><div class="agent-stat-label">Total Wins</div></div>`;
+    <div class="agent-stat-card"><div class="agent-stat-num" style="color:var(--gold);">${wonLeads.length}</div><div class="agent-stat-label">Total Wins</div></div>`;
 
-  // Wins
-  const allWins = [
-    ...wonLeads.map(l => ({ type:'lead', title:`Lead Won — ${l.name}`, sub: l.company||'', date: l.updatedAt })),
-    ...wins.map(t => ({ type:'task', title: t.title, sub: '', date: t.updatedAt }))
-  ].sort((a,b) => new Date(b.date) - new Date(a.date));
+  const allWins = wonLeads
+    .map(l => ({ title:`Lead Won — ${l.name}`, sub: l.company||'', date: l.updatedAt }))
+    .sort((a,b) => new Date(b.date) - new Date(a.date));
 
   const winsSection = $('agentWins');
   const winsList    = $('agentWinsList');
@@ -6444,36 +5640,6 @@ function renderAgentOverview() {
       </div>`).join('');
   } else {
     winsSection.style.display = 'none';
-  }
-
-  // ── Quick Tasks preview (up to 3 active) ──
-  const activeTasks = myTasks.filter(t => t.status === 'pending' || t.status === 'in-progress').slice(0, 3);
-  const qtSection = $('agentOverviewQuickTasks');
-  const qtList    = $('agentOverviewTasksList');
-  if (qtSection && qtList) {
-    if (activeTasks.length) {
-      qtSection.style.display = '';
-      qtList.innerHTML = activeTasks.map(t => {
-        const tm = TASK_TYPE_META[t.type] || TASK_TYPE_META['other'];
-        const sm = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
-        const pm = PRIORITY_META[t.priority] || PRIORITY_META['medium'];
-        const overdue = t.deadline && new Date(t.deadline) < new Date();
-        return `
-          <div class="agent-task-card${overdue?' task-overdue':''}">
-            <div class="task-card-top">
-              <div class="task-type-badge">${tm.icon} ${tm.label}</div>
-              <div style="display:flex;gap:6px;">
-                <span class="task-priority ${pm.cls}">${pm.label}</span>
-                <span class="task-status-badge ${sm.cls}">${sm.label}</span>
-              </div>
-            </div>
-            <div class="task-card-title">${h(t.title)}</div>
-            ${t.deadline ? `<div class="task-card-meta"><span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span></div>` : ''}
-          </div>`;
-      }).join('');
-    } else {
-      qtSection.style.display = 'none';
-    }
   }
 
   // ── Quick Leads preview (up to 3 active) ──
@@ -6660,66 +5826,6 @@ function renderAgentLeads() {
   }).join('');
 
   container.innerHTML = html;
-}
-
-// ── Agent Tasks Tab ────────────────────────────────
-function renderAgentTasksTab() {
-  const sess = getSession();
-  if (!sess || sess.type !== 'agent') return;
-  const { agentId, perms = {} } = sess;
-
-  const myTasks  = loadTasks().filter(t => t.agentId === agentId);
-  const allProps = loadProps();
-  const container = $('agentTasksList');
-  if (!container) return;
-
-  if (!myTasks.length) {
-    container.innerHTML = `<div class="team-empty"><div class="empty-icon">🎯</div><p>No tasks assigned yet. Check back soon.</p></div>`;
-    return;
-  }
-
-  const order = { 'in-progress':0, pending:1, done:2, cancelled:3 };
-  const sortedTasks = [...myTasks].sort((a,b) => (order[a.status]||9) - (order[b.status]||9));
-
-  container.innerHTML = sortedTasks.map(t => {
-    const prop = t.propId ? allProps.find(p => p.id === t.propId) : null;
-    const tm   = TASK_TYPE_META[t.type]   || TASK_TYPE_META['other'];
-    const sm   = TASK_STATUS_META[t.status] || TASK_STATUS_META['pending'];
-    const pm   = PRIORITY_META[t.priority]  || PRIORITY_META['medium'];
-    const overdue = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
-    const notesCount = t.notes ? t.notes.length : 0;
-    const lastNote   = notesCount ? t.notes[notesCount - 1] : null;
-
-    return `
-      <div class="agent-task-card${t.status==='done'?' agent-task-done':''}${overdue?' task-overdue':''}">
-        <div class="task-card-top">
-          <div class="task-type-badge">${tm.icon} ${tm.label}</div>
-          <div style="display:flex;gap:6px;">
-            <span class="task-priority ${pm.cls}">${pm.label}</span>
-            <span class="task-status-badge ${sm.cls}">${sm.label}</span>
-          </div>
-        </div>
-        <div class="task-card-title">${h(t.title)}</div>
-        ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
-        ${prop ? `
-          <div class="agent-task-prop-pill">
-            🏗️ ${h(prop.name)}${prop.location?' · '+h(prop.location):''}
-            ${prop.status==='vacant'?'<span style="color:var(--danger);font-size:11px;margin-left:6px;">● Vacant</span>':'<span style="color:var(--success);font-size:11px;margin-left:6px;">● Rented</span>'}
-          </div>` : ''}
-        <div class="task-card-meta">
-          ${t.deadline ? `<span class="${overdue?'task-overdue-tag':'task-deadline'}">📅 ${overdue?'Overdue — ':''}${t.deadline}</span>` : ''}
-          ${notesCount ? `<span class="task-note-count">💬 ${notesCount} update${notesCount>1?'s':''}</span>` : ''}
-        </div>
-        ${lastNote ? `<div class="task-last-note"><span class="task-last-note-icon">💬</span><div class="task-last-note-text">${h(lastNote.text)}</div></div>` : ''}
-        <div class="task-card-actions">
-          ${perms.addNotes !== false ? `<button class="btn-sm btn-ghost" onclick="openTaskNotes('${t.id}')">💬 Add Update (${notesCount})</button>` : ''}
-          ${perms.updateStatus !== false && t.status !== 'done' && t.status !== 'cancelled' ? `
-            ${t.status !== 'in-progress' ? `<button class="btn-sm btn-primary" onclick="updateTaskStatus('${t.id}','in-progress')">▶ Start</button>` : `<button class="btn-sm btn-ghost" disabled>⏳ In Progress</button>`}
-            <button class="btn-sm btn-success" onclick="if(confirm('Mark this task as done?')) updateTaskStatus('${t.id}','done')">✓ Mark Done</button>
-          ` : t.status === 'done' ? `<span style="color:var(--success);font-size:13px;font-weight:600;">✅ Completed</span>` : ''}
-        </div>
-      </div>`;
-  }).join('');
 }
 
 // ── Agent Submissions ──────────────────────────────
@@ -7995,13 +7101,10 @@ function renderHome() {
   }).length;
 
   let agentCount = 0, disputeCount = 0, constructionCount = 0;
-  let offplanProjectCount = 0, developerCount = 0, secondaryCount = 0, proposalCount = 0;
+  let proposalCount = 0;
   try { agentCount         = (loadAgents()                || []).length; } catch {}
   try { disputeCount       = (loadDisputes()              || []).filter(d => d.status !== 'closed').length; } catch {}
   try { constructionCount  = (loadConstructionProjects()  || []).filter(p => p.status !== 'completed').length; } catch {}
-  try { offplanProjectCount = (loadProjects()             || []).length; } catch {}
-  try { developerCount     = (loadDevelopers()            || []).length; } catch {}
-  try { secondaryCount     = (loadSecondary()             || []).filter(x => x.status === 'active').length; } catch {}
   try { proposalCount      = (loadProposals()             || []).length; } catch {}
 
   // Tile definitions: tab id, label, group, badge count, accent colour, SVG path content
@@ -8014,10 +7117,6 @@ function renderHome() {
       svg:'<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' },
     { tab:'land',        label:'Land',             group:'Properties',  count:land,        color:'#1c2b4a',
       svg:'<path d="M2 20h20"/><path d="M4 20V12l8-6 8 6v8"/><path d="M9 20v-5h6v5"/>' },
-    { tab:'offplan',     label:'Off-Plan',         group:'Properties',  count:offplanProjectCount, color:'#c9a84c',
-      svg:'<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/>' },
-    { tab:'secondary',   label:'Secondary',        group:'Properties',  count:secondaryCount,      color:'#7a5d1e',
-      svg:'<path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>' },
 
     { tab:'reminders',   label:'Reminders',        group:'Operations',  count:leaseAlerts, color:'#dc2626',
       svg:'<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>' },
@@ -8798,8 +7897,6 @@ boot = async function() {
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
     showTab(activeTab || 'home');      // single re-render with fresh data
-    _refreshTaskSnapshot();            // baseline so first SSE doesn't toast everything
-    updateMyTasksBadge();
     renderNotifBadge();                // restore unread count from sessionStorage
     renderNavCounts(loadProps());
     setInterval(() => renderAlerts(loadProps()), 60000);
@@ -8910,17 +8007,12 @@ async function handleRealtimeEvent(evt) {
   // already updated the cache + re-rendered.
   if (Date.now() < _sseMutedUntil) {
     _refreshCacheSilently(entity);
-    if (entity === 'tasks') _liveRefreshOpenChat();
     return;
   }
   // If any modal is open, queue the entity and refresh on close.
-  // EXCEPTION: if it's a 'tasks' event and the open modal is the chat
-  // modal, refresh the chat live so the other party's reply appears
-  // immediately without closing/reopening.
   if (_isAnyModalOpen()) {
     _sseDeferredEntities.add(entity);
     _refreshCacheSilently(entity);
-    if (entity === 'tasks') _liveRefreshOpenChat();
     return;
   }
   // If the user is actively scrolling, hold the cache fresh but don't
@@ -8953,13 +8045,11 @@ const _ENTITY_TABS = {
   properties:    new Set(['home','warehouses','offices','residential','land','reminders','calendar','contract','disputes','construction','payment','proposals','map','financials']),
   cheques:       new Set(['home','payment','financials']),
   propertyFiles: new Set(['warehouses','offices','residential','land']),
-  tasks:         new Set(['team','mytasks']),
-  agents:        new Set(['team']),
-  leads:         new Set(['team']),
-  appointments:  new Set(['team','calendar']),
-  proposals:     new Set(['proposals','team']),
+  appointments:  new Set(['calendar']),
+  proposals:     new Set(['proposals']),
   projects:      new Set(['construction']),
   disputes:      new Set(['disputes']),
+  users:         new Set(['logins']),
 };
 
 async function _applySseRefresh(entity) {
@@ -8975,10 +8065,6 @@ async function _applySseRefresh(entity) {
     } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
       await _api[entity].fetch();
       if (affectsActive) _rerenderActiveTabFast();
-    }
-    if (entity === 'tasks') {
-      checkTaskNotifications();
-      updateMyTasksBadge();
     }
   } catch (e) {
     console.warn('[sse] refresh failed', e);
@@ -9008,9 +8094,8 @@ function _rerenderActiveTabFast() {
     case 'construction': return typeof renderProjects  === 'function' && renderProjects();
     case 'payment':      return typeof renderPayments  === 'function' && renderPayments();
     case 'proposals':    return typeof renderProposals === 'function' && renderProposals();
-    case 'team':         return typeof renderTeamTab   === 'function' && renderTeamTab();
-    case 'mytasks':      return typeof renderMyTasks   === 'function' && renderMyTasks();
     case 'financials':   return typeof renderFinancials=== 'function' && renderFinancials();
+    case 'logins':       return typeof renderLogins    === 'function' && renderLogins();
     // contract / map: no live data — skip
   }
 }
@@ -9023,12 +8108,6 @@ async function _refreshCacheSilently(entity) {
       await fetchProperties();
     } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
       await _api[entity].fetch();
-    }
-    // For tasks: also re-baseline the snapshot so the user doesn't
-    // get notified of their own reply once the mute window ends.
-    if (entity === 'tasks') {
-      _refreshTaskSnapshot();
-      updateMyTasksBadge();
     }
   } catch (_) { /* ignore */ }
 }
@@ -9049,22 +8128,6 @@ function flushDeferredSseRefreshes() {
 }
 
 // Live-refresh the open task notes modal (if any) when an SSE 'tasks'
-// event arrives. Lets a reply from another admin/agent appear in the
-// chat thread immediately without the receiver having to close/reopen.
-async function _liveRefreshOpenChat() {
-  try {
-    const overlay = document.getElementById('taskNotesOverlay');
-    if (!overlay || !overlay.classList.contains('active')) return;
-    const tid = (typeof notesTaskId !== 'undefined') ? notesTaskId : null;
-    if (!tid) return;
-    const notes = await apiListTaskNotes(tid);
-    if (typeof renderNotesList === 'function') renderNotesList(notes);
-    // The newly-arrived message belongs to a task we're actively
-    // viewing — clear the unread flag for it.
-    if (typeof markTaskRead === 'function') markTaskRead(tid);
-  } catch (_) { /* ignore */ }
-}
-
 // Re-render the currently visible tab without changing it.
 function rerenderActiveTab() {
   try {
@@ -9074,354 +8137,6 @@ function rerenderActiveTab() {
   } catch (e) { /* ignore */ }
 }
 
-// ─── Task Notes via backend API ──────────────────────────
-// Replaces the legacy localStorage-style task.notes JSON array. Notes
-// now live in the task_notes table on the server.
-async function apiListTaskNotes(taskId) {
-  try {
-    const r = await fetch(`/api/tasks/${taskId}/notes`, { credentials: 'same-origin' });
-    if (!r.ok) return [];
-    const d = await r.json();
-    return d.notes || [];
-  } catch (e) { console.warn('[tasks] notes fetch failed', e); return []; }
-}
-
-async function apiPostTaskNote(taskId, text) {
-  const r = await fetch(`/api/tasks/${taskId}/notes`, {
-    method: 'POST', credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({}));
-    throw new Error(e.error || 'HTTP ' + r.status);
-  }
-  return (await r.json()).note;
-}
-
-// Override: load notes from API on open (instead of from task.notes JSON)
-const _origOpenTaskNotesV2 = openTaskNotes;
-openTaskNotes = async function(taskId) {
-  _origOpenTaskNotesV2(taskId);                  // existing UI bootstrap
-  try {
-    const notes = await apiListTaskNotes(taskId);
-    renderNotesList(notes);
-  } catch (_) {}
-};
-
-// Override: post via API
-submitTaskNote = async function() {
-  const input = document.getElementById('taskNoteInput');
-  const text = (input?.value || '').trim();
-  if (!text) return;
-  if (!notesTaskId) return;
-  if (typeof markLocalMutation === 'function') markLocalMutation();
-  try {
-    await apiPostTaskNote(notesTaskId, text);
-    input.value = '';
-    const notes = await apiListTaskNotes(notesTaskId);
-    renderNotesList(notes);
-    showToast('Update posted', 'success');
-  } catch (e) {
-    showToast('Post failed: ' + e.message, 'error');
-  }
-};
-
-// ─── Unread-task tracking (per-tab sessionStorage) ───────
-// A simple Set of task IDs that have new replies you haven't opened
-// yet. Used to render a red dot beside the task title.
-const UNREAD_TASKS_KEY = 'asg_unread_tasks';
-function _loadUnreadTasks() {
-  try { return new Set(JSON.parse(sessionStorage.getItem(UNREAD_TASKS_KEY)) || []); }
-  catch { return new Set(); }
-}
-function _saveUnreadTasks(set) {
-  try { sessionStorage.setItem(UNREAD_TASKS_KEY, JSON.stringify([...set])); } catch (_) {}
-}
-function markTaskUnread(taskId) {
-  const set = _loadUnreadTasks(); set.add(String(taskId)); _saveUnreadTasks(set);
-}
-function markTaskRead(taskId) {
-  const set = _loadUnreadTasks();
-  if (set.delete(String(taskId))) {
-    _saveUnreadTasks(set);
-    // Re-render any visible tab that paints unread dots
-    if (typeof activeTab === 'string' && (activeTab === 'mytasks' || activeTab === 'team')) {
-      rerenderActiveTab();
-    }
-  }
-}
-function isTaskUnread(taskId) { return _loadUnreadTasks().has(String(taskId)); }
-
-// Mark task read when its notes modal opens
-const _origOpenTaskNotesV3 = openTaskNotes;
-openTaskNotes = async function(taskId) {
-  markTaskRead(taskId);
-  return _origOpenTaskNotesV3(taskId);
-};
-
-// ─── My Tasks tab — Inbox / Sent sub-tabs + filter + compact rows ───
-let _myTasksTab    = 'inbox';   // 'inbox' | 'sent'
-let _myTasksFilter = 'active';  // 'all' | 'active' | 'done'
-let _myTasksSearch = '';
-
-function _setMyTasksTab(t)    { _myTasksTab = t; renderMyTasks(); }
-function _setMyTasksFilter(f) { _myTasksFilter = f; renderMyTasks(); }
-function _setMyTasksSearch(v) {
-  _myTasksSearch = v.trim().toLowerCase();
-  // Re-render the list only — keep the search input focused.
-  const listEl = document.getElementById('myTasksRows');
-  if (listEl) listEl.innerHTML = _renderMyTasksRowsHtml();
-}
-
-function renderMyTasks() {
-  const session = getSession();
-  if (!session) return;
-  const myId = String(session.userId || session.agentId || '');
-  const allTasks = loadTasks();
-
-  const inboxAll = allTasks.filter(t => String(t.agentId) === myId);
-  const sentAll  = allTasks.filter(t => String(t.createdById) === myId
-                                     && String(t.agentId) !== myId);
-  const inboxActive = inboxAll.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
-  const sentActive  = sentAll.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
-
-  const container = document.getElementById('myTasksList');
-  if (!container) return;
-  container.innerHTML = `
-    <div class="mt-toolbar">
-      <div class="mt-tabs">
-        <button class="mt-tab ${_myTasksTab==='inbox'?'active':''}" onclick="_setMyTasksTab('inbox')">
-          <span>📥 Inbox</span><span class="mt-tab-count">${inboxActive}</span>
-        </button>
-        <button class="mt-tab ${_myTasksTab==='sent'?'active':''}" onclick="_setMyTasksTab('sent')">
-          <span>📤 Sent</span><span class="mt-tab-count">${sentActive}</span>
-        </button>
-      </div>
-      <div class="mt-toolbar-right">
-        <input type="search" class="mt-search" placeholder="Search tasks…"
-               value="${h(_myTasksSearch)}"
-               oninput="_setMyTasksSearch(this.value)">
-        <button class="mt-new-btn" onclick="openTaskModal()" title="Assign a new task">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>Assign Task</span>
-        </button>
-      </div>
-    </div>
-    <div class="mt-filters">
-      <button class="mt-chip ${_myTasksFilter==='active'?'active':''}" onclick="_setMyTasksFilter('active')">Active</button>
-      <button class="mt-chip ${_myTasksFilter==='all'?'active':''}"    onclick="_setMyTasksFilter('all')">All</button>
-      <button class="mt-chip ${_myTasksFilter==='done'?'active':''}"   onclick="_setMyTasksFilter('done')">Done</button>
-    </div>
-    <div id="myTasksRows" class="mt-rows">${_renderMyTasksRowsHtml()}</div>
-  `;
-}
-
-function _renderMyTasksRowsHtml() {
-  const session = getSession();
-  if (!session) return '';
-  const myId = String(session.userId || session.agentId || '');
-  const props = loadProps();
-  const all = loadTasks();
-  let pool = _myTasksTab === 'inbox'
-    ? all.filter(t => String(t.agentId) === myId)
-    : all.filter(t => String(t.createdById) === myId && String(t.agentId) !== myId);
-
-  if (_myTasksFilter === 'active') {
-    pool = pool.filter(t => t.status !== 'done' && t.status !== 'cancelled');
-  } else if (_myTasksFilter === 'done') {
-    pool = pool.filter(t => t.status === 'done' || t.status === 'cancelled');
-  }
-  if (_myTasksSearch) {
-    const q = _myTasksSearch;
-    pool = pool.filter(t =>
-      (t.title || '').toLowerCase().includes(q) ||
-      (t.description || '').toLowerCase().includes(q) ||
-      (t.createdByName || '').toLowerCase().includes(q)
-    );
-  }
-
-  // Sort: unread first, then active before done, then by deadline.
-  pool.sort((a, b) => {
-    const ua = isTaskUnread(a.id) ? 0 : 1;
-    const ub = isTaskUnread(b.id) ? 0 : 1;
-    if (ua !== ub) return ua - ub;
-    const ord = { 'in-progress': 0, pending: 1, done: 2, cancelled: 3 };
-    const sa = ord[a.status] ?? 9, sb = ord[b.status] ?? 9;
-    if (sa !== sb) return sa - sb;
-    const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
-    const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
-    return da - db;
-  });
-
-  if (!pool.length) {
-    const empty = _myTasksTab === 'inbox'
-      ? (_myTasksSearch ? 'No matching tasks in your inbox.' : 'Your inbox is empty.')
-      : (_myTasksSearch ? 'No matching tasks you sent.'      : 'You haven\'t sent any tasks yet.');
-    return `<div class="mt-empty">${empty}</div>`;
-  }
-  return pool.map(t => _renderMyTaskRow(t, props, _myTasksTab === 'inbox' ? 'received' : 'given')).join('');
-}
-
-function _renderMyTaskRow(t, props, mode) {
-  const prop      = t.propId ? props.find(p => String(p.id) === String(t.propId)) : null;
-  const sm        = (typeof TASK_STATUS_META  !== 'undefined' && TASK_STATUS_META[t.status]) || { cls: 'ts-pending', label: t.status || 'pending' };
-  const overdue   = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
-  const noteCount = t.notesCount != null ? t.notesCount : (Array.isArray(t.notes) ? t.notes.length : 0);
-  const unread    = isTaskUnread(t.id);
-  const isDone    = t.status === 'done' || t.status === 'cancelled';
-
-  // Counterparty: name and a stable color so each person's avatar matches
-  // their chat bubble color.
-  const partyName = mode === 'received'
-    ? (t.createdByName || 'Someone')
-    : (() => {
-        const u = (typeof loadTaskAssignees === 'function')
-          ? loadTaskAssignees().find(a => String(a.id) === String(t.agentId))
-          : null;
-        return u ? u.name : 'Someone';
-      })();
-  const partyId = mode === 'received' ? String(t.createdById || '') : String(t.agentId || '');
-
-  // Avatar palette — same hash function the chat uses, so colors stay
-  // consistent across views.
-  const palette = [
-    { bg:'#e0f2fe', accent:'#0369a1' }, { bg:'#fce7f3', accent:'#9d174d' },
-    { bg:'#dcfce7', accent:'#166534' }, { bg:'#fef3c7', accent:'#92400e' },
-    { bg:'#ede9fe', accent:'#5b21b6' }, { bg:'#ffe4e6', accent:'#9f1239' },
-    { bg:'#cffafe', accent:'#155e75' }, { bg:'#fed7aa', accent:'#9a3412' },
-  ];
-  let hh = 0; const s = partyId || partyName;
-  for (let i = 0; i < s.length; i++) hh = (hh * 31 + s.charCodeAt(i)) | 0;
-  const c = palette[Math.abs(hh) % palette.length];
-  const initials = (partyName.trim().split(/\s+/).slice(0,2).map(w => w[0] || '').join('') || '?').toUpperCase();
-
-  const fmtDeadline = () => {
-    if (!t.deadline) return '';
-    const d = new Date(t.deadline);
-    if (isNaN(d)) return '';
-    return d.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
-  };
-
-  const sub = [
-    mode === 'received' ? `from ${h(partyName)}` : `to ${h(partyName)}`,
-    prop ? `🏗️ ${h(prop.name)}` : '',
-    t.deadline ? (overdue ? `<span class="mt-overdue">⚠ Overdue ${fmtDeadline()}</span>` : `📅 ${fmtDeadline()}`) : '',
-  ].filter(Boolean).join(' · ');
-
-  return `
-    <div class="mt-row ${unread?'mt-row-unread':''} ${isDone?'mt-row-done':''}" onclick="openTaskNotes('${t.id}')">
-      <div class="mt-avatar" style="background:${c.accent};">${h(initials)}</div>
-      <div class="mt-row-body">
-        <div class="mt-row-head">
-          ${unread ? '<span class="unread-dot" title="Unread reply"></span>' : ''}
-          <span class="mt-row-title">${h(t.title)}</span>
-          <span class="mt-row-status ${sm.cls}">${sm.label}</span>
-        </div>
-        <div class="mt-row-sub">${sub}</div>
-      </div>
-      <div class="mt-row-meta">
-        ${noteCount ? `<span class="mt-msg-count" title="${noteCount} message${noteCount===1?'':'s'}">💬 ${noteCount}</span>` : ''}
-        <span class="mt-chevron">›</span>
-      </div>
-    </div>`;
-}
-
-function renderTaskCardForUser(t, props, mode) {
-  const prop      = t.propId ? props.find(p => String(p.id) === String(t.propId)) : null;
-  const tm        = (typeof TASK_TYPE_META    !== 'undefined' && TASK_TYPE_META[t.type])     || { icon: '📌', label: t.type || 'Task' };
-  const sm        = (typeof TASK_STATUS_META  !== 'undefined' && TASK_STATUS_META[t.status]) || { cls: 'ts-pending', label: t.status || 'pending' };
-  const pm        = (typeof PRIORITY_META     !== 'undefined' && PRIORITY_META[t.priority])  || { cls: 'pri-medium', label: t.priority || 'medium' };
-  const overdue   = t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < new Date();
-  const noteCount = t.notesCount != null ? t.notesCount : (Array.isArray(t.notes) ? t.notes.length : 0);
-  const unread    = isTaskUnread(t.id);
-  const counterParty = mode === 'received'
-    ? (t.createdByName ? `Assigned by ${h(t.createdByName)}` : '')
-    : (() => {
-        const u = loadTaskAssignees().find(a => String(a.id) === String(t.agentId));
-        return u ? `Assigned to ${h(u.name)}${u.role === 'admin' ? ' (Admin)' : ''}` : '';
-      })();
-  // For "received" mode the user can change status; for "given" they can't.
-  const statusControl = mode === 'received' ? `
-    <select class="task-status-select" onchange="updateTaskStatus('${t.id}', this.value)">
-      <option value="pending"${t.status === 'pending' ? ' selected' : ''}>Pending</option>
-      <option value="in-progress"${t.status === 'in-progress' ? ' selected' : ''}>In Progress</option>
-      <option value="done"${t.status === 'done' ? ' selected' : ''}>Done</option>
-      <option value="cancelled"${t.status === 'cancelled' ? ' selected' : ''}>Cancelled</option>
-    </select>` : '';
-  return `
-    <div class="task-card${t.status === 'done' ? ' task-done' : ''}${overdue ? ' task-overdue' : ''}" style="margin-bottom:12px;">
-      <div class="task-card-top">
-        <div class="task-type-badge">${tm.icon} ${tm.label}</div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <span class="task-priority ${pm.cls}">${pm.label}</span>
-          <span class="task-status-badge ${sm.cls}">${sm.label}</span>
-        </div>
-      </div>
-      <div class="task-card-title">${unread ? '<span class="unread-dot" title="Unread reply"></span>' : ''}${h(t.title)}</div>
-      ${prop ? `<div class="task-card-prop">🏗️ ${h(prop.name)}${prop.location ? ' · ' + h(prop.location) : ''}</div>` : ''}
-      ${t.description ? `<div class="task-card-desc">${h(t.description)}</div>` : ''}
-      ${counterParty ? `<div style="font-size:12px;color:var(--text-3);margin-top:6px;">${counterParty}</div>` : ''}
-      <div class="task-card-meta">
-        ${t.deadline ? `<span class="${overdue ? 'task-overdue-tag' : 'task-deadline'}">📅 ${overdue ? 'Overdue — ' : ''}${t.deadline}</span>` : ''}
-        <span class="task-note-count">💬 ${noteCount} update${noteCount === 1 ? '' : 's'}</span>
-      </div>
-      <div class="task-card-actions">
-        <button class="btn-sm btn-primary" onclick="openTaskNotes('${t.id}')">💬 ${unread ? 'New reply — Open' : 'Reply'}</button>
-        ${statusControl}
-      </div>
-    </div>`;
-}
-
-// Update sidebar nav badge for "My Tasks" with count of pending+in-progress
-function updateMyTasksBadge() {
-  const session = getSession();
-  if (!session) return;
-  const myId = String(session.userId || session.agentId || '');
-  const count = loadTasks().filter(t => String(t.agentId) === myId
-                                     && (t.status === 'pending' || t.status === 'in-progress')).length;
-  const el = document.getElementById('navCountMyTasks');
-  if (el) el.textContent = count > 0 ? count : '';
-}
-
-// ─── Notification toasts on SSE task events ──────────────
-// Keeps a snapshot of tasks (id → {agentId, notesCount}) and diffs on
-// each SSE refresh. New task assigned to me → toast. Notes count went
-// up on a task I created or am assigned to → toast.
-let _taskSnapshot = new Map();
-function _refreshTaskSnapshot() {
-  _taskSnapshot = new Map(loadTasks().map(t => [
-    String(t.id),
-    { agentId: String(t.agentId || ''), notesCount: t.notesCount || 0, createdById: String(t.createdById || ''), title: t.title }
-  ]));
-}
-function checkTaskNotifications() {
-  const session = getSession();
-  if (!session) return;
-  const myId = String(session.userId || session.agentId || '');
-  const cur = loadTasks();
-  for (const t of cur) {
-    const id = String(t.id);
-    const prev = _taskSnapshot.get(id);
-    const taskAgent   = String(t.agentId || '');
-    const taskCreator = String(t.createdById || '');
-    const noteCount   = t.notesCount || 0;
-    if (!prev) {
-      if (taskAgent === myId && taskCreator !== myId) {
-        addNotification({ icon: '📋', text: `New task assigned: ${t.title}`, taskId: id });
-      }
-    } else {
-      if (noteCount > prev.notesCount) {
-        const involved = taskAgent === myId || taskCreator === myId;
-        if (involved) {
-          addNotification({ icon: '💬', text: `New reply on: ${t.title}`, taskId: id });
-          markTaskUnread(id);
-        }
-      }
-    }
-  }
-  _refreshTaskSnapshot();
-}
 
 // ─── Notification center ─────────────────────────────────
 // Notifications are kept in sessionStorage (per-tab, per-login) and
@@ -9555,27 +8270,10 @@ function availMeta(v) { return AVAILABILITY_META[v] || AVAILABILITY_META.availab
 
 // ─── One-time data migration ─────────────────────────
 (function migrateTeamData() {
-  // Ensure every agent has an availability field
   const agents = loadAgents();
   let changed = false;
   agents.forEach(a => { if (!a.availability) { a.availability = 'available'; changed = true; } });
   if (changed) saveAgents(agents);
-
-  // Ensure existing task notes have author info (legacy notes default to admin)
-  const tasks = loadTasks();
-  let tChanged = false;
-  tasks.forEach(t => {
-    if (!t.notes) return;
-    t.notes.forEach(n => {
-      if (!n.authorType) {
-        n.authorType = 'admin';
-        n.authorName = 'Admin';
-        n.authorId   = '';
-        tChanged = true;
-      }
-    });
-  });
-  if (tChanged) saveTasks(tasks);
 })();
 
 // ─── Helpers ─────────────────────────────────────────
@@ -9806,145 +8504,6 @@ renderAgentInventory = function() {
   }
 };
 
-// ═══════════════════════════════════════════════════════
-//  TWO-WAY UPDATES MODULE — author labels everywhere
-// ═══════════════════════════════════════════════════════
-
-// Override task-notes render: WhatsApp-style chat with day chips, grouped
-// consecutive messages, time inside the bubble, and per-author colors.
-//
-// Alignment is by IDENTITY (authorId vs current user), not by role —
-// otherwise admin1 and admin2 would both render right-side gold with the
-// same color and you couldn't tell whose reply was whose. Now: the
-// viewer's own messages go right (gold), everyone else goes left, and
-// each non-self author gets a stable color tab + avatar based on a hash
-// of their author id.
-renderNotesList = function(notes) {
-  const list = document.getElementById('taskNotesList');
-  if (!list) return;
-  if (!notes || !notes.length) {
-    list.innerHTML = `<div class="thread-empty">No messages yet — start the conversation below.</div>`;
-    return;
-  }
-  const sess = (typeof getSession === 'function') ? getSession() : null;
-  const myId = sess ? String(sess.userId || sess.agentId || '') : '';
-
-  const sorted = [...notes].sort((a, b) =>
-    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
-  );
-
-  const dayLabel = (iso) => {
-    const d = new Date(iso);
-    if (isNaN(d)) return '';
-    const today = new Date(); today.setHours(0,0,0,0);
-    const yest  = new Date(today); yest.setDate(yest.getDate() - 1);
-    const that  = new Date(d); that.setHours(0,0,0,0);
-    if (that.getTime() === today.getTime()) return 'Today';
-    if (that.getTime() === yest.getTime())  return 'Yesterday';
-    return d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', year: that.getFullYear() === today.getFullYear() ? undefined : '2-digit' });
-  };
-  const timeLabel = (iso) => {
-    const d = new Date(iso);
-    if (isNaN(d)) return '';
-    return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false });
-  };
-
-  // Stable, deterministic color per author id. 8 distinct soft palette
-  // entries; the bubble background and the small accent strip both use
-  // shades from the same swatch.
-  const palette = [
-    { bg:'#e0f2fe', accent:'#0369a1', name:'sky'    },
-    { bg:'#fce7f3', accent:'#9d174d', name:'pink'   },
-    { bg:'#dcfce7', accent:'#166534', name:'green'  },
-    { bg:'#fef3c7', accent:'#92400e', name:'amber'  },
-    { bg:'#ede9fe', accent:'#5b21b6', name:'purple' },
-    { bg:'#ffe4e6', accent:'#9f1239', name:'rose'   },
-    { bg:'#cffafe', accent:'#155e75', name:'cyan'   },
-    { bg:'#fed7aa', accent:'#9a3412', name:'orange' },
-  ];
-  const colorFor = (id) => {
-    let h = 0;
-    const s = String(id || '?');
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-    return palette[Math.abs(h) % palette.length];
-  };
-  const initials = (name) => {
-    const parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
-    return parts.map(p => p[0] || '').join('').toUpperCase() || '?';
-  };
-
-  const out = [];
-  let prevDay = null;
-  let prevAuthorKey = null;
-  for (const n of sorted) {
-    const author  = n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown');
-    const aid     = String(n.authorId || '');
-    const isMine  = !!myId && aid === myId;
-    const side    = isMine ? 'note-mine' : 'note-other';
-    const isAdmin = n.authorType === 'admin';
-    const color   = colorFor(aid || author);
-
-    const day = dayLabel(n.date);
-    if (day && day !== prevDay) {
-      out.push(`<div class="thread-day-chip">${h(day)}</div>`);
-      prevDay = day;
-      prevAuthorKey = null; // reset grouping at day boundary
-    }
-    const authorKey = side + '|' + aid;
-    const grouped = authorKey === prevAuthorKey;
-    prevAuthorKey = authorKey;
-
-    // Per-author colored bubble for EVERYONE — including the viewer's own
-    // messages. Without that the conversation looks monochrome and you
-    // can't tell different speakers apart at a glance. The mine/other
-    // distinction is preserved by alignment (right/left) and by always
-    // showing the author label and timestamp in every bubble.
-    //
-    // Bubble background = per-author soft tint, with a 3px left/right
-    // accent strip in the same author's accent color so consecutive
-    // messages from the same speaker still feel grouped.
-    const accentSide = isMine ? 'border-right' : 'border-left';
-    const bubbleStyle = `style="background:${color.bg}; ${accentSide}:3px solid ${color.accent}; color:#111827;"`;
-    const timeStyle   = `style="color:${color.accent};"`;
-    const authorLabel = !grouped
-      ? `<div class="thread-msg-meta"><span class="thread-msg-author" style="color:${color.accent};">${isAdmin ? '👑 ' : ''}${h(author)}${isMine ? ' · You' : ''}</span></div>`
-      : '';
-    // Avatars on both sides — own avatar on the right, others' on the left.
-    // Spacer for grouped consecutive messages keeps alignment consistent.
-    const avatar = !grouped
-      ? `<div class="thread-avatar" style="background:${color.accent};">${h(initials(author))}</div>`
-      : `<div class="thread-avatar thread-avatar-spacer"></div>`;
-
-    out.push(`
-      <div class="thread-row ${side}${grouped ? ' grouped' : ''}">
-        ${avatar}
-        <div class="thread-msg ${side}${grouped ? ' grouped' : ''}">
-          ${authorLabel}
-          <div class="thread-msg-bubble" ${bubbleStyle}>${h(n.text)}<span class="thread-msg-time" ${timeStyle}>${timeLabel(n.date)}</span></div>
-        </div>
-      </div>`);
-  }
-  list.innerHTML = out.join('');
-  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
-};
-
-// (Legacy submitTaskNote override removed — the API-backed version
-// earlier in this file is now authoritative. Notes persist via
-// POST /api/tasks/:id/notes instead of being pushed onto task.notes,
-// which bodyToDb stripped — that's why replies never propagated.)
-
-// Override openTaskNotes: switch modal title for admin, ensure input is visible
-const _origOpenTaskNotes = openTaskNotes;
-openTaskNotes = function(taskId) {
-  _origOpenTaskNotes(taskId);
-  const titleEl = document.querySelector('#taskNotesOverlay h2');
-  if (titleEl) titleEl.textContent = 'Conversation';
-  const input = document.getElementById('taskNoteInput');
-  if (input) input.placeholder = isAdminUser() ? 'Reply as Admin…' : 'Write an update…';
-  // Ensure the input row is visible for both roles
-  const formGroup = input?.closest('.form-group');
-  if (formGroup) formGroup.style.display = '';
-};
 
 // ─── Lead activities: admin can also reply ─────────
 const _origRenderActivityLog = renderActivityLog;
@@ -10009,7 +8568,6 @@ function adminSubmitLeadActivity() {
   if (document.getElementById('actStage'))     document.getElementById('actStage').value = '';
   if (document.getElementById('actPotential')) document.getElementById('actPotential').value = '';
   renderActivityLog(lead.activities);
-  if (typeof renderLeadsPipeline === 'function') renderLeadsPipeline();
   showToast('Reply posted', 'success');
 }
 
@@ -10034,1111 +8592,6 @@ openLeadDetail = function(id) {
   }
 };
 
-// ═══════════════════════════════════════════════════════
-//  PERFORMANCE METRICS
-// ═══════════════════════════════════════════════════════
-
-let _perfPeriod = 'month'; // 'month' | 'all'
-
-function computeAgentMetrics(agentId, period) {
-  const tasks  = loadTasks().filter(t => t.agentId === agentId);
-  const leads  = loadLeads().filter(l => l.assignedTo === agentId);
-  const subs   = loadPendingProps().filter(p => p.addedByAgent === agentId);
-
-  const tasksInP   = tasks.filter(t => inPeriod(t.updatedAt || t.createdAt, period));
-  const leadsInP   = leads.filter(l => inPeriod(l.updatedAt || l.createdAt, period));
-
-  const tasksDone        = tasksInP.filter(t => t.status === 'done').length;
-  const tasksActive      = tasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
-  const propertiesShown  = tasksInP.filter(t => t.status === 'done' && t.type === 'site-visit').length;
-  const proposalsSent    = leads.reduce((s,l) => s + ((l.activities||[]).filter(a => a.type === 'proposal' && inPeriod(a.date, period)).length), 0);
-  const dealsWon         = leadsInP.filter(l => l.stage === 'won').length;
-  const dealsLost        = leadsInP.filter(l => l.stage === 'lost').length;
-  const totalAssigned    = leadsInP.length;
-  const closedTotal      = dealsWon + dealsLost;
-  const conversion       = closedTotal > 0 ? Math.round((dealsWon / closedTotal) * 100) : 0;
-  const revenueClosed    = leadsInP
-    .filter(l => l.stage === 'won')
-    .reduce((s,l) => s + (Number(String(l.budget || '').replace(/[^\d.]/g,'')) || 0), 0);
-  const submissions      = subs.filter(p => inPeriod(p.submittedAt, period)).length;
-  const submissionsApp   = subs.filter(p => p.status === 'approved' && inPeriod(p.submittedAt, period)).length;
-
-  // Stage distribution (active leads only)
-  const stageDist = {};
-  leads.forEach(l => { if (l.stage !== 'won' && l.stage !== 'lost') stageDist[l.stage] = (stageDist[l.stage] || 0) + 1; });
-
-  return {
-    tasksDone, tasksActive, propertiesShown, proposalsSent,
-    dealsWon, dealsLost, totalAssigned, conversion, revenueClosed,
-    submissions, submissionsApp, stageDist
-  };
-}
-
-function renderLeaderboard() {
-  const wrap = document.getElementById('teamLeaderboardSection');
-  if (!wrap) return;
-  const agents = loadAgents().filter(a => a.active !== false);
-  const rows = agents.map(a => ({ a, m: computeAgentMetrics(a.id, _perfPeriod) }))
-    .sort((x,y) => (y.m.revenueClosed - x.m.revenueClosed) || (y.m.dealsWon - x.m.dealsWon) || (y.m.tasksDone - x.m.tasksDone));
-
-  const periodLbl = _perfPeriod === 'month' ? 'This Month' : 'All Time';
-  const top = rows[0];
-
-  wrap.innerHTML = `
-    <div class="team-section-header">
-      <div>
-        <div class="team-section-title">🏆 Performance Leaderboard</div>
-        <div class="team-section-sub">Ranked by revenue closed · ${periodLbl}</div>
-      </div>
-      <div class="perf-toggle">
-        <button class="perf-btn ${_perfPeriod==='month'?'active':''}" onclick="setPerfPeriod('month')">This Month</button>
-        <button class="perf-btn ${_perfPeriod==='all'?'active':''}" onclick="setPerfPeriod('all')">All Time</button>
-      </div>
-    </div>
-    ${rows.length === 0 ? `<div class="team-empty"><div class="empty-icon">🏆</div><p>No agents yet.</p></div>` : `
-    <div class="leaderboard-table">
-      <div class="lb-head">
-        <span>#</span><span>Agent</span><span>Revenue</span><span>Deals Won</span><span>Conv. %</span><span>Properties Shown</span><span>Proposals</span><span>Tasks Done</span>
-      </div>
-      ${rows.map(({a,m}, i) => `
-        <div class="lb-row${i===0?' lb-top':''}">
-          <span class="lb-rank">${i===0?'👑':'#'+(i+1)}</span>
-          <span class="lb-agent"><span class="lb-avatar">${a.name.charAt(0).toUpperCase()}</span>${h(a.name)}</span>
-          <span class="lb-rev">${m.revenueClosed ? 'AED '+num(m.revenueClosed) : '—'}</span>
-          <span>${m.dealsWon}</span>
-          <span>${m.conversion}%</span>
-          <span>${m.propertiesShown}</span>
-          <span>${m.proposalsSent}</span>
-          <span>${m.tasksDone}</span>
-        </div>`).join('')}
-    </div>`}
-  `;
-}
-
-function setPerfPeriod(p) { _perfPeriod = p; renderLeaderboard(); renderAgentMetricStrips(); }
-
-function renderAgentMetricStrips() {
-  // Inject metric strips below each existing agent card
-  const cards = document.querySelectorAll('#agentsList .agent-card');
-  const agents = loadAgents();
-  cards.forEach(card => {
-    // find the agent by name match (the existing card doesn't carry id) — improved: re-render in one go
-  });
-  // Simpler: rebuild the agents list with metrics included (next render of team)
-}
-
-// ═══════════════════════════════════════════════════════
-//  ACTIVITY TIMELINE (auto-derived)
-// ═══════════════════════════════════════════════════════
-
-function buildTimelineEvents(agentFilter, typeFilter) {
-  const agents = loadAgents();
-  const agentName = (id) => (agents.find(a => a.id === id)?.name) || 'Unassigned';
-  const events = [];
-
-  loadLeads().forEach(l => {
-    if (l.createdAt) events.push({
-      ts: l.createdAt, type: 'lead-created', agentId: l.assignedTo || '',
-      icon: '📥', text: `New lead: ${l.name}${l.company ? ' ('+l.company+')' : ''}`,
-      who: l.assignedTo ? agentName(l.assignedTo) : 'Unassigned'
-    });
-    (l.activities || []).forEach(a => {
-      const at = ACT_TYPES[a.type] || { icon:'📝', label:'Activity' };
-      const isAdmin = a.authorType === 'admin';
-      events.push({
-        ts: a.date, type: 'lead-activity', agentId: isAdmin ? '' : (a.byAgentId || ''),
-        icon: isAdmin ? '👑' : at.icon,
-        text: `${at.label} on lead ${l.name}${a.note ? ' — '+a.note.slice(0,80) : ''}`,
-        who: isAdmin ? 'Admin' : (a.byAgentName || agentName(a.byAgentId))
-      });
-      if (a.stageChanged) events.push({
-        ts: a.date, type: 'lead-stage', agentId: isAdmin ? '' : (a.byAgentId || ''),
-        icon: a.stageChanged === 'won' ? '🏆' : a.stageChanged === 'lost' ? '❌' : '🔁',
-        text: `Lead "${l.name}" → ${(LEAD_STAGES[a.stageChanged]||{label:a.stageChanged}).label}`,
-        who: isAdmin ? 'Admin' : (a.byAgentName || agentName(a.byAgentId))
-      });
-    });
-  });
-
-  loadTasks().forEach(t => {
-    if (t.createdAt) events.push({
-      ts: t.createdAt, type: 'task-created', agentId: t.agentId || '',
-      icon: '📋', text: `Task assigned: ${t.title}`,
-      who: t.agentId ? agentName(t.agentId) : 'Unassigned'
-    });
-    if (t.status === 'done' && t.updatedAt) events.push({
-      ts: t.updatedAt, type: 'task-done', agentId: t.agentId || '',
-      icon: '✅', text: `Task completed: ${t.title}`,
-      who: t.agentId ? agentName(t.agentId) : 'Unassigned'
-    });
-    (t.notes || []).forEach(n => events.push({
-      ts: n.date, type: 'task-note', agentId: n.authorType === 'agent' ? n.authorId : '',
-      icon: n.authorType === 'admin' ? '👑' : '💬',
-      text: `Update on "${t.title}" — ${n.text.slice(0,80)}`,
-      who: n.authorName || (n.authorType === 'admin' ? 'Admin' : 'Unknown')
-    }));
-  });
-
-  loadPendingProps().forEach(p => {
-    if (p.submittedAt) events.push({
-      ts: p.submittedAt, type: 'prop-submitted', agentId: p.addedByAgent || '',
-      icon: '🏗️', text: `Property submitted: ${p.name}`,
-      who: p.addedByAgentName || agentName(p.addedByAgent)
-    });
-  });
-
-  return events
-    .filter(e => e.ts && !isNaN(new Date(e.ts)))
-    .filter(e => !agentFilter || e.agentId === agentFilter)
-    .filter(e => !typeFilter || e.type === typeFilter)
-    .sort((a,b) => new Date(b.ts) - new Date(a.ts));
-}
-
-function renderActivityTimeline() {
-  const wrap = document.getElementById('teamActivityTimeline');
-  if (!wrap) return;
-  const agentFilter = (document.getElementById('timelineAgentFilter')?.value) || '';
-  const typeFilter  = (document.getElementById('timelineTypeFilter')?.value)  || '';
-  const events = buildTimelineEvents(agentFilter, typeFilter).slice(0, 80);
-
-  const today = new Date(); today.setHours(0,0,0,0);
-  const yest  = new Date(today.getTime() - 86400000);
-  const wkAgo = new Date(today.getTime() - 7*86400000);
-
-  const groups = { Today: [], Yesterday: [], 'Earlier this week': [], Older: [] };
-  events.forEach(e => {
-    const d = new Date(e.ts);
-    if      (d >= today)  groups.Today.push(e);
-    else if (d >= yest)   groups.Yesterday.push(e);
-    else if (d >= wkAgo)  groups['Earlier this week'].push(e);
-    else                  groups.Older.push(e);
-  });
-
-  const agents = loadAgents();
-  const agentOpts = agents.map(a => `<option value="${a.id}"${agentFilter===a.id?' selected':''}>${h(a.name)}</option>`).join('');
-
-  wrap.innerHTML = `
-    <div class="team-section-header">
-      <div>
-        <div class="team-section-title">📜 Activity Timeline</div>
-        <div class="team-section-sub">Live feed of everything happening in the team</div>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <select class="filter-select" id="timelineAgentFilter" onchange="renderActivityTimeline()" style="width:160px;">
-          <option value="">All Agents</option>${agentOpts}
-        </select>
-        <select class="filter-select" id="timelineTypeFilter" onchange="renderActivityTimeline()" style="width:160px;">
-          <option value="">All Types</option>
-          <option value="lead-created"${typeFilter==='lead-created'?' selected':''}>Lead Created</option>
-          <option value="lead-activity"${typeFilter==='lead-activity'?' selected':''}>Lead Activity</option>
-          <option value="lead-stage"${typeFilter==='lead-stage'?' selected':''}>Stage Changes</option>
-          <option value="task-created"${typeFilter==='task-created'?' selected':''}>Task Created</option>
-          <option value="task-done"${typeFilter==='task-done'?' selected':''}>Task Done</option>
-          <option value="task-note"${typeFilter==='task-note'?' selected':''}>Task Updates</option>
-          <option value="prop-submitted"${typeFilter==='prop-submitted'?' selected':''}>Property Submitted</option>
-        </select>
-      </div>
-    </div>
-    ${events.length === 0 ? `<div class="team-empty"><div class="empty-icon">📜</div><p>No activity matches your filters.</p></div>` :
-      Object.entries(groups).filter(([,arr]) => arr.length).map(([label, arr]) => `
-        <div class="timeline-group">
-          <div class="timeline-group-label">${label} <span class="timeline-group-count">${arr.length}</span></div>
-          ${arr.map(e => `
-            <div class="timeline-item">
-              <div class="timeline-icon">${e.icon}</div>
-              <div class="timeline-body">
-                <div class="timeline-text">${h(e.text)}</div>
-                <div class="timeline-meta">${h(e.who)} · ${formatDate(e.ts)}</div>
-              </div>
-            </div>`).join('')}
-        </div>`).join('')}
-  `;
-}
-
-// ═══════════════════════════════════════════════════════
-//  SCHEDULE / AVAILABILITY
-// ═══════════════════════════════════════════════════════
-
-function setAgentAvailability(agentId, status) {
-  const agents = loadAgents();
-  const ag = agents.find(a => a.id === agentId);
-  if (!ag) return;
-  ag.availability = status;
-  saveAgents(agents);
-  renderTeamTab();
-  showToast('Availability updated', 'success');
-}
-
-function renderScheduleBoard() {
-  const wrap = document.getElementById('teamScheduleSection');
-  if (!wrap) return;
-  const agents = loadAgents().filter(a => a.active !== false);
-  const leaves = loadLeaves();
-  const today = new Date(); today.setHours(0,0,0,0);
-
-  const isOnLeaveToday = (agentId) => leaves.some(L => {
-    if (L.agentId !== agentId) return false;
-    const s = new Date(L.startDate); s.setHours(0,0,0,0);
-    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
-    return today >= s && today <= e;
-  });
-
-  const upcomingLeaves = leaves
-    .filter(L => new Date(L.endDate) >= today)
-    .sort((a,b) => new Date(a.startDate) - new Date(b.startDate))
-    .slice(0, 10);
-
-  const agentName = (id) => (agents.find(a => a.id === id)?.name) || 'Unknown';
-
-  const statusOpts = Object.entries(AVAILABILITY_META)
-    .map(([k,m]) => `<option value="${k}">${m.icon} ${m.label}</option>`).join('');
-
-  wrap.innerHTML = `
-    <div class="team-section-header">
-      <div>
-        <div class="team-section-title">📅 Today's Schedule</div>
-        <div class="team-section-sub">Who's available, in meetings, on leave</div>
-      </div>
-      <button class="btn-primary" onclick="openLeaveModal()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Leave
-      </button>
-    </div>
-    <div class="schedule-grid">
-      ${agents.length === 0 ? `<div class="team-empty"><div class="empty-icon">👥</div><p>No active agents.</p></div>` :
-        agents.map(a => {
-          const onLeave = isOnLeaveToday(a.id);
-          const status  = onLeave ? 'on_leave' : (a.availability || 'available');
-          const m = availMeta(status);
-          return `
-            <div class="schedule-card">
-              <div class="schedule-card-top">
-                <span class="schedule-avatar">${a.name.charAt(0).toUpperCase()}</span>
-                <div style="flex:1;min-width:0;">
-                  <div class="schedule-name">${h(a.name)}</div>
-                  <div class="schedule-status ${m.cls}">${m.icon} ${m.label}</div>
-                </div>
-              </div>
-              ${!onLeave ? `
-              <select class="schedule-status-select" onchange="setAgentAvailability('${a.id}', this.value)">
-                ${Object.entries(AVAILABILITY_META).filter(([k]) => k !== 'on_leave').map(([k,mm]) =>
-                  `<option value="${k}"${(a.availability||'available')===k?' selected':''}>${mm.icon} ${mm.label}</option>`
-                ).join('')}
-              </select>` : '<div class="schedule-onleave-note">On leave today</div>'}
-            </div>`;
-        }).join('')}
-    </div>
-    ${upcomingLeaves.length ? `
-    <div class="leaves-section">
-      <div class="leaves-section-title">🌴 Upcoming Leaves</div>
-      <div class="leaves-list">
-        ${upcomingLeaves.map(L => `
-          <div class="leave-item">
-            <div class="leave-item-avatar">${(agentName(L.agentId)||'?').charAt(0).toUpperCase()}</div>
-            <div class="leave-item-body">
-              <div class="leave-item-name">${h(agentName(L.agentId))}</div>
-              <div class="leave-item-dates">${fmtDate(L.startDate)} → ${fmtDate(L.endDate)}${L.reason ? ' · '+h(L.reason) : ''}</div>
-            </div>
-            <button class="btn-icon-sm btn-danger-sm" onclick="deleteLeave('${L.id}')" title="Delete leave">🗑️</button>
-          </div>`).join('')}
-      </div>
-    </div>` : ''}
-  `;
-  // Suppress unused arg
-  void statusOpts;
-}
-
-function openLeaveModal() {
-  const agents = loadAgents().filter(a => a.active !== false);
-  const sel = document.getElementById('leaveAgent');
-  if (!sel) return;
-  sel.innerHTML = agents.map(a => `<option value="${a.id}">${h(a.name)}</option>`).join('');
-  document.getElementById('leaveStart').value  = '';
-  document.getElementById('leaveEnd').value    = '';
-  document.getElementById('leaveReason').value = '';
-  document.getElementById('leaveModalOverlay').classList.add('active');
-}
-function closeLeaveModal() { document.getElementById('leaveModalOverlay').classList.remove('active'); }
-
-function saveLeave() {
-  const agentId = document.getElementById('leaveAgent').value;
-  const start   = document.getElementById('leaveStart').value;
-  const end     = document.getElementById('leaveEnd').value;
-  const reason  = document.getElementById('leaveReason').value.trim();
-  if (!agentId) { showToast('Pick an agent', 'error'); return; }
-  if (!start || !end) { showToast('Both dates required', 'error'); return; }
-  if (new Date(end) < new Date(start)) { showToast('End date must be after start', 'error'); return; }
-  const leaves = loadLeaves();
-  leaves.push({ id: 'lv_' + uid(), agentId, startDate: start, endDate: end, reason, createdAt: new Date().toISOString() });
-  saveLeaves(leaves);
-  closeLeaveModal();
-  showToast('Leave added', 'success');
-  renderTeamTab();
-}
-
-function deleteLeave(id) {
-  if (!confirm('Delete this leave entry?')) return;
-  saveLeaves(loadLeaves().filter(L => L.id !== id));
-  renderTeamTab();
-  showToast('Leave deleted', 'success');
-}
-
-// ═══════════════════════════════════════════════════════
-//  INTERNAL ANNOUNCEMENTS
-// ═══════════════════════════════════════════════════════
-
-function renderAdminAnnouncements() {
-  const wrap = document.getElementById('teamAnnouncementsSection');
-  if (!wrap) return;
-  const items = loadAnnouncements()
-    .sort((a,b) => (b.pinned?1:0) - (a.pinned?1:0) || new Date(b.createdAt) - new Date(a.createdAt));
-  const agents = loadAgents().filter(a => a.active !== false);
-
-  wrap.innerHTML = `
-    <div class="team-section-header">
-      <div>
-        <div class="team-section-title">📢 Announcements</div>
-        <div class="team-section-sub">Broadcast messages to all agents</div>
-      </div>
-      <button class="btn-primary" onclick="openAnnouncementModal()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        New Announcement
-      </button>
-    </div>
-    ${items.length === 0 ? `<div class="team-empty"><div class="empty-icon">📢</div><p>No announcements yet. Post something to keep the team informed.</p></div>` : `
-    <div class="announce-list">
-      ${items.map(an => {
-        const expired = an.expiresAt && new Date(an.expiresAt) < new Date();
-        const readCount = (an.readBy || []).length;
-        const total = agents.length;
-        return `
-          <div class="announce-item${an.pinned ? ' announce-pinned' : ''}${expired ? ' announce-expired' : ''}">
-            <div class="announce-head">
-              <div class="announce-title-wrap">
-                ${an.pinned ? '<span class="announce-pin-chip">📌 Pinned</span>' : ''}
-                ${expired ? '<span class="announce-exp-chip">Expired</span>' : ''}
-                <div class="announce-title">${h(an.title)}</div>
-              </div>
-              <div class="announce-actions">
-                <button class="btn-icon-sm" onclick="openAnnouncementModal('${an.id}')" title="Edit">✏️</button>
-                <button class="btn-icon-sm btn-danger-sm" onclick="deleteAnnouncement('${an.id}')" title="Delete">🗑️</button>
-              </div>
-            </div>
-            <div class="announce-body">${h(an.body)}</div>
-            <div class="announce-meta">
-              <span>📅 ${formatDate(an.createdAt)}</span>
-              ${an.expiresAt ? `<span>⏳ Expires ${fmtDate(an.expiresAt)}</span>` : ''}
-              <span>👁️ Read by ${readCount}/${total}</span>
-            </div>
-          </div>`;
-      }).join('')}
-    </div>`}
-  `;
-}
-
-function openAnnouncementModal(id) {
-  const items = loadAnnouncements();
-  const a = id ? items.find(x => x.id === id) : null;
-  document.getElementById('announceModalTitle').textContent = a ? 'Edit Announcement' : 'New Announcement';
-  document.getElementById('announceId').value     = a ? a.id : '';
-  document.getElementById('announceTitle').value  = a ? a.title : '';
-  document.getElementById('announceBody').value   = a ? a.body  : '';
-  document.getElementById('announcePinned').checked = a ? !!a.pinned : false;
-  document.getElementById('announceExpiresAt').value = a ? (a.expiresAt || '') : '';
-  document.getElementById('announceModalOverlay').classList.add('active');
-}
-function closeAnnouncementModal() { document.getElementById('announceModalOverlay').classList.remove('active'); }
-
-function saveAnnouncement() {
-  const id        = document.getElementById('announceId').value;
-  const title     = document.getElementById('announceTitle').value.trim();
-  const body      = document.getElementById('announceBody').value.trim();
-  const pinned    = document.getElementById('announcePinned').checked;
-  const expiresAt = document.getElementById('announceExpiresAt').value;
-  if (!title) { showToast('Title is required', 'error'); return; }
-  if (!body)  { showToast('Body is required', 'error');  return; }
-  const items = loadAnnouncements();
-  if (id) {
-    const idx = items.findIndex(x => x.id === id);
-    if (idx > -1) items[idx] = { ...items[idx], title, body, pinned, expiresAt };
-  } else {
-    items.unshift({
-      id: 'ann_' + uid(), title, body, pinned, expiresAt,
-      createdAt: new Date().toISOString(),
-      readBy: []
-    });
-  }
-  saveAnnouncements(items);
-  closeAnnouncementModal();
-  showToast('Announcement saved', 'success');
-  renderTeamTab();
-}
-
-function deleteAnnouncement(id) {
-  if (!confirm('Delete this announcement?')) return;
-  saveAnnouncements(loadAnnouncements().filter(a => a.id !== id));
-  renderTeamTab();
-  showToast('Announcement deleted', 'success');
-}
-
-function dismissAnnouncementForAgent(id) {
-  const sess = getSession();
-  if (!sess || sess.type !== 'agent') return;
-  const items = loadAnnouncements();
-  const a = items.find(x => x.id === id);
-  if (!a) return;
-  if (!a.readBy) a.readBy = [];
-  if (!a.readBy.includes(sess.agentId)) a.readBy.push(sess.agentId);
-  saveAnnouncements(items);
-  renderAgentAnnouncementBanner();
-}
-
-function renderAgentAnnouncementBanner() {
-  const sess = getSession();
-  if (!sess || sess.type !== 'agent') return;
-  const wrap = document.getElementById('agentAnnouncementBanner');
-  if (!wrap) return;
-  const now = new Date();
-  const items = loadAnnouncements()
-    .filter(a => !a.expiresAt || new Date(a.expiresAt) >= now)
-    .filter(a => !(a.readBy || []).includes(sess.agentId))
-    .sort((a,b) => (b.pinned?1:0) - (a.pinned?1:0) || new Date(b.createdAt) - new Date(a.createdAt));
-  if (!items.length) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
-  wrap.style.display = '';
-  wrap.innerHTML = items.map(a => `
-    <div class="agent-announce-card${a.pinned?' agent-announce-pinned':''}">
-      <div class="agent-announce-icon">${a.pinned?'📌':'📢'}</div>
-      <div class="agent-announce-body">
-        <div class="agent-announce-title">${h(a.title)}</div>
-        <div class="agent-announce-text">${h(a.body)}</div>
-        <div class="agent-announce-meta">${formatDate(a.createdAt)}</div>
-      </div>
-      <button class="agent-announce-dismiss" onclick="dismissAnnouncementForAgent('${a.id}')" title="Mark as read">✓</button>
-    </div>`).join('');
-}
-
-// ═══════════════════════════════════════════════════════
-//  TEAM PAGE — inject new sections + agent metric strips
-// ═══════════════════════════════════════════════════════
-
-// ─── Sub-tab system on Team page ─────────────────────
-let _currentTeamSubTab = 'overview';
-
-const TEAM_SUBTABS = [
-  { id:'overview',    label:'Overview',     icon:'📊' },
-  { id:'performance', label:'Performance',  icon:'🏆' },
-  { id:'tasks',       label:'Tasks',        icon:'📋' },
-  { id:'agents',      label:'Agents',       icon:'👥' },
-  { id:'tasksgiven',  label:'Tasks Given',  icon:'✅' },
-  { id:'leads',       label:'Leads',        icon:'🎯' }
-];
-
-// Map every section to a sub-tab. Sections rendered if value matches active tab.
-const TEAM_SECTION_TABS = {
-  teamOverviewSection:      'overview',
-  teamLeaderboardSection:   'performance',
-  teamActivityTimeline:     'performance',
-  teamScheduleSection:      'tasks',
-  teamAnnouncementsSection: 'tasks',
-  pendingPropsSection:      'tasks',
-  teamAgentsSection:        'agents',
-  teamTasksSection:         'tasksgiven',
-  teamLeadsSection:         'leads',
-  teamMeetingsSection:      'leads'
-};
-
-function ensureTeamSections() {
-  const teamPage = document.querySelector('#teamView .team-page');
-  if (!teamPage) return;
-
-  // 1) Wrap existing content in a content area + add a left sub-nav
-  let content = document.getElementById('teamContent');
-  let nav     = document.getElementById('teamSubTabNav');
-
-  if (!nav) {
-    nav = document.createElement('aside');
-    nav.id = 'teamSubTabNav';
-    nav.className = 'team-subnav';
-    nav.innerHTML = `
-      <div class="team-subnav-label">Team Module</div>
-      ${TEAM_SUBTABS.map(t => `
-        <button class="team-subnav-btn${_currentTeamSubTab===t.id?' active':''}" data-tab="${t.id}" onclick="setTeamSubTab('${t.id}')">
-          <span class="team-subnav-icon">${t.icon}</span>
-          <span class="team-subnav-label-text">${t.label}</span>
-        </button>`).join('')}
-    `;
-  }
-
-  if (!content) {
-    content = document.createElement('div');
-    content.id = 'teamContent';
-    content.className = 'team-content';
-    // Move every existing direct child (the .team-section blocks) into the content wrapper
-    Array.from(teamPage.children).forEach(child => {
-      if (child === nav) return;
-      content.appendChild(child);
-    });
-    teamPage.appendChild(nav);
-    teamPage.appendChild(content);
-  }
-
-  // 2) Ensure all dynamic sections exist (inside content)
-  const dyn = ['teamOverviewSection','teamLeaderboardSection','teamScheduleSection','teamAnnouncementsSection','teamActivityTimeline','teamMeetingsSection'];
-  dyn.forEach(id => {
-    if (document.getElementById(id)) return;
-    const div = document.createElement('div');
-    div.id = id;
-    div.className = 'team-section';
-    content.appendChild(div);
-  });
-
-  // 3) Tag every section with its sub-tab so visibility can be filtered
-  Object.entries(TEAM_SECTION_TABS).forEach(([id, tab]) => {
-    const el = document.getElementById(id);
-    if (el) el.dataset.teamTab = tab;
-  });
-
-  // 4) Apply visibility for the current sub-tab
-  applyTeamSubTab();
-}
-
-function setTeamSubTab(tab) {
-  _currentTeamSubTab = tab;
-  // Update nav button active state
-  const nav = document.getElementById('teamSubTabNav');
-  if (nav) {
-    nav.querySelectorAll('.team-subnav-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.tab === tab);
-    });
-  }
-  applyTeamSubTab();
-  if (tab === 'overview') renderTeamOverview();
-}
-
-function applyTeamSubTab() {
-  const teamPage = document.querySelector('#teamView .team-page');
-  if (!teamPage) return;
-  teamPage.querySelectorAll('[data-team-tab]').forEach(el => {
-    el.style.display = (el.dataset.teamTab === _currentTeamSubTab) ? '' : 'none';
-  });
-}
-
-// ─── Overview tab content ───────────────────────────
-function renderTeamOverview() {
-  const wrap = document.getElementById('teamOverviewSection');
-  if (!wrap) return;
-
-  const agents = loadAgents().filter(a => a.active !== false);
-  const leaves = loadLeaves();
-  const today = new Date(); today.setHours(0,0,0,0);
-
-  const onLeaveCount = agents.filter(a => leaves.some(L => {
-    if (L.agentId !== a.id) return false;
-    const s = new Date(L.startDate); s.setHours(0,0,0,0);
-    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
-    return today >= s && today <= e;
-  })).length;
-  const availableCount = agents.length - onLeaveCount;
-
-  const allLeads = loadLeads();
-  const activeLeads = allLeads.filter(l => l.stage !== 'won' && l.stage !== 'lost').length;
-
-  // Aggregate metrics for the team this month
-  const monthMetrics = agents.map(a => computeAgentMetrics(a.id, 'month'));
-  const dealsMonth     = monthMetrics.reduce((s,m) => s + m.dealsWon, 0);
-  const revenueMonth   = monthMetrics.reduce((s,m) => s + m.revenueClosed, 0);
-  const proposalsMonth = monthMetrics.reduce((s,m) => s + m.proposalsSent, 0);
-
-  // Top 3 leaderboard
-  const ranked = agents.map(a => ({ a, m: computeAgentMetrics(a.id, 'month') }))
-    .sort((x,y) => (y.m.revenueClosed - x.m.revenueClosed) || (y.m.dealsWon - x.m.dealsWon) || (y.m.tasksDone - x.m.tasksDone))
-    .slice(0, 3);
-
-  // Today's status snapshot
-  const onLeaveAgents = agents.filter(a => leaves.some(L => {
-    if (L.agentId !== a.id) return false;
-    const s = new Date(L.startDate); s.setHours(0,0,0,0);
-    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
-    return today >= s && today <= e;
-  }));
-  const inMeetingAgents = agents.filter(a => a.availability === 'in_meeting' && !onLeaveAgents.includes(a));
-  const atViewingAgents = agents.filter(a => a.availability === 'at_viewing' && !onLeaveAgents.includes(a));
-
-  // Latest 3 announcements
-  const items = loadAnnouncements()
-    .filter(a => !a.expiresAt || new Date(a.expiresAt) >= new Date())
-    .sort((a,b) => (b.pinned?1:0) - (a.pinned?1:0) || new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 3);
-
-  // Recent activity
-  const recent = buildTimelineEvents('', '').slice(0, 5);
-
-  // Pending submissions count
-  const pendingSubs = loadPendingProps().filter(p => p.status === 'pending').length;
-
-  wrap.innerHTML = `
-    <!-- KPI strip -->
-    <div class="overview-kpi-strip">
-      <div class="okpi"><div class="okpi-num">${agents.length}</div><div class="okpi-lbl">Active Agents</div></div>
-      <div class="okpi"><div class="okpi-num">${availableCount}</div><div class="okpi-lbl">Available Today</div></div>
-      <div class="okpi"><div class="okpi-num">${activeLeads}</div><div class="okpi-lbl">Active Leads</div></div>
-      <div class="okpi"><div class="okpi-num">${(() => {
-        const start = new Date(); start.setHours(0,0,0,0);
-        const end = new Date(start); end.setDate(end.getDate() + 7);
-        return loadMeetings().filter(m => {
-          if (m.status !== 'scheduled') return false;
-          if (!m.date) return false;
-          const d = new Date(m.date); return d >= start && d <= end;
-        }).length;
-      })()}</div><div class="okpi-lbl">Meetings (7 days)</div></div>
-      <div class="okpi"><div class="okpi-num">${dealsMonth}</div><div class="okpi-lbl">Deals (Month)</div></div>
-      <div class="okpi"><div class="okpi-num">${revenueMonth ? 'AED '+num(revenueMonth) : '—'}</div><div class="okpi-lbl">Revenue (Month)</div></div>
-    </div>
-
-    <!-- Quick actions -->
-    <div class="overview-quick-actions">
-      <button class="qaction" onclick="openAgentModal()">👤 Add Agent</button>
-      <button class="qaction" onclick="openTaskModal()">📋 Assign Task</button>
-      <button class="qaction" onclick="openLeadModal()">🎯 Add Lead</button>
-      <button class="qaction" onclick="openAnnouncementModal()">📢 Announcement</button>
-      <button class="qaction" onclick="openLeaveModal()">🌴 Add Leave</button>
-    </div>
-
-    <!-- 2-col layout -->
-    <div class="overview-grid">
-
-      <!-- Top performers -->
-      <div class="overview-card">
-        <div class="overview-card-head">
-          <div class="overview-card-title">🏆 Top Performers — This Month</div>
-          <button class="btn-link" onclick="setTeamSubTab('performance')">View all →</button>
-        </div>
-        ${ranked.length === 0 ? '<div class="overview-empty">No agents yet.</div>' : `
-        <div class="overview-podium">
-          ${ranked.map(({a,m}, i) => `
-            <div class="podium-row podium-${i+1}">
-              <span class="podium-rank">${i===0?'👑':'#'+(i+1)}</span>
-              <span class="podium-avatar">${a.name.charAt(0).toUpperCase()}</span>
-              <div class="podium-body">
-                <div class="podium-name">${h(a.name)}</div>
-                <div class="podium-stats">${m.dealsWon} won · ${m.conversion}% conv · ${m.revenueClosed?'AED '+num(m.revenueClosed):'—'}</div>
-              </div>
-            </div>`).join('')}
-        </div>`}
-      </div>
-
-      <!-- Today's status -->
-      <div class="overview-card">
-        <div class="overview-card-head">
-          <div class="overview-card-title">📅 Today</div>
-          <button class="btn-link" onclick="setTeamSubTab('tasks')">Manage →</button>
-        </div>
-        ${onLeaveAgents.length === 0 && inMeetingAgents.length === 0 && atViewingAgents.length === 0 ? `
-          <div class="overview-empty">Everyone available — no meetings, leaves, or viewings logged.</div>
-        ` : `
-          ${onLeaveAgents.length ? `<div class="status-bucket"><span class="status-bucket-label">🌴 On leave</span><span class="status-bucket-names">${onLeaveAgents.map(a => h(a.name)).join(', ')}</span></div>` : ''}
-          ${inMeetingAgents.length ? `<div class="status-bucket"><span class="status-bucket-label">🟡 In meeting</span><span class="status-bucket-names">${inMeetingAgents.map(a => h(a.name)).join(', ')}</span></div>` : ''}
-          ${atViewingAgents.length ? `<div class="status-bucket"><span class="status-bucket-label">🏗️ At viewing</span><span class="status-bucket-names">${atViewingAgents.map(a => h(a.name)).join(', ')}</span></div>` : ''}
-        `}
-      </div>
-
-      <!-- Announcements snapshot -->
-      <div class="overview-card">
-        <div class="overview-card-head">
-          <div class="overview-card-title">📢 Latest Announcements</div>
-          <button class="btn-link" onclick="setTeamSubTab('tasks')">All →</button>
-        </div>
-        ${items.length === 0 ? '<div class="overview-empty">No active announcements.</div>' : `
-        <div class="overview-announce-list">
-          ${items.map(a => `
-            <div class="overview-announce-row${a.pinned?' overview-announce-pinned':''}">
-              ${a.pinned ? '<span class="overview-announce-pin">📌</span>' : ''}
-              <div>
-                <div class="overview-announce-title">${h(a.title)}</div>
-                <div class="overview-announce-meta">${formatDate(a.createdAt)} · ${(a.readBy||[]).length}/${agents.length} read</div>
-              </div>
-            </div>`).join('')}
-        </div>`}
-      </div>
-
-      <!-- Recent activity -->
-      <div class="overview-card">
-        <div class="overview-card-head">
-          <div class="overview-card-title">📜 Recent Activity</div>
-          <button class="btn-link" onclick="setTeamSubTab('performance')">Full feed →</button>
-        </div>
-        ${recent.length === 0 ? '<div class="overview-empty">No recent activity.</div>' : `
-        <div class="overview-activity-list">
-          ${recent.map(e => `
-            <div class="overview-activity-row">
-              <span class="overview-activity-icon">${e.icon}</span>
-              <div>
-                <div class="overview-activity-text">${h(e.text)}</div>
-                <div class="overview-activity-meta">${h(e.who)} · ${formatDate(e.ts)}</div>
-              </div>
-            </div>`).join('')}
-        </div>`}
-      </div>
-
-    </div>
-
-    ${pendingSubs > 0 ? `
-    <div class="overview-pending-callout" onclick="setTeamSubTab('tasks')">
-      <span>⚠️</span>
-      <div>
-        <div class="overview-pending-title">${pendingSubs} property submission${pendingSubs===1?'':'s'} awaiting your review</div>
-        <div class="overview-pending-sub">Click to review in Operations</div>
-      </div>
-      <span style="margin-left:auto;">→</span>
-    </div>` : ''}
-
-    <!-- Counts summary at the bottom -->
-    <div class="overview-summary-row">
-      <span>${proposalsMonth} proposals sent this month</span>
-      <span>${pendingSubs} pending submission${pendingSubs===1?'':'s'}</span>
-    </div>
-  `;
-}
-
-// Append metric strip to each agent card after the existing render
-function decorateAgentCardsWithMetrics() {
-  const agents = loadAgents();
-  const list = document.getElementById('agentsList');
-  if (!list) return;
-  const cards = list.querySelectorAll('.agent-card');
-  cards.forEach(card => {
-    if (card.querySelector('.agent-metric-strip')) return; // already decorated
-    // Match agent by username chip (`@username`)
-    const userChip = card.querySelector('.agent-stat:last-of-type');
-    const uname = (userChip?.textContent || '').replace(/^@/, '').trim();
-    const ag = agents.find(a => a.username === uname);
-    if (!ag) return;
-    const m = computeAgentMetrics(ag.id, _perfPeriod);
-    const av = availMeta(ag.availability || 'available');
-
-    const strip = document.createElement('div');
-    strip.className = 'agent-metric-strip';
-    strip.innerHTML = `
-      <span class="agent-availability ${av.cls}">${av.icon} ${av.label}</span>
-      <span class="agent-metric"><strong>${m.dealsWon}</strong> won</span>
-      <span class="agent-metric"><strong>${m.conversion}%</strong> conv.</span>
-      <span class="agent-metric"><strong>${m.propertiesShown}</strong> shown</span>
-      <span class="agent-metric"><strong>${m.proposalsSent}</strong> proposals</span>
-      <span class="agent-metric agent-metric-rev"><strong>${m.revenueClosed ? 'AED '+num(m.revenueClosed) : '—'}</strong> revenue</span>
-    `;
-    const body = card.querySelector('.agent-card-body');
-    if (body) body.appendChild(strip);
-  });
-}
-
-// Override the previously-overridden renderTeamTab to inject the new sections
-const _origRenderTeamTab2 = renderTeamTab;
-renderTeamTab = function() {
-  ensureTeamSections();
-  _origRenderTeamTab2();
-  renderTeamOverview();
-  renderLeaderboard();
-  renderScheduleBoard();
-  renderAdminAnnouncements();
-  renderActivityTimeline();
-  renderAdminMeetings();
-  decorateAgentCardsWithMetrics();
-};
-
-// Admin view of all meetings & viewings across agents
-function renderAdminMeetings() {
-  const wrap = document.getElementById('teamMeetingsSection');
-  if (!wrap) return;
-  const agents = loadAgents();
-  const leads  = loadLeads();
-  const props  = loadProps();
-  let items = loadMeetings();
-
-  const agentF  = (document.getElementById('mtgAdminAgent')?.value)  || '';
-  const typeF   = (document.getElementById('mtgAdminType')?.value)   || '';
-  const statusF = (document.getElementById('mtgAdminStatus')?.value) || '';
-  if (agentF)  items = items.filter(m => m.agentId === agentF);
-  if (typeF)   items = items.filter(m => m.type   === typeF);
-  if (statusF) items = items.filter(m => m.status === statusF);
-  items = items.sort((a,b) => {
-    const ad = new Date((a.date||'') + 'T' + (a.time||'00:00'));
-    const bd = new Date((b.date||'') + 'T' + (b.time||'00:00'));
-    return bd - ad;
-  });
-
-  const counts = {
-    total: items.length,
-    scheduled: items.filter(m => m.status === 'scheduled').length,
-    completed: items.filter(m => m.status === 'completed').length,
-    photos:    items.reduce((s,m) => s + (m.photos?.length || 0), 0)
-  };
-
-  const agentName = id => (agents.find(a => a.id === id)?.name) || 'Unknown';
-
-  wrap.innerHTML = `
-    <div class="team-section-header">
-      <div>
-        <div class="team-section-title">📅 Meetings &amp; Viewings</div>
-        <div class="team-section-sub">All client meetings &amp; property viewings logged by your team</div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <select class="filter-select" id="mtgAdminAgent" onchange="renderAdminMeetings()" style="width:160px;">
-          <option value="">All Agents</option>
-          ${agents.map(a => `<option value="${a.id}"${agentF===a.id?' selected':''}>${h(a.name)}</option>`).join('')}
-        </select>
-        <select class="filter-select" id="mtgAdminType" onchange="renderAdminMeetings()" style="width:150px;">
-          <option value="">All Types</option>
-          <option value="meeting"${typeF==='meeting'?' selected':''}>🤝 Meeting</option>
-          <option value="viewing"${typeF==='viewing'?' selected':''}>🏗️ Viewing</option>
-        </select>
-        <select class="filter-select" id="mtgAdminStatus" onchange="renderAdminMeetings()" style="width:160px;">
-          <option value="">All Statuses</option>
-          <option value="scheduled"${statusF==='scheduled'?' selected':''}>⏰ Scheduled</option>
-          <option value="completed"${statusF==='completed'?' selected':''}>✅ Completed</option>
-          <option value="cancelled"${statusF==='cancelled'?' selected':''}>❌ Cancelled</option>
-          <option value="noshow"${statusF==='noshow'?' selected':''}>🚫 No-show</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="mtg-stat-row">
-      <span class="mtg-stat-chip">📅 ${counts.total} total</span>
-      <span class="mtg-stat-chip mtg-stat-blue">⏰ ${counts.scheduled} scheduled</span>
-      <span class="mtg-stat-chip mtg-stat-green">✅ ${counts.completed} completed</span>
-      <span class="mtg-stat-chip">📷 ${counts.photos} photo${counts.photos===1?'':'s'}</span>
-    </div>
-
-    ${items.length === 0 ? `
-      <div class="team-empty"><div class="empty-icon">📅</div><p>No meetings logged${agentF||typeF||statusF?' with these filters':''}.</p></div>
-    ` : `
-      <div class="mtg-admin-table">
-        <div class="mtg-row mtg-head">
-          <span>Date / Time</span>
-          <span>Type</span>
-          <span>Agent</span>
-          <span>Lead / Property</span>
-          <span>Location</span>
-          <span>Status</span>
-          <span>Photos</span>
-        </div>
-        ${items.map(m => {
-          const tm   = MTG_TYPE_META[m.type]   || MTG_TYPE_META.meeting;
-          const sm   = MTG_STATUS_META[m.status] || MTG_STATUS_META.scheduled;
-          const lead = m.leadId ? leads.find(l => l.id === m.leadId) : null;
-          const prop = m.propId ? props.find(p => p.id === m.propId) : null;
-          return `
-          <div class="mtg-row" onclick="openMeetingModal('${m.id}')">
-            <span>${m.date ? fmtDate(m.date) : '—'}${m.time ? `<span class="mtg-sub">${m.time}</span>` : ''}</span>
-            <span>${tm.icon} ${tm.label}</span>
-            <span>${h(m.agentName || agentName(m.agentId))}</span>
-            <span>${lead ? h(lead.name) : '—'}${prop ? `<span class="mtg-sub">🏗️ ${h(prop.name)}</span>` : (lead && lead.company ? `<span class="mtg-sub">${h(lead.company)}</span>` : '')}</span>
-            <span>${m.location ? h(m.location) : '—'}</span>
-            <span><span class="meeting-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span></span>
-            <span>${(m.photos?.length || 0)}</span>
-          </div>`;
-        }).join('')}
-      </div>
-    `}
-  `;
-}
-
-// Override agent overview to render announcement banner
-const _origRenderAgentOverview = renderAgentOverview;
-renderAgentOverview = function() {
-  _origRenderAgentOverview();
-  ensureAgentAnnouncementBanner();
-  renderAgentAnnouncementBanner();
-};
-
-function ensureAgentAnnouncementBanner() {
-  if (document.getElementById('agentAnnouncementBanner')) return;
-  const overview = document.getElementById('agentTabOverview');
-  const welcome  = document.getElementById('agentWelcome');
-  if (!overview || !welcome) return;
-  const wrap = document.createElement('div');
-  wrap.id = 'agentAnnouncementBanner';
-  wrap.className = 'agent-announcement-banner';
-  // Insert right after the welcome card
-  welcome.insertAdjacentElement('afterend', wrap);
-}
-
-// ═══════════════════════════════════════════════════════
-//  AGENT DASHBOARD — personal performance + leaderboard rank
-// ═══════════════════════════════════════════════════════
-
-function ensureAgentDashboardPanel() {
-  if (document.getElementById('agentDashboardPanel')) return;
-  const stats = document.getElementById('agentStats');
-  if (!stats) return;
-  const panel = document.createElement('div');
-  panel.id = 'agentDashboardPanel';
-  panel.className = 'agent-dashboard-panel';
-  // Insert right after the stats bar so it sits above wins/tasks/leads
-  stats.insertAdjacentElement('afterend', panel);
-}
-
-function renderAgentDashboardPanel() {
-  const sess = getSession();
-  if (!sess || sess.type !== 'agent') return;
-  const panel = document.getElementById('agentDashboardPanel');
-  if (!panel) return;
-
-  const allAgents = loadAgents().filter(a => a.active !== false);
-  const me        = allAgents.find(a => a.id === sess.agentId) || {};
-  const meM       = computeAgentMetrics(sess.agentId, 'month');
-  const meAll     = computeAgentMetrics(sess.agentId, 'all');
-
-  // Leaderboard rank for this month
-  const ranked = allAgents
-    .map(a => ({ a, m: computeAgentMetrics(a.id, 'month') }))
-    .sort((x,y) => (y.m.revenueClosed - x.m.revenueClosed) || (y.m.dealsWon - x.m.dealsWon) || (y.m.tasksDone - x.m.tasksDone));
-  const myRank = ranked.findIndex(r => r.a.id === sess.agentId) + 1;
-  const totalRanked = ranked.length;
-
-  // Today's status (with on-leave check)
-  const leaves = loadLeaves();
-  const today = new Date(); today.setHours(0,0,0,0);
-  const onLeaveToday = leaves.some(L => {
-    if (L.agentId !== sess.agentId) return false;
-    const s = new Date(L.startDate); s.setHours(0,0,0,0);
-    const e = new Date(L.endDate);   e.setHours(0,0,0,0);
-    return today >= s && today <= e;
-  });
-  const status = onLeaveToday ? 'on_leave' : (me.availability || 'available');
-  const av = availMeta(status);
-
-  // Upcoming personal leaves
-  const myUpcomingLeaves = leaves
-    .filter(L => L.agentId === sess.agentId && new Date(L.endDate) >= today)
-    .sort((a,b) => new Date(a.startDate) - new Date(b.startDate))
-    .slice(0, 3);
-
-  // Pipeline distribution (active leads only)
-  const myLeads = loadLeads().filter(l => l.assignedTo === sess.agentId);
-  const pipeline = ['new','contacted','meeting','qualified','proposal','negotiation']
-    .map(stage => ({ stage, label: LEAD_STAGES[stage].label, icon: LEAD_STAGES[stage].icon, count: myLeads.filter(l => l.stage === stage).length }));
-  const pipelineMax = Math.max(1, ...pipeline.map(p => p.count));
-
-  // Overdue tasks count
-  const overdueTasks = loadTasks().filter(t =>
-    t.agentId === sess.agentId &&
-    t.deadline && t.status !== 'done' && t.status !== 'cancelled' &&
-    new Date(t.deadline) < new Date()
-  ).length;
-
-  // Rank chip color
-  const rankIcon = myRank === 1 ? '👑' : myRank === 2 ? '🥈' : myRank === 3 ? '🥉' : '🎖️';
-
-  panel.innerHTML = `
-    <div class="dash-grid">
-
-      <!-- Performance card -->
-      <div class="dash-card dash-card-perf">
-        <div class="dash-card-head">
-          <div class="dash-card-title">📊 My Performance</div>
-          <span class="dash-period">This Month</span>
-        </div>
-        <div class="dash-metrics">
-          <div class="dash-metric">
-            <div class="dash-metric-num">${meM.dealsWon}</div>
-            <div class="dash-metric-lbl">Deals Won</div>
-          </div>
-          <div class="dash-metric">
-            <div class="dash-metric-num">${meM.conversion}%</div>
-            <div class="dash-metric-lbl">Conversion</div>
-          </div>
-          <div class="dash-metric">
-            <div class="dash-metric-num">${meM.propertiesShown}</div>
-            <div class="dash-metric-lbl">Properties Shown</div>
-          </div>
-          <div class="dash-metric">
-            <div class="dash-metric-num">${meM.proposalsSent}</div>
-            <div class="dash-metric-lbl">Proposals Sent</div>
-          </div>
-          <div class="dash-metric dash-metric-rev">
-            <div class="dash-metric-num">${meM.revenueClosed ? 'AED '+num(meM.revenueClosed) : '—'}</div>
-            <div class="dash-metric-lbl">Revenue Closed</div>
-          </div>
-          <div class="dash-metric">
-            <div class="dash-metric-num">${meM.tasksDone}</div>
-            <div class="dash-metric-lbl">Tasks Done</div>
-          </div>
-        </div>
-        <div class="dash-alltime">
-          <span>All time:</span>
-          <span><strong>${meAll.dealsWon}</strong> won</span>
-          <span><strong>${meAll.tasksDone}</strong> tasks done</span>
-          <span><strong>${meAll.revenueClosed ? 'AED '+num(meAll.revenueClosed) : '—'}</strong> revenue</span>
-        </div>
-      </div>
-
-      <!-- Rank + status card -->
-      <div class="dash-card dash-card-rank">
-        <div class="dash-card-head">
-          <div class="dash-card-title">${rankIcon} Team Rank</div>
-        </div>
-        ${totalRanked > 0 ? `
-        <div class="dash-rank-big">#${myRank}<span class="dash-rank-of">of ${totalRanked}</span></div>
-        <div class="dash-rank-sub">${myRank === 1 ? 'You\'re leading the team this month.' : myRank <= 3 ? 'Top performer this month.' : 'Keep pushing — every deal counts.'}</div>
-        ` : '<div class="dash-empty-mini">No team data yet.</div>'}
-
-        <div class="dash-divider"></div>
-        <div class="dash-card-title" style="font-size:13px;">📅 Today's Status</div>
-        <div class="dash-status-row">
-          <span class="agent-availability ${av.cls}">${av.icon} ${av.label}</span>
-        </div>
-        ${myUpcomingLeaves.length ? `
-        <div class="dash-leaves">
-          <div class="dash-leaves-label">🌴 Your upcoming leaves</div>
-          ${myUpcomingLeaves.map(L => `<div class="dash-leave-row">${fmtDate(L.startDate)} → ${fmtDate(L.endDate)}${L.reason?' · '+h(L.reason):''}</div>`).join('')}
-        </div>` : ''}
-      </div>
-
-      <!-- Pipeline card -->
-      <div class="dash-card dash-card-pipe">
-        <div class="dash-card-head">
-          <div class="dash-card-title">🎯 My Pipeline</div>
-          <span class="dash-period">${myLeads.filter(l => l.stage!=='won' && l.stage!=='lost').length} active</span>
-        </div>
-        <div class="dash-pipeline">
-          ${pipeline.map(p => `
-            <div class="dash-pipe-row">
-              <span class="dash-pipe-label">${p.icon} ${p.label}</span>
-              <div class="dash-pipe-track"><div class="dash-pipe-fill" style="width:${(p.count/pipelineMax)*100}%"></div></div>
-              <span class="dash-pipe-count">${p.count}</span>
-            </div>`).join('')}
-        </div>
-      </div>
-
-      <!-- Today / alerts card -->
-      <div class="dash-card dash-card-alerts">
-        <div class="dash-card-head">
-          <div class="dash-card-title">🔔 Today</div>
-        </div>
-        <div class="dash-alert-list">
-          <div class="dash-alert-row ${meM.tasksActive ? 'dash-alert-info' : 'dash-alert-ok'}">
-            <span>📋</span><div><strong>${meM.tasksActive}</strong> active task${meM.tasksActive===1?'':'s'}</div>
-          </div>
-          <div class="dash-alert-row ${overdueTasks ? 'dash-alert-danger' : 'dash-alert-ok'}">
-            <span>⏰</span><div><strong>${overdueTasks}</strong> overdue</div>
-          </div>
-          <div class="dash-alert-row dash-alert-info">
-            <span>👥</span><div><strong>${myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length}</strong> active lead${myLeads.filter(l => l.stage!=='won'&&l.stage!=='lost').length===1?'':'s'}</div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  `;
-}
-
-// Hook into the existing agent overview render
-const _origRenderAgentOverview2 = renderAgentOverview;
-renderAgentOverview = function() {
-  _origRenderAgentOverview2();
-  ensureAgentDashboardPanel();
-  renderAgentDashboardPanel();
-};
 
 // ═══════════════════════════════════════════════════════
 //  PROPOSALS — saved list, reprint, edit, delete
@@ -11620,7 +9073,6 @@ async function saveMeeting() {
   showToast(existing ? 'Updated' : 'Saved', 'success');
   if (typeof renderAgentMeetings === 'function') renderAgentMeetings();
   if (typeof updateAgentBadges === 'function') updateAgentBadges();
-  if (typeof renderTeamTab === 'function' && isAdminUser()) renderTeamTab();
 }
 
 async function deleteMeeting() {
@@ -11714,1411 +9166,216 @@ if (_origOpenLeadDetail2) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  OFF-PLAN — UAE Developers & Projects catalog
+//  LOGINS — admin-only user CRUD + login audit history
 // ═══════════════════════════════════════════════════════
 
-const OFFPLAN_DEVS_KEY = 'asg_offplan_developers';
-const OFFPLAN_PROJ_KEY = 'asg_offplan_projects';
+let _loginAuditCache = [];
+let _loginAuditFetched = 0;
 
-function loadDevelopers()  { return _api.offplanDevs.load(); }
-function saveDevelopers(a) { _api.offplanDevs.save(a); }
-function loadProjects()    { return _api.offplanProjects.load(); }
-function saveProjects(a)   { _api.offplanProjects.save(a); }
-
-const PROJECT_STATUS_META = {
-  prelaunch:    { icon:'⏳', label:'Pre-launch',         cls:'op-st-prelaunch'    },
-  launched:     { icon:'🚀', label:'Launched',           cls:'op-st-launched'     },
-  construction: { icon:'🏗️', label:'Under Construction', cls:'op-st-construction' },
-  ready:        { icon:'✅', label:'Ready',              cls:'op-st-ready'        },
-  soldout:      { icon:'🔒', label:'Sold Out',           cls:'op-st-soldout'      }
-};
-const PROJECT_TYPE_META = {
-  apartments:  { icon:'🏢', label:'Apartments'  },
-  villas:      { icon:'🏠', label:'Villas'      },
-  townhouses:  { icon:'🏘️', label:'Townhouses'  },
-  offices:     { icon:'🏢', label:'Offices'     },
-  mixed:       { icon:'🏙️', label:'Mixed-use'   },
-  hotel:       { icon:'🏨', label:'Hotel/Branded'}
-};
-
-// Seed major UAE developers on first run (only if list is empty)
-// DISABLED — seedDevelopers used to fire at page-load before auth, causing
-// 20 401 POSTs every time the cache was empty. Developers are now created
-// via the dashboard or directly in the DB. To re-enable seeding, do it as
-// an admin-only one-shot button in the Off-plan tab.
-(function seedDevelopers_DISABLED() {
-  return;
-  if (loadDevelopers().length) return;
-  const seed = [
-    { name:'Emaar Properties',       region:'Dubai',     website:'https://www.emaar.com' },
-    { name:'DAMAC Properties',       region:'Dubai',     website:'https://www.damacproperties.com' },
-    { name:'Sobha Realty',           region:'Dubai',     website:'https://www.sobharealty.com' },
-    { name:'Nakheel',                region:'Dubai',     website:'https://www.nakheel.com' },
-    { name:'Meraas',                 region:'Dubai',     website:'https://www.meraas.com' },
-    { name:'Dubai Properties',       region:'Dubai',     website:'https://www.dp.ae' },
-    { name:'Aldar Properties',       region:'Abu Dhabi', website:'https://www.aldar.com' },
-    { name:'Azizi Developments',     region:'Dubai',     website:'https://www.azizidevelopments.com' },
-    { name:'Danube Properties',      region:'Dubai',     website:'https://www.danubeproperties.ae' },
-    { name:'Binghatti Developers',   region:'Dubai',     website:'https://www.binghatti.com' },
-    { name:'Ellington Properties',   region:'Dubai',     website:'https://www.ellingtonproperties.ae' },
-    { name:'Select Group',           region:'Dubai',     website:'https://www.select-group.ae' },
-    { name:'MAG Property Development',region:'Dubai',    website:'https://www.mag.ae' },
-    { name:'Omniyat',                region:'Dubai',     website:'https://www.omniyat.com' },
-    { name:'Wasl Properties',        region:'Dubai',     website:'https://www.wasl.ae' },
-    { name:'Deyaar Development',     region:'Dubai',     website:'https://www.deyaar.ae' },
-    { name:'Tiger Properties',       region:'Dubai',     website:'https://www.tigerproperties.com' },
-    { name:'Arada',                  region:'Sharjah',   website:'https://www.arada.com' },
-    { name:'RAK Properties',         region:'Ras Al Khaimah', website:'https://www.rakproperties.net' },
-    { name:'Iman Developers',        region:'Dubai',     website:'' }
-  ].map(d => ({
-    id: 'dev_' + Math.random().toString(36).slice(2),
-    name: d.name, region: d.region, website: d.website || '',
-    brief: '', logo: null,
-    dataSource: 'seed',
-    createdAt: new Date().toISOString()
-  }));
-  saveDevelopers(seed);
-})();
-
-// ─── Navigation state ─────────────────────────────
-let _opView = 'developers';        // 'developers' | 'projects' | 'project'
-let _opCurrentDevId = '';
-let _opCurrentProjectId = '';
-let _opSearch = '';
-
-// In-flight project edit state
-let _projectPendingPhotos = [];
-let _projectExistingPhotos = [];
-let _projectRemovedPhotos = [];
-let _projectPendingBrochure = null;
-let _projectExistingBrochure = null;
-
-function _opIsAgent()  { const s = getSession(); return s?.type === 'agent'; }
-function _opCanEdit()  { return isAdminUser(); } // Only admin can add/edit/delete; agents browse + share
-
-function _opMount() {
-  if (_opIsAgent()) return { content: document.getElementById('offplanContentAgent'), bc: document.getElementById('opBreadcrumbAgent') };
-  return { content: document.getElementById('offplanContent'), bc: document.getElementById('opBreadcrumb') };
-}
-
-function renderOffplan() {
-  const { content, bc } = _opMount();
-  if (!content || !bc) return;
-  // Breadcrumb
-  const devs = loadDevelopers();
-  const projects = loadProjects();
-  let crumb = `<a class="op-crumb-link" onclick="_opGo('developers')">Developers</a>`;
-  if (_opView === 'projects' || _opView === 'project') {
-    const dev = devs.find(d => d.id === _opCurrentDevId);
-    crumb += ` <span class="op-crumb-sep">›</span> <a class="op-crumb-link" onclick="_opGo('projects','${_opCurrentDevId}')">${h(dev?.name || 'Developer')}</a>`;
+async function fetchLoginAudit() {
+  try {
+    const r = await fetch('/api/audit/logins?limit=200', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _loginAuditCache = data.logins || [];
+    _loginAuditFetched = Date.now();
+  } catch (e) {
+    console.warn('[logins] audit fetch failed', e);
   }
-  if (_opView === 'project') {
-    const p = projects.find(x => x.id === _opCurrentProjectId);
-    crumb += ` <span class="op-crumb-sep">›</span> <span class="op-crumb-current">${h(p?.name || 'Project')}</span>`;
-  }
-  bc.innerHTML = crumb;
-
-  if (_opView === 'developers')      _renderDevelopersGrid(content);
-  else if (_opView === 'projects')   _renderProjectsGrid(content);
-  else if (_opView === 'project')    _renderProjectDetail(content);
 }
 
-function _opGo(view, devId, projectId) {
-  _opView = view;
-  if (devId !== undefined) _opCurrentDevId = devId;
-  if (projectId !== undefined) _opCurrentProjectId = projectId;
-  renderOffplan();
+async function renderLogins() {
+  // Refresh the users cache, then both panels.
+  try { await _api.users.fetch(); } catch (_) {}
+  await fetchLoginAudit();
+  renderLoginsAccounts();
+  renderLoginAudit();
 }
 
-// ─── Developers grid ──────────────────────────────
-function _renderDevelopersGrid(content) {
-  const devs = loadDevelopers();
-  const projects = loadProjects();
-  const search = (_opSearch || '').trim().toLowerCase();
-  const filtered = search ? devs.filter(d => d.name.toLowerCase().includes(search) || (d.region||'').toLowerCase().includes(search)) : devs;
-  filtered.sort((a,b) => a.name.localeCompare(b.name));
-
-  content.innerHTML = `
-    <div class="tab-page-header">
-      <div>
-        <h1 class="tab-page-title">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
-          Off-Plan Developers
-        </h1>
-        <p class="tab-page-sub">Browse UAE developers and their off-plan project launches</p>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <input type="text" class="filter-select" id="opSearch" placeholder="Search developers…" value="${h(_opSearch)}" oninput="_opSearch=this.value;_renderDevelopersGrid(_opMount().content);" style="width:220px;">
-        ${_opCanEdit() ? `
-          <button class="btn-ghost" onclick="openExcelImport('projects')">📥 Import Projects</button>
-          <button class="btn-primary" onclick="openDeveloperModal()">+ Add Developer</button>
-        ` : ''}
-      </div>
-    </div>
-
-    <div class="op-dev-grid">
-      ${filtered.length === 0 ? `<div class="team-empty"><div class="empty-icon">🏛️</div><p>No developers match "${h(_opSearch)}".</p></div>` : filtered.map(d => {
-        const projectCount = projects.filter(p => p.devId === d.id).length;
-        const initial = (d.name || '?').charAt(0).toUpperCase();
-        return `
-          <div class="op-dev-card" onclick="_opGo('projects','${d.id}')">
-            <div class="op-dev-logo">
-              ${d.logo ? `<img src="${d.logo}" alt="${h(d.name)}">` : `<span class="op-dev-initial">${initial}</span>`}
-            </div>
-            <div class="op-dev-body">
-              <div class="op-dev-name">${h(d.name)}</div>
-              <div class="op-dev-region">📍 ${h(d.region || 'UAE')}</div>
-              <div class="op-dev-count">${projectCount} project${projectCount===1?'':'s'}</div>
-            </div>
-            ${_opCanEdit() ? `<button class="op-edit-btn" onclick="event.stopPropagation();openDeveloperModal('${d.id}')">✏️</button>` : ''}
-          </div>`;
-      }).join('')}
-    </div>
-  `;
-}
-
-// ─── Projects grid ────────────────────────────────
-function _renderProjectsGrid(content) {
-  const dev = loadDevelopers().find(d => d.id === _opCurrentDevId);
-  if (!dev) { _opGo('developers'); return; }
-  const projects = loadProjects().filter(p => p.devId === dev.id)
-    .sort((a,b) => (a.name||'').localeCompare(b.name||''));
-
-  content.innerHTML = `
-    <div class="tab-page-header">
-      <div>
-        <h1 class="tab-page-title">${h(dev.name)} — Projects</h1>
-        <p class="tab-page-sub">${h(dev.region || 'UAE')}${dev.website ? ` · <a href="${dev.website}" target="_blank" style="color:var(--gold);">${h(dev.website.replace(/^https?:\/\//,''))}</a>` : ''}</p>
-      </div>
-      <div style="display:flex;gap:8px;">
-        ${_opCanEdit() ? `<button class="btn-primary" onclick="openProjectModal()">+ Add Project</button>` : ''}
-      </div>
-    </div>
-    ${dev.brief ? `<div class="op-dev-brief">${h(dev.brief)}</div>` : ''}
-
-    <div class="op-proj-grid">
-      ${projects.length === 0 ? `
-        <div class="team-empty">
-          <div class="empty-icon">🏗️</div>
-          <p>No projects yet for ${h(dev.name)}.</p>
-          ${_opCanEdit() ? '<p style="font-size:12px;">Click <strong>+ Add Project</strong> to add one.</p>' : ''}
-        </div>` : projects.map(p => {
-        const sm = PROJECT_STATUS_META[p.status] || PROJECT_STATUS_META.launched;
-        const tm = PROJECT_TYPE_META[p.type] || PROJECT_TYPE_META.apartments;
-        const cover = (p.photos && p.photos.length) ? p.photos[0].dataUrl : null;
-        return `
-          <div class="op-proj-card" onclick="_opGo('project',undefined,'${p.id}')">
-            <div class="op-proj-cover" ${cover ? `style="background-image:url('${cover}')"` : ''}>
-              ${!cover ? `<span class="op-proj-cover-placeholder">${tm.icon}</span>` : ''}
-              <span class="op-proj-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span>
-            </div>
-            <div class="op-proj-body">
-              <div class="op-proj-name">${h(p.name || 'Untitled')}</div>
-              <div class="op-proj-meta">${tm.icon} ${tm.label}${p.location ? ' · 📍 '+h(p.location) : ''}</div>
-              ${p.priceFrom ? `<div class="op-proj-price">From AED ${num(p.priceFrom)}${p.priceTo ? ' — '+num(p.priceTo) : ''}</div>` : ''}
-              ${p.handoverDate ? `<div class="op-proj-handover">Handover: ${fmtDate(p.handoverDate)}</div>` : ''}
-            </div>
-          </div>`;
-      }).join('')}
-    </div>
-  `;
-}
-
-// ─── Project detail ───────────────────────────────
-function _renderProjectDetail(content) {
-  const projects = loadProjects();
-  const p = projects.find(x => x.id === _opCurrentProjectId);
-  if (!p) { _opGo('projects', _opCurrentDevId); return; }
-  const dev = loadDevelopers().find(d => d.id === p.devId);
-  const sm = PROJECT_STATUS_META[p.status] || PROJECT_STATUS_META.launched;
-  const tm = PROJECT_TYPE_META[p.type] || PROJECT_TYPE_META.apartments;
-  const amenities = (p.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
-
-  content.innerHTML = `
-    <div class="op-detail">
-      <div class="op-detail-head">
-        <div>
-          <div class="op-detail-dev">${h(dev?.name || '')}</div>
-          <h1 class="op-detail-name">${h(p.name)}</h1>
-          <div class="op-detail-meta">
-            <span class="op-proj-status-pill ${sm.cls}">${sm.icon} ${sm.label}</span>
-            <span>${tm.icon} ${tm.label}</span>
-            ${p.location ? `<span>📍 ${h(p.location)}</span>` : ''}
-          </div>
-        </div>
-        <div class="op-detail-actions">
-          <button class="btn-primary" onclick="downloadProjectPDF('${p.id}')">📄 Download PDF</button>
-          <button class="btn-ghost" onclick="shareProject('${p.id}')">📤 Share with Client</button>
-          ${_opCanEdit() ? `<button class="btn-ghost" onclick="openProjectModal('${p.id}')">✏️ Edit</button>` : ''}
-        </div>
-      </div>
-
-      ${p.photos && p.photos.length ? `
-        <div class="op-photo-gallery">
-          ${p.photos.map((ph, i) => `<div class="op-photo-tile" onclick="_opLightbox('${p.id}',${i})"><img src="${ph.dataUrl}" alt=""></div>`).join('')}
-        </div>` : ''}
-
-      <div class="op-detail-grid">
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">💰 Pricing</div>
-          <div class="op-detail-rows">
-            ${p.priceFrom ? `<div class="op-row"><span>Price From</span><strong>AED ${num(p.priceFrom)}</strong></div>` : ''}
-            ${p.priceTo   ? `<div class="op-row"><span>Price To</span><strong>AED ${num(p.priceTo)}</strong></div>` : ''}
-            ${p.unitMix   ? `<div class="op-row"><span>Unit Mix</span><strong>${h(p.unitMix)}</strong></div>` : ''}
-            ${p.paymentPlan ? `<div class="op-row op-row-multi"><span>Payment Plan</span><strong>${h(p.paymentPlan)}</strong></div>` : ''}
-          </div>
-        </div>
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">📅 Timeline</div>
-          <div class="op-detail-rows">
-            ${p.launchDate   ? `<div class="op-row"><span>Launch Date</span><strong>${fmtDate(p.launchDate)}</strong></div>` : ''}
-            ${p.handoverDate ? `<div class="op-row"><span>Handover</span><strong>${fmtDate(p.handoverDate)}</strong></div>` : ''}
-            ${dev?.website   ? `<div class="op-row op-row-multi"><span>Developer</span><strong><a href="${dev.website}" target="_blank" style="color:var(--gold);">${h(dev.name)} ↗</a></strong></div>` : ''}
-          </div>
-        </div>
-      </div>
-
-      ${p.description ? `
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">📝 About the Project</div>
-          <div class="op-detail-text">${h(p.description)}</div>
-        </div>` : ''}
-
-      ${amenities.length ? `
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">✨ Amenities</div>
-          <div class="op-amenity-grid">
-            ${amenities.map(a => `<span class="op-amenity">${h(a)}</span>`).join('')}
-          </div>
-        </div>` : ''}
-
-      ${p.brochure ? `
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">📁 Brochure</div>
-          <a href="${p.brochure.dataUrl}" target="_blank" download="${h(p.brochure.name)}" class="op-brochure-link">📄 ${h(p.brochure.name)}</a>
-        </div>` : ''}
-    </div>
-  `;
-}
-
-// ─── Developer modal ──────────────────────────────
-function openDeveloperModal(id) {
-  const dev = id ? loadDevelopers().find(d => d.id === id) : null;
-  document.getElementById('developerModalTitle').textContent = dev ? 'Edit Developer' : 'Add Developer';
-  document.getElementById('developerId').value     = dev ? dev.id : '';
-  document.getElementById('developerName').value   = dev ? dev.name    : '';
-  document.getElementById('developerRegion').value = dev ? (dev.region||'Dubai') : 'Dubai';
-  document.getElementById('developerWebsite').value= dev ? (dev.website||'') : '';
-  document.getElementById('developerBrief').value  = dev ? (dev.brief||'')   : '';
-  const preview = document.getElementById('developerLogoPreview');
-  preview.innerHTML = dev?.logo ? `<img src="${dev.logo}" style="max-width:80px;max-height:80px;border-radius:4px;border:1px solid var(--border);">` : '';
-  document.getElementById('developerLogo').value = '';
-  document.getElementById('developerDeleteBtn').style.display = dev ? '' : 'none';
-
-  // Logo preview on upload
-  document.getElementById('developerLogo').onchange = (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader(); r.onload = ev => { preview.innerHTML = `<img src="${ev.target.result}" style="max-width:80px;max-height:80px;border-radius:4px;border:1px solid var(--border);">`; preview.dataset.dataUrl = ev.target.result; };
-    r.readAsDataURL(f);
-  };
-  preview.dataset.dataUrl = dev?.logo || '';
-  document.getElementById('developerModalOverlay').classList.add('active');
-}
-function closeDeveloperModal() { document.getElementById('developerModalOverlay').classList.remove('active'); }
-
-function saveDeveloper() {
-  const id    = document.getElementById('developerId').value;
-  const name  = document.getElementById('developerName').value.trim();
-  const region= document.getElementById('developerRegion').value;
-  const website = document.getElementById('developerWebsite').value.trim();
-  const brief = document.getElementById('developerBrief').value.trim();
-  const logo  = document.getElementById('developerLogoPreview').dataset.dataUrl || '';
-  if (!name) { showToast('Developer name is required', 'error'); return; }
-  const devs = loadDevelopers();
-  if (id) {
-    const idx = devs.findIndex(d => d.id === id);
-    if (idx > -1) devs[idx] = { ...devs[idx], name, region, website, brief, logo };
-  } else {
-    devs.unshift({
-      id: 'dev_' + Math.random().toString(36).slice(2),
-      name, region, website, brief, logo,
-      dataSource: 'manual',
-      createdAt: new Date().toISOString()
-    });
-  }
-  saveDevelopers(devs);
-  closeDeveloperModal();
-  showToast('Developer saved', 'success');
-  renderOffplan();
-}
-
-function deleteDeveloper() {
-  const id = document.getElementById('developerId').value;
-  if (!id) return;
-  const projectCount = loadProjects().filter(p => p.devId === id).length;
-  const msg = projectCount
-    ? `Delete this developer? ${projectCount} associated project${projectCount>1?'s':''} will also be deleted.`
-    : 'Delete this developer?';
-  if (!confirm(msg)) return;
-  saveDevelopers(loadDevelopers().filter(d => d.id !== id));
-  saveProjects(loadProjects().filter(p => p.devId !== id));
-  closeDeveloperModal();
-  if (_opCurrentDevId === id) _opGo('developers');
-  showToast('Developer deleted', 'success');
-  renderOffplan();
-}
-
-// ─── Project modal ────────────────────────────────
-function openProjectModal(id) {
-  const p = id ? loadProjects().find(x => x.id === id) : null;
-  const devs = loadDevelopers();
-  const dev = devs.find(d => d.id === (p ? p.devId : _opCurrentDevId));
-
-  document.getElementById('projectModalTitle').textContent = p ? 'Edit Project' : 'Add Project';
-  document.getElementById('projectModalSubtitle').textContent = dev ? `Under ${dev.name}` : 'Off-plan project details';
-  document.getElementById('projectId').value    = p ? p.id : '';
-  document.getElementById('projectDevId').value = p ? p.devId : (_opCurrentDevId || '');
-
-  document.getElementById('projectName').value         = p ? (p.name||'')         : '';
-  document.getElementById('projectStatus').value       = p ? (p.status||'launched'): 'launched';
-  document.getElementById('projectType').value         = p ? (p.type||'apartments'): 'apartments';
-  document.getElementById('projectLocation').value     = p ? (p.location||'')     : '';
-  document.getElementById('projectUnitMix').value      = p ? (p.unitMix||'')      : '';
-  document.getElementById('projectLaunchDate').value   = p ? (p.launchDate||'')   : '';
-  document.getElementById('projectHandoverDate').value = p ? (p.handoverDate||'') : '';
-  document.getElementById('projectPriceFrom').value    = p ? (p.priceFrom||'')    : '';
-  document.getElementById('projectPriceTo').value      = p ? (p.priceTo||'')      : '';
-  document.getElementById('projectPaymentPlan').value  = p ? (p.paymentPlan||'')  : '';
-  document.getElementById('projectAmenities').value    = p ? (p.amenities||'')    : '';
-  document.getElementById('projectDescription').value  = p ? (p.description||'')  : '';
-
-  _projectPendingPhotos = [];
-  _projectExistingPhotos = (p?.photos || []).slice();
-  _projectRemovedPhotos = [];
-  _projectPendingBrochure = null;
-  _projectExistingBrochure = p?.brochure || null;
-
-  renderProjectPhotoGrid();
-  document.getElementById('projectBrochureName').textContent = _projectExistingBrochure ? `Current: ${_projectExistingBrochure.name}` : '';
-  document.getElementById('projectBrochureInput').value = '';
-  document.getElementById('projectDeleteBtn').style.display = p ? '' : 'none';
-  document.getElementById('projectModalOverlay').classList.add('active');
-}
-function closeProjectModal() {
-  document.getElementById('projectModalOverlay').classList.remove('active');
-  _projectPendingPhotos = [];
-  _projectExistingPhotos = [];
-  _projectRemovedPhotos = [];
-  _projectPendingBrochure = null;
-}
-
-function handleProjectPhotos(e) {
-  const files = Array.from(e.target.files || []);
-  files.forEach(file => {
-    if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} too large (max 10 MB)`, 'error'); return; }
-    const r = new FileReader();
-    r.onload = ev => {
-      _projectPendingPhotos.push({ tempId: 'tmp_' + Math.random().toString(36).slice(2), dataUrl: ev.target.result, name: file.name });
-      renderProjectPhotoGrid();
-    };
-    r.readAsDataURL(file);
+function renderLoginsAccounts() {
+  const el = document.getElementById('loginsAccountsList');
+  if (!el) return;
+  const users = (_api.users.load() || []).slice().sort((a, b) => {
+    if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
+    return (a.name || '').localeCompare(b.name || '');
   });
-  e.target.value = '';
-}
-
-function renderProjectPhotoGrid() {
-  const grid = document.getElementById('projectPhotoGrid');
-  const count = document.getElementById('projectPhotoCount');
-  if (!grid) return;
-  const tiles = [];
-  _projectExistingPhotos.forEach((ph, i) => {
-    if (_projectRemovedPhotos.includes(i)) return;
-    tiles.push(`
-      <div class="meeting-photo-tile">
-        <img src="${ph.dataUrl}" alt="">
-        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeProjectPhoto(${i},true)">×</button>
-      </div>`);
-  });
-  _projectPendingPhotos.forEach(ph => {
-    tiles.push(`
-      <div class="meeting-photo-tile meeting-photo-tile-pending">
-        <img src="${ph.dataUrl}" alt="">
-        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeProjectPhoto('${ph.tempId}',false)">×</button>
-      </div>`);
-  });
-  grid.innerHTML = tiles.join('');
-  const total = _projectExistingPhotos.filter((_,i) => !_projectRemovedPhotos.includes(i)).length + _projectPendingPhotos.length;
-  if (count) count.textContent = total ? `${total} photo${total>1?'s':''}` : 'No photos yet';
-}
-function _removeProjectPhoto(idx, existing) {
-  if (existing) _projectRemovedPhotos.push(idx);
-  else _projectPendingPhotos = _projectPendingPhotos.filter(p => p.tempId !== idx);
-  renderProjectPhotoGrid();
-}
-function handleProjectBrochure(e) {
-  const f = e.target.files[0]; if (!f) return;
-  if (f.size > 30 * 1024 * 1024) { showToast('Brochure too large (max 30 MB)', 'error'); return; }
-  const r = new FileReader();
-  r.onload = ev => {
-    _projectPendingBrochure = { name: f.name, dataUrl: ev.target.result };
-    document.getElementById('projectBrochureName').textContent = `Selected: ${f.name}`;
-  };
-  r.readAsDataURL(f);
-}
-
-function saveProject() {
-  const id    = document.getElementById('projectId').value;
-  const devId = document.getElementById('projectDevId').value;
-  const name  = document.getElementById('projectName').value.trim();
-  const location = document.getElementById('projectLocation').value.trim();
-  if (!devId) { showToast('Pick a developer first', 'error'); return; }
-  if (!name)  { showToast('Project name is required', 'error'); return; }
-  if (!location){ showToast('Location is required', 'error'); return; }
-
-  const projects = loadProjects();
-  const existing = id ? projects.find(p => p.id === id) : null;
-
-  // Build final photos: keep existing minus removed, plus new pending
-  const finalPhotos = _projectExistingPhotos.filter((_, i) => !_projectRemovedPhotos.includes(i)).concat(
-    _projectPendingPhotos.map(ph => ({ name: ph.name, dataUrl: ph.dataUrl }))
-  );
-  const finalBrochure = _projectPendingBrochure || _projectExistingBrochure || null;
-
-  const record = {
-    id: id || ('proj_' + Math.random().toString(36).slice(2)),
-    devId,
-    name,
-    status:       document.getElementById('projectStatus').value,
-    type:         document.getElementById('projectType').value,
-    location,
-    unitMix:      document.getElementById('projectUnitMix').value.trim(),
-    launchDate:   document.getElementById('projectLaunchDate').value,
-    handoverDate: document.getElementById('projectHandoverDate').value,
-    priceFrom:    Number(document.getElementById('projectPriceFrom').value) || null,
-    priceTo:      Number(document.getElementById('projectPriceTo').value)   || null,
-    paymentPlan:  document.getElementById('projectPaymentPlan').value.trim(),
-    amenities:    document.getElementById('projectAmenities').value.trim(),
-    description:  document.getElementById('projectDescription').value.trim(),
-    photos:       finalPhotos,
-    brochure:     finalBrochure,
-    dataSource:   existing?.dataSource || 'manual',
-    createdAt:    existing?.createdAt  || new Date().toISOString(),
-    updatedAt:    new Date().toISOString()
-  };
-  const idx = projects.findIndex(p => p.id === record.id);
-  if (idx > -1) projects[idx] = record; else projects.unshift(record);
-  saveProjects(projects);
-  closeProjectModal();
-  showToast(existing ? 'Project updated' : 'Project added', 'success');
-  if (_opView === 'developers') _opGo('projects', devId);
-  else renderOffplan();
-}
-
-function deleteProject() {
-  const id = document.getElementById('projectId').value;
-  if (!id) return;
-  if (!confirm('Delete this project? Photos and brochure will also be removed.')) return;
-  saveProjects(loadProjects().filter(p => p.id !== id));
-  closeProjectModal();
-  if (_opCurrentProjectId === id) _opGo('projects', _opCurrentDevId);
-  showToast('Project deleted', 'success');
-  renderOffplan();
-}
-
-// ─── PDF export (uses ASG letterhead from proposals) ──
-function downloadProjectPDF(id) {
-  const p = loadProjects().find(x => x.id === id);
-  if (!p) return;
-  const dev = loadDevelopers().find(d => d.id === p.devId);
-  const sm = PROJECT_STATUS_META[p.status] || PROJECT_STATUS_META.launched;
-  const tm = PROJECT_TYPE_META[p.type] || PROJECT_TYPE_META.apartments;
-  const amenities = (p.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
-  const fa = n => n ? 'AED ' + Number(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
-  const fd = s => s ? new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
-  const he = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-  const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-<title>${he(p.name)} — ${he(dev?.name||'')}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
-body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:12.5px;line-height:1.55}
-.page{max-width:820px;margin:0 auto;padding:0 44px 110px;position:relative;min-height:1100px}
-.lh-header{position:relative;padding:22px 0 26px;margin-bottom:20px}
-.lh-header-frame{border:2px solid #c9a84c;border-bottom:none;border-radius:70px 70px 0 0;height:130px;position:absolute;top:0;left:-44px;right:-44px;pointer-events:none}
-.lh-logo-block{position:relative;padding:14px 0 0 6px;display:inline-block}
-.lh-logo-icon{display:flex;align-items:flex-end;gap:2px;height:42px;margin-bottom:2px}
-.lh-bar{background:#c9a84c;width:8px;border-radius:1px}
-.lh-bar.b1{height:24px}.lh-bar.b2{height:36px}.lh-bar.b3{height:30px}.lh-bar.b4{height:42px;width:10px}
-.lh-divider{height:2px;width:440px;background:#c9a84c;margin:8px 0 0}
-.lh-asg{font-size:34px;font-weight:900;letter-spacing:6px;color:#7a5d1e;line-height:1}
-.lh-sub{font-size:11.5px;letter-spacing:2.6px;color:#7a5d1e;font-weight:700;margin-top:3px}
-.lh-doc-meta{position:absolute;right:0;top:34px;text-align:right;max-width:320px}
-.doc-title{font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:#111}
-.doc-dates{font-size:11px;color:#555;margin-top:4px}
-.lh-watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:340px;font-weight:900;letter-spacing:30px;color:#f8efd5;z-index:0;pointer-events:none;user-select:none;white-space:nowrap}
-.page > *{position:relative;z-index:1}
-.lh-footer{position:fixed;left:0;right:0;bottom:0;background:#1a1f2e;color:#fff;padding:14px 44px;z-index:5}
-.lh-footer-grid{display:grid;grid-template-columns:1.1fr 1.1fr 1.6fr;gap:22px;max-width:820px;margin:0 auto;font-size:10.5px;line-height:1.4}
-.lh-fcol{display:flex;flex-direction:column;gap:6px}
-.lh-fitem{display:flex;align-items:center;gap:8px;color:#fff}
-.lh-icon{width:18px;height:18px;border:1.2px solid #c9a84c;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#c9a84c;font-size:9px;flex-shrink:0}
-
-.proj-hero{margin-bottom:20px}
-.proj-dev{font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:#7a5d1e;font-weight:700;margin-bottom:4px}
-.proj-name{font-size:28px;font-weight:900;color:#111;letter-spacing:-0.01em}
-.proj-meta-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:#555}
-.proj-status-pill{display:inline-block;padding:4px 12px;border-radius:99px;font-size:11px;font-weight:700;background:#fef3c7;color:#92400e}
-
-.proj-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
-.proj-photo{aspect-ratio:4/3;background-size:cover;background-position:center;border-radius:6px;border:1px solid #e5e7eb}
-
-.proj-block{margin-top:18px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden}
-.proj-block-h{background:#f9fafb;padding:10px 14px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;border-bottom:1px solid #e5e7eb}
-.proj-rows{padding:10px 14px}
-.proj-r{display:grid;grid-template-columns:160px 1fr;gap:14px;padding:5px 0;font-size:12.5px}
-.proj-r span:first-child{color:#6b7280;font-weight:600}
-.proj-r strong{color:#111}
-.proj-text{padding:12px 14px;font-size:12.5px;color:#374151;line-height:1.6;white-space:pre-wrap}
-.proj-amenities{display:flex;flex-wrap:wrap;gap:6px;padding:12px 14px}
-.proj-amenity{padding:5px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;font-size:11.5px;color:#92400e;font-weight:600}
-
-@media print{.page{padding:0 26px 110px}@page{size:A4;margin:10mm 10mm 0 10mm}}
-</style></head><body>
-
-<div class="lh-watermark">ASG</div>
-
-<div class="page">
-
-<div class="lh-header">
-  <div class="lh-header-frame"></div>
-  <div class="lh-logo-block">
-    <div class="lh-logo-icon">
-      <span class="lh-bar b1"></span><span class="lh-bar b2"></span><span class="lh-bar b3"></span><span class="lh-bar b4"></span>
-    </div>
-    <div class="lh-divider"></div>
-    <div class="lh-asg">ASG</div>
-    <div class="lh-sub">COMMERCIAL PROPERTIES L.L.C.</div>
-  </div>
-  <div class="lh-doc-meta">
-    <div class="doc-title">Project Brief</div>
-    <div class="doc-dates">${fd(new Date().toISOString().split('T')[0])}</div>
-  </div>
-</div>
-
-<div class="proj-hero">
-  ${dev ? `<div class="proj-dev">${he(dev.name)}</div>` : ''}
-  <div class="proj-name">${he(p.name)}</div>
-  <div class="proj-meta-row">
-    <span class="proj-status-pill">${sm.icon} ${he(sm.label)}</span>
-    <span>${tm.icon} ${he(tm.label)}</span>
-    ${p.location ? `<span>📍 ${he(p.location)}</span>` : ''}
-  </div>
-</div>
-
-${(p.photos && p.photos.length) ? `
-  <div class="proj-photos">
-    ${p.photos.slice(0,6).map(ph => `<div class="proj-photo" style="background-image:url('${ph.dataUrl}')"></div>`).join('')}
-  </div>` : ''}
-
-<div class="proj-block">
-  <div class="proj-block-h">Pricing</div>
-  <div class="proj-rows">
-    ${p.priceFrom ? `<div class="proj-r"><span>Price From</span><strong>${fa(p.priceFrom)}</strong></div>` : ''}
-    ${p.priceTo   ? `<div class="proj-r"><span>Price To</span><strong>${fa(p.priceTo)}</strong></div>`   : ''}
-    ${p.unitMix   ? `<div class="proj-r"><span>Unit Mix</span><strong>${he(p.unitMix)}</strong></div>` : ''}
-    ${p.paymentPlan ? `<div class="proj-r"><span>Payment Plan</span><strong>${he(p.paymentPlan)}</strong></div>` : ''}
-  </div>
-</div>
-
-<div class="proj-block">
-  <div class="proj-block-h">Timeline</div>
-  <div class="proj-rows">
-    ${p.launchDate   ? `<div class="proj-r"><span>Launch Date</span><strong>${fd(p.launchDate)}</strong></div>` : ''}
-    ${p.handoverDate ? `<div class="proj-r"><span>Handover</span><strong>${fd(p.handoverDate)}</strong></div>` : ''}
-  </div>
-</div>
-
-${p.description ? `
-  <div class="proj-block">
-    <div class="proj-block-h">About the Project</div>
-    <div class="proj-text">${he(p.description)}</div>
-  </div>` : ''}
-
-${amenities.length ? `
-  <div class="proj-block">
-    <div class="proj-block-h">Amenities</div>
-    <div class="proj-amenities">
-      ${amenities.map(a => `<span class="proj-amenity">${he(a)}</span>`).join('')}
-    </div>
-  </div>` : ''}
-
-</div>
-
-<div class="lh-footer">
-  <div class="lh-footer-grid">
-    <div class="lh-fcol">
-      <div class="lh-fitem"><span class="lh-icon">⌾</span>asg.commercial_properties</div>
-      <div class="lh-fitem"><span class="lh-icon">⊕</span>www.asgholdings.ae</div>
-    </div>
-    <div class="lh-fcol">
-      <div class="lh-fitem"><span class="lh-icon">✉</span>info@asggroup.ae</div>
-      <div class="lh-fitem"><span class="lh-icon">☏</span>+971 4 264 2899</div>
-    </div>
-    <div class="lh-fcol">
-      <div class="lh-fitem" style="align-items:flex-start;">
-        <span class="lh-icon" style="margin-top:1px;">◉</span>
-        <span>Office No. 1006, 10<sup>th</sup> Floor, Dubai National<br>Insurance Building, Port Saeed - Dubai</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-</body></html>`;
-
-  const win = window.open('', '_blank');
-  if (!win) { showToast('Allow pop-ups to download the PDF', 'error'); return; }
-  win.document.write(doc); win.document.close(); win.focus();
-  setTimeout(() => win.print(), 600);
-}
-
-function shareProject(id) {
-  const p = loadProjects().find(x => x.id === id);
-  if (!p) return;
-  const dev = loadDevelopers().find(d => d.id === p.devId);
-  const msg = `${p.name}${dev ? ' by ' + dev.name : ''}${p.location ? ' — ' + p.location : ''}${p.priceFrom ? ' — Starting AED ' + Number(p.priceFrom).toLocaleString() : ''}.\n\nLet me know if you want the full brochure.\n\n— ASG Commercial Properties`;
-  // Open WhatsApp/email picker
-  const wa = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-  const mail = `mailto:?subject=${encodeURIComponent(p.name + ' — Off-Plan Project')}&body=${encodeURIComponent(msg)}`;
-  if (confirm('Share this project?\n\nOK → WhatsApp\nCancel → Email')) window.open(wa, '_blank');
-  else window.open(mail, '_blank');
-  // Also open the PDF
-  setTimeout(() => downloadProjectPDF(id), 200);
-}
-
-function _opLightbox(projectId, idx) {
-  const p = loadProjects().find(x => x.id === projectId);
-  if (!p || !p.photos[idx]) return;
-  const photo = p.photos[idx];
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.write(`<html><head><title>${h(photo.name||p.name)}</title><style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}img{max-width:100%;max-height:100%}</style></head><body><img src="${photo.dataUrl}"></body></html>`);
-  w.document.close();
-}
-
-// ─── Excel import (projects) ──────────────────────
-function openExcelImport(kind) {
-  if (kind !== 'projects') return;
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  inp.accept = '.xlsx,.xls,.csv';
-  inp.onchange = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    if (typeof XLSX === 'undefined') { showToast('Excel library not loaded', 'error'); return; }
-    const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, { type:'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-    let added = 0;
-    const devs = loadDevelopers();
-    const projects = loadProjects();
-    for (const row of rows) {
-      const devName = String(row['Developer'] || row['developer'] || '').trim();
-      const name    = String(row['Project'] || row['Name'] || row['name'] || '').trim();
-      if (!devName || !name) continue;
-      let dev = devs.find(d => d.name.toLowerCase() === devName.toLowerCase());
-      if (!dev) {
-        dev = {
-          id:'dev_' + Math.random().toString(36).slice(2),
-          name: devName, region: String(row['Region']||'Dubai'), website:'',
-          brief:'', logo:null, dataSource:'import', createdAt:new Date().toISOString()
-        };
-        devs.push(dev);
-      }
-      projects.unshift({
-        id: 'proj_' + Math.random().toString(36).slice(2),
-        devId: dev.id,
-        name,
-        status:       String(row['Status']||'launched').toLowerCase(),
-        type:         String(row['Type']||'apartments').toLowerCase(),
-        location:     String(row['Location']||''),
-        unitMix:      String(row['Unit Mix']||row['UnitMix']||''),
-        launchDate:   String(row['Launch Date']||''),
-        handoverDate: String(row['Handover Date']||row['Handover']||''),
-        priceFrom:    Number(row['Price From']||row['PriceFrom']) || null,
-        priceTo:      Number(row['Price To']  ||row['PriceTo'])   || null,
-        paymentPlan:  String(row['Payment Plan']||''),
-        amenities:    String(row['Amenities']||''),
-        description:  String(row['Description']||''),
-        photos: [], brochure: null,
-        dataSource: 'import',
-        createdAt: new Date().toISOString()
-      });
-      added++;
-    }
-    saveDevelopers(devs);
-    saveProjects(projects);
-    showToast(`Imported ${added} project${added===1?'':'s'}`, 'success');
-    renderOffplan();
-  };
-  inp.click();
-}
-
-// ─── Wiring: showTab + showAgentTab ───────────────
-const _origShowTab2 = (typeof showTab === 'function') ? showTab : null;
-if (_origShowTab2) {
-  showTab = function(tab) {
-    _origShowTab2.apply(this, arguments);
-    const opEl = document.getElementById('offplanView');
-    if (opEl) opEl.style.display = tab === 'offplan' ? '' : 'none';
-    const btn = document.getElementById('tabOffplan');
-    if (btn) btn.classList.toggle('active', tab === 'offplan');
-    if (tab === 'offplan') { _opView = 'developers'; renderOffplan(); }
-  };
-}
-const _origShowAgentTab4 = (typeof showAgentTab === 'function') ? showAgentTab : null;
-if (_origShowAgentTab4) {
-  if (typeof AGENT_TABS !== 'undefined' && !AGENT_TABS.includes('offplan')) AGENT_TABS.push('offplan');
-  showAgentTab = function(tab) {
-    _origShowAgentTab4.apply(this, arguments);
-    if (tab === 'offplan') { _opView = 'developers'; renderOffplan(); }
-  };
-}
-
-// ═══════════════════════════════════════════════════════
-//  SECONDARY (RESALE) LISTINGS
-//  Properties owned by 3rd parties, marketed by ASG team
-// ═══════════════════════════════════════════════════════
-
-const SECONDARY_KEY = 'asg_secondary_listings';
-function loadSecondary()  { return _api.secondary.load(); }
-function saveSecondary(a) { _api.secondary.save(a); }
-
-const SEC_TYPE_META = {
-  apartment:  { icon:'🏢', label:'Apartment'  },
-  villa:      { icon:'🏠', label:'Villa'      },
-  townhouse:  { icon:'🏘️', label:'Townhouse'  },
-  warehouse:  { icon:'🏭', label:'Warehouse'  },
-  office:     { icon:'🏢', label:'Office'     },
-  retail:     { icon:'🏬', label:'Retail'     },
-  land:       { icon:'📐', label:'Land'       },
-  other:      { icon:'📌', label:'Other'      }
-};
-const SEC_STATUS_META = {
-  active:   { icon:'🟢', label:'Active',   cls:'sec-st-active'   },
-  reserved: { icon:'🟡', label:'Reserved', cls:'sec-st-reserved' },
-  sold:     { icon:'✅', label:'Sold',     cls:'sec-st-sold'     },
-  rented:   { icon:'✅', label:'Rented',   cls:'sec-st-rented'   },
-  inactive: { icon:'⚪', label:'Inactive', cls:'sec-st-inactive' }
-};
-const SEC_TXN_META = {
-  sale: 'For Sale',
-  rent: 'For Rent',
-  both: 'Sale or Rent'
-};
-
-let _secView = 'list';   // 'list' | 'detail'
-let _secCurrentId = '';
-let _secFilters = { search:'', type:'', txn:'', status:'active' };
-
-// In-flight modal photo state
-let _secPendingPhotos = [];
-let _secExistingPhotos = [];
-let _secRemovedPhotos = [];
-
-function _secMount() {
-  if (isAgentUser()) return {
-    list:   document.getElementById('secondaryListContentAgent'),
-    detail: document.getElementById('secondaryDetailContentAgent')
-  };
-  return {
-    list:   document.getElementById('secondaryListContent'),
-    detail: document.getElementById('secondaryDetailContent')
-  };
-}
-
-function _secCanEdit(listing) {
-  const sess = getSession();
-  if (!sess) return false;
-  if (sess.type === 'admin') return true;
-  return listing && listing.addedBy?.id === sess.agentId;
-}
-
-function renderSecondary() {
-  if (_secView === 'detail') return _renderSecondaryDetail();
-  return _renderSecondaryList();
-}
-
-// ─── List view ────────────────────────────────────
-function _renderSecondaryList() {
-  const { list, detail } = _secMount();
-  if (!list) return;
-  if (detail) detail.style.display = 'none';
-  list.style.display = '';
-
-  let items = loadSecondary();
-  const f = _secFilters;
-  if (f.type)   items = items.filter(x => x.type === f.type);
-  if (f.txn)    items = items.filter(x => x.transaction === f.txn || x.transaction === 'both');
-  if (f.status) items = items.filter(x => x.status === f.status);
-  if (f.search) {
-    const q = f.search.toLowerCase();
-    items = items.filter(x =>
-      (x.title||'').toLowerCase().includes(q) ||
-      (x.location||'').toLowerCase().includes(q) ||
-      (x.ownerName||'').toLowerCase().includes(q)
-    );
-  }
-  items.sort((a,b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-
-  const all = loadSecondary();
-  const counts = {
-    total:    all.length,
-    active:   all.filter(x => x.status === 'active').length,
-    sale:     all.filter(x => x.transaction === 'sale' || x.transaction === 'both').length,
-    rent:     all.filter(x => x.transaction === 'rent' || x.transaction === 'both').length
-  };
-
-  const typeOpts = Object.entries(SEC_TYPE_META).map(([k,m]) => `<option value="${k}"${f.type===k?' selected':''}>${m.icon} ${m.label}</option>`).join('');
-  const statusOpts = Object.entries(SEC_STATUS_META).map(([k,m]) => `<option value="${k}"${f.status===k?' selected':''}>${m.icon} ${m.label}</option>`).join('');
-
-  list.innerHTML = `
-    <div class="tab-page-header">
-      <div>
-        <h1 class="tab-page-title">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          Secondary Listings
-        </h1>
-        <p class="tab-page-sub">Resale properties listed on behalf of external owners — visible to the whole sales team</p>
-      </div>
-      <button class="btn-primary" onclick="openSecondaryModal()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Listing
-      </button>
-    </div>
-
-    <div class="sec-stat-row">
-      <span class="sec-stat-chip">📋 ${counts.total} total</span>
-      <span class="sec-stat-chip sec-stat-green">🟢 ${counts.active} active</span>
-      <span class="sec-stat-chip">💰 ${counts.sale} for sale</span>
-      <span class="sec-stat-chip">🔑 ${counts.rent} for rent</span>
-    </div>
-
-    <div class="sec-filter-bar">
-      <input type="text" class="filter-select" placeholder="Search title, location, owner…" value="${h(f.search)}" oninput="_secFilters.search=this.value;_renderSecondaryList();" style="flex:1;min-width:200px;">
-      <select class="filter-select" onchange="_secFilters.type=this.value;_renderSecondaryList();" style="width:160px;">
-        <option value="">All Types</option>${typeOpts}
-      </select>
-      <select class="filter-select" onchange="_secFilters.txn=this.value;_renderSecondaryList();" style="width:160px;">
-        <option value="">Sale &amp; Rent</option>
-        <option value="sale"${f.txn==='sale'?' selected':''}>For Sale</option>
-        <option value="rent"${f.txn==='rent'?' selected':''}>For Rent</option>
-      </select>
-      <select class="filter-select" onchange="_secFilters.status=this.value;_renderSecondaryList();" style="width:160px;">
-        <option value=""${f.status===''?' selected':''}>All Statuses</option>${statusOpts}
-      </select>
-    </div>
-
-    ${items.length === 0 ? `
-      <div class="team-empty">
-        <div class="empty-icon">🏷️</div>
-        <p>No listings match your filters. Click <strong>+ Add Listing</strong> to add one.</p>
-      </div>
-    ` : `
-      <div class="sec-grid">
-        ${items.map(x => {
-          const tm = SEC_TYPE_META[x.type]   || SEC_TYPE_META.apartment;
-          const sm = SEC_STATUS_META[x.status]|| SEC_STATUS_META.active;
-          const cover = (x.photos && x.photos.length) ? x.photos[0].dataUrl : null;
-          const priceLine = (() => {
-            if (x.transaction === 'rent' && x.rent) return 'AED ' + num(x.rent) + ' / yr';
-            if (x.transaction === 'sale' && x.price) return 'AED ' + num(x.price);
-            if (x.transaction === 'both') {
-              const a = x.price ? 'AED ' + num(x.price) : '';
-              const b = x.rent  ? 'AED ' + num(x.rent) + '/yr' : '';
-              return [a, b].filter(Boolean).join(' · ') || '—';
-            }
-            return x.price ? 'AED ' + num(x.price) : (x.rent ? 'AED ' + num(x.rent) + '/yr' : '—');
-          })();
-          return `
-            <div class="sec-card" onclick="openSecondaryDetail('${x.id}')">
-              <div class="sec-card-cover" ${cover ? `style="background-image:url('${cover}')"` : ''}>
-                ${!cover ? `<span class="sec-card-cover-placeholder">${tm.icon}</span>` : ''}
-                <span class="sec-card-status ${sm.cls}">${sm.icon} ${sm.label}</span>
-                <span class="sec-card-txn">${SEC_TXN_META[x.transaction] || ''}</span>
-              </div>
-              <div class="sec-card-body">
-                <div class="sec-card-title">${h(x.title || 'Untitled')}</div>
-                <div class="sec-card-meta">${tm.icon} ${tm.label}${x.location ? ' · 📍 '+h(x.location) : ''}</div>
-                <div class="sec-card-specs">
-                  ${x.size  ? `<span>📐 ${num(x.size)} sqft</span>` : ''}
-                  ${x.beds  ? `<span>🛏️ ${x.beds} BR</span>` : ''}
-                  ${x.baths ? `<span>🛁 ${x.baths} BA</span>` : ''}
-                </div>
-                <div class="sec-card-price">${priceLine}</div>
-                <div class="sec-card-foot">
-                  ${(x.photos?.length || 0) ? `<span>📷 ${x.photos.length}</span>` : ''}
-                  <span class="sec-card-by">by ${h(x.addedBy?.name || 'Admin')}</span>
-                </div>
-              </div>
-            </div>`;
-        }).join('')}
-      </div>
-    `}
-  `;
-}
-
-// ─── Detail view ──────────────────────────────────
-function openSecondaryDetail(id) {
-  _secView = 'detail';
-  _secCurrentId = id;
-  renderSecondary();
-}
-function _backToSecondaryList() {
-  _secView = 'list';
-  _secCurrentId = '';
-  renderSecondary();
-}
-
-function _renderSecondaryDetail() {
-  const { list, detail } = _secMount();
-  if (!detail) return;
-  const x = loadSecondary().find(p => p.id === _secCurrentId);
-  if (!x) { _backToSecondaryList(); return; }
-  if (list) list.style.display = 'none';
-  detail.style.display = '';
-
-  const tm = SEC_TYPE_META[x.type]   || SEC_TYPE_META.apartment;
-  const sm = SEC_STATUS_META[x.status]|| SEC_STATUS_META.active;
-  const amenities = (x.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
-  const canEdit = _secCanEdit(x);
-
-  detail.innerHTML = `
-    <div class="op-breadcrumb">
-      <a class="op-crumb-link" onclick="_backToSecondaryList()">Secondary Listings</a>
-      <span class="op-crumb-sep">›</span>
-      <span class="op-crumb-current">${h(x.title || 'Listing')}</span>
-    </div>
-
-    <div class="op-detail">
-      <div class="op-detail-head">
-        <div>
-          <div class="op-detail-dev">${SEC_TXN_META[x.transaction] || ''}</div>
-          <h1 class="op-detail-name">${h(x.title)}</h1>
-          <div class="op-detail-meta">
-            <span class="sec-card-status ${sm.cls}">${sm.icon} ${sm.label}</span>
-            <span>${tm.icon} ${tm.label}</span>
-            ${x.location ? `<span>📍 ${h(x.location)}</span>` : ''}
-          </div>
-        </div>
-        <div class="op-detail-actions">
-          <button class="btn-primary" onclick="downloadSecondaryPDF('${x.id}')">📄 Download PDF</button>
-          <button class="btn-ghost" onclick="shareSecondary('${x.id}')">📤 Share with Client</button>
-          ${canEdit ? `<button class="btn-ghost" onclick="openSecondaryModal('${x.id}')">✏️ Edit</button>` : ''}
-        </div>
-      </div>
-
-      ${x.photos && x.photos.length ? `
-        <div class="op-photo-gallery">
-          ${x.photos.map((ph, i) => `<div class="op-photo-tile" onclick="_secLightbox('${x.id}',${i})"><img src="${ph.dataUrl}" alt=""></div>`).join('')}
-        </div>` : ''}
-
-      <div class="op-detail-grid">
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">💰 Pricing &amp; Specs</div>
-          <div class="op-detail-rows">
-            ${x.price ? `<div class="op-row"><span>Sale Price</span><strong>AED ${num(x.price)}</strong></div>` : ''}
-            ${x.rent  ? `<div class="op-row"><span>Annual Rent</span><strong>AED ${num(x.rent)}</strong></div>` : ''}
-            ${x.size  ? `<div class="op-row"><span>Size</span><strong>${num(x.size)} sqft</strong></div>` : ''}
-            ${x.beds  ? `<div class="op-row"><span>Bedrooms</span><strong>${x.beds}</strong></div>` : ''}
-            ${x.baths ? `<div class="op-row"><span>Bathrooms</span><strong>${x.baths}</strong></div>` : ''}
-          </div>
-        </div>
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">👤 Owner</div>
-          <div class="op-detail-rows">
-            ${x.ownerName  ? `<div class="op-row"><span>Name</span><strong>${h(x.ownerName)}</strong></div>` : ''}
-            ${x.ownerPhone ? `<div class="op-row"><span>Phone</span><strong><a href="tel:${h(x.ownerPhone)}" style="color:var(--gold);">${h(x.ownerPhone)}</a></strong></div>` : ''}
-            ${x.ownerEmail ? `<div class="op-row"><span>Email</span><strong><a href="mailto:${h(x.ownerEmail)}" style="color:var(--gold);">${h(x.ownerEmail)}</a></strong></div>` : ''}
-            <div class="op-row"><span>Added by</span><strong>${h(x.addedBy?.name || 'Admin')}</strong></div>
-          </div>
-        </div>
-      </div>
-
-      ${x.description ? `
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">📝 Description</div>
-          <div class="op-detail-text">${h(x.description)}</div>
-        </div>` : ''}
-
-      ${amenities.length ? `
-        <div class="op-detail-block">
-          <div class="op-detail-block-h">✨ Amenities</div>
-          <div class="op-amenity-grid">${amenities.map(a => `<span class="op-amenity">${h(a)}</span>`).join('')}</div>
-        </div>` : ''}
-    </div>
-  `;
-}
-
-// ─── Modal ────────────────────────────────────────
-function openSecondaryModal(id) {
-  const x = id ? loadSecondary().find(p => p.id === id) : null;
-  document.getElementById('secondaryModalTitle').textContent = x ? 'Edit Secondary Listing' : 'Add Secondary Listing';
-  document.getElementById('secondaryId').value = x ? x.id : '';
-
-  const set = (sel, v) => { const el = document.getElementById(sel); if (el) el.value = (v != null ? v : ''); };
-  set('secondaryTitle',       x?.title);
-  set('secondaryType',        x?.type        || 'apartment');
-  set('secondaryTransaction', x?.transaction || 'sale');
-  set('secondaryLocation',    x?.location);
-  set('secondaryStatus',      x?.status      || 'active');
-  set('secondarySize',        x?.size);
-  set('secondaryBeds',        x?.beds);
-  set('secondaryBaths',       x?.baths);
-  set('secondaryPrice',       x?.price);
-  set('secondaryRent',        x?.rent);
-  set('secondaryOwnerName',   x?.ownerName);
-  set('secondaryOwnerPhone',  x?.ownerPhone);
-  set('secondaryOwnerEmail',  x?.ownerEmail);
-  set('secondaryDescription', x?.description);
-  set('secondaryAmenities',   x?.amenities);
-
-  _secPendingPhotos = [];
-  _secExistingPhotos = (x?.photos || []).slice();
-  _secRemovedPhotos = [];
-  renderSecondaryPhotoGrid();
-
-  _secToggleFields();
-
-  document.getElementById('secondaryDeleteBtn').style.display = x ? '' : 'none';
-  document.getElementById('secondaryModalOverlay').classList.add('active');
-}
-
-function closeSecondaryModal() {
-  document.getElementById('secondaryModalOverlay').classList.remove('active');
-  _secPendingPhotos = [];
-  _secExistingPhotos = [];
-  _secRemovedPhotos = [];
-}
-
-function _secToggleFields() {
-  const txn = document.getElementById('secondaryTransaction')?.value || 'sale';
-  const saleLbl = document.getElementById('secondarySaleLabel');
-  const rentLbl = document.getElementById('secondaryRentLabel');
-  if (saleLbl) saleLbl.textContent = (txn === 'rent') ? '(not used)' : '';
-  if (rentLbl) rentLbl.textContent = (txn === 'sale') ? '(not used)' : '';
-  // Beds/baths only relevant for residential types
-  const type = document.getElementById('secondaryType')?.value;
-  const isRes = ['apartment','villa','townhouse'].includes(type);
-  const bg = document.getElementById('secondaryBedsGroup');
-  const bgB = document.getElementById('secondaryBathsGroup');
-  if (bg)  bg.style.display  = isRes ? '' : 'none';
-  if (bgB) bgB.style.display = isRes ? '' : 'none';
-}
-// Re-evaluate the residential-only fields when type changes
-document.addEventListener('change', (e) => {
-  if (e.target && e.target.id === 'secondaryType') _secToggleFields();
-});
-
-function handleSecondaryPhotos(e) {
-  const files = Array.from(e.target.files || []);
-  files.forEach(file => {
-    if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} too large (max 10 MB)`, 'error'); return; }
-    const r = new FileReader();
-    r.onload = ev => {
-      _secPendingPhotos.push({ tempId: 'tmp_' + Math.random().toString(36).slice(2), dataUrl: ev.target.result, name: file.name });
-      renderSecondaryPhotoGrid();
-    };
-    r.readAsDataURL(file);
-  });
-  e.target.value = '';
-}
-
-function renderSecondaryPhotoGrid() {
-  const grid = document.getElementById('secondaryPhotoGrid');
-  const count = document.getElementById('secondaryPhotoCount');
-  if (!grid) return;
-  const tiles = [];
-  _secExistingPhotos.forEach((ph, i) => {
-    if (_secRemovedPhotos.includes(i)) return;
-    tiles.push(`
-      <div class="meeting-photo-tile">
-        <img src="${ph.dataUrl}" alt="">
-        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeSecondaryPhoto(${i},true)">×</button>
-      </div>`);
-  });
-  _secPendingPhotos.forEach(ph => {
-    tiles.push(`
-      <div class="meeting-photo-tile meeting-photo-tile-pending">
-        <img src="${ph.dataUrl}" alt="">
-        <button type="button" class="meeting-photo-remove" onclick="event.stopPropagation();_removeSecondaryPhoto('${ph.tempId}',false)">×</button>
-      </div>`);
-  });
-  grid.innerHTML = tiles.join('');
-  const total = _secExistingPhotos.filter((_,i) => !_secRemovedPhotos.includes(i)).length + _secPendingPhotos.length;
-  if (count) count.textContent = total ? `${total} photo${total>1?'s':''}` : 'No photos yet';
-}
-function _removeSecondaryPhoto(idx, existing) {
-  if (existing) _secRemovedPhotos.push(idx);
-  else _secPendingPhotos = _secPendingPhotos.filter(p => p.tempId !== idx);
-  renderSecondaryPhotoGrid();
-}
-
-function saveSecondaryListing() {
-  const id = document.getElementById('secondaryId').value;
-  const title = document.getElementById('secondaryTitle').value.trim();
-  const location = document.getElementById('secondaryLocation').value.trim();
-  const ownerName = document.getElementById('secondaryOwnerName').value.trim();
-  const ownerPhone = document.getElementById('secondaryOwnerPhone').value.trim();
-  if (!title)      { showToast('Title is required', 'error'); return; }
-  if (!location)   { showToast('Location is required', 'error'); return; }
-  if (!ownerName)  { showToast('Owner name is required', 'error'); return; }
-  if (!ownerPhone) { showToast('Owner phone is required', 'error'); return; }
-
-  const items = loadSecondary();
-  const existing = id ? items.find(p => p.id === id) : null;
-  if (existing && !_secCanEdit(existing)) {
-    showToast('You can only edit your own listings', 'error');
+  if (!users.length) {
+    el.innerHTML = `<div class="audit-empty">No accounts yet. Click <strong>Add Login</strong> above.</div>`;
     return;
   }
-
-  const finalPhotos = _secExistingPhotos.filter((_, i) => !_secRemovedPhotos.includes(i)).concat(
-    _secPendingPhotos.map(ph => ({ name: ph.name, dataUrl: ph.dataUrl }))
-  );
-
-  const sess = getSession();
-  const author = sess?.type === 'agent'
-    ? { id: sess.agentId, name: sess.name, type: 'agent' }
-    : { id: '', name: 'Admin', type: 'admin' };
-
-  const record = {
-    id: id || ('sec_' + Math.random().toString(36).slice(2)),
-    title,
-    type:        document.getElementById('secondaryType').value,
-    transaction: document.getElementById('secondaryTransaction').value,
-    location,
-    status:      document.getElementById('secondaryStatus').value,
-    size:        Number(document.getElementById('secondarySize').value)  || null,
-    beds:        Number(document.getElementById('secondaryBeds').value)  || null,
-    baths:       Number(document.getElementById('secondaryBaths').value) || null,
-    price:       Number(document.getElementById('secondaryPrice').value) || null,
-    rent:        Number(document.getElementById('secondaryRent').value)  || null,
-    ownerName,
-    ownerPhone,
-    ownerEmail:  document.getElementById('secondaryOwnerEmail').value.trim(),
-    description: document.getElementById('secondaryDescription').value.trim(),
-    amenities:   document.getElementById('secondaryAmenities').value.trim(),
-    photos:      finalPhotos,
-    addedBy:     existing?.addedBy || author,
-    createdAt:   existing?.createdAt || new Date().toISOString(),
-    updatedAt:   new Date().toISOString()
-  };
-  const idx = items.findIndex(p => p.id === record.id);
-  if (idx > -1) items[idx] = record; else items.unshift(record);
-  saveSecondary(items);
-  closeSecondaryModal();
-  showToast(existing ? 'Listing updated' : 'Listing added', 'success');
-  if (_secView === 'detail' && _secCurrentId === record.id) renderSecondary();
-  else { _secView = 'list'; renderSecondary(); }
+  el.innerHTML = users.map(u => {
+    const roleLabel = u.role === 'admin' ? '👑 Admin' : '👤 Agent';
+    const roleClass = u.role === 'admin' ? 'login-role-admin' : 'login-role-agent';
+    const statusEl = u.active === false || u.active === 0
+      ? '<span class="login-status-off">● Disabled</span>'
+      : '<span class="login-status-on">● Active</span>';
+    const created = u.createdAt ? formatDate(u.createdAt) : '—';
+    return `
+      <div class="login-row">
+        <div class="login-name">${h(u.name || '')}</div>
+        <div class="login-user">@${h(u.username || '')}</div>
+        <div><span class="login-role-chip ${roleClass}">${roleLabel}</span></div>
+        <div>${statusEl}</div>
+        <div style="font-size:12px;color:var(--text-3);">${created}</div>
+        <div class="login-actions">
+          <button class="btn-sm btn-ghost" onclick="openLoginModal('${u.id}')">✏️ Edit</button>
+        </div>
+      </div>`;
+  }).join('');
 }
 
-function deleteSecondaryListing() {
-  const id = document.getElementById('secondaryId').value;
+function _loginUaShort(ua) {
+  if (!ua) return '—';
+  // Pull a coarse browser/OS hint without third-party parsers
+  const u = String(ua);
+  let browser = 'Browser';
+  if (/Edg\//i.test(u)) browser = 'Edge';
+  else if (/Chrome\//i.test(u) && !/Edg/i.test(u)) browser = 'Chrome';
+  else if (/Firefox\//i.test(u)) browser = 'Firefox';
+  else if (/Safari\//i.test(u) && !/Chrome/i.test(u)) browser = 'Safari';
+  let os = '';
+  if (/Windows/i.test(u))      os = 'Windows';
+  else if (/Mac OS X/i.test(u))os = 'macOS';
+  else if (/Android/i.test(u)) os = 'Android';
+  else if (/iPhone|iPad/i.test(u)) os = 'iOS';
+  else if (/Linux/i.test(u))   os = 'Linux';
+  return os ? `${browser} · ${os}` : browser;
+}
+
+function _loginReasonLabel(reason) {
+  const map = {
+    'no-such-user':       'Unknown username',
+    'wrong-password':     'Wrong password',
+    'missing-credentials':'Empty fields',
+  };
+  return reason ? (map[reason] || reason) : '';
+}
+
+async function renderLoginAudit() {
+  // Re-fetch if it's been more than 30s since last load (cheap)
+  if (Date.now() - _loginAuditFetched > 30000) await fetchLoginAudit();
+  const el = document.getElementById('loginsAuditList');
+  if (!el) return;
+  if (!_loginAuditCache.length) {
+    el.innerHTML = `<div class="audit-empty">No login activity yet.</div>`;
+    return;
+  }
+  el.innerHTML = _loginAuditCache.map(r => {
+    const ok = !!r.success;
+    const when = r.createdAt ? new Date(r.createdAt + 'Z').toLocaleString('en-GB', {
+      day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'
+    }) : '—';
+    const detail = ok ? '' : `<span style="color:var(--danger);font-size:11px;margin-left:6px;">${h(_loginReasonLabel(r.reason))}</span>`;
+    return `
+      <div class="audit-row">
+        <div class="${ok?'audit-status-ok':'audit-status-fail'}">${ok?'✓':'✕'}</div>
+        <div><span class="audit-username">${h(r.username || '—')}</span>${detail}</div>
+        <div class="audit-time">${when}</div>
+        <div class="audit-ip">${h(r.ip || '—')}</div>
+        <div class="audit-ua" title="${h(r.userAgent || '')}">${h(_loginUaShort(r.userAgent))}</div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Login modal (add / edit) ──────────────────────
+function openLoginModal(id) {
+  const users = _api.users.load() || [];
+  const u = id ? users.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('loginModalTitle').textContent = u ? 'Edit Login' : 'Add Login';
+  document.getElementById('loginId').value       = u ? u.id : '';
+  document.getElementById('loginName').value     = u ? (u.name || '') : '';
+  document.getElementById('loginUsername').value = u ? (u.username || '') : '';
+  document.getElementById('loginRole').value     = u ? (u.role === 'admin' ? 'admin' : 'agent') : 'agent';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginEmail').value    = u ? (u.email || '') : '';
+  document.getElementById('loginPhone').value    = u ? (u.phone || '') : '';
+  // Password requirement: required for new, optional for edit
+  document.getElementById('loginPasswordReq').style.display = u ? 'none' : '';
+  document.getElementById('loginPasswordHint').style.display = u ? '' : 'none';
+  // Active toggle: only meaningful when editing
+  const activeRow = document.getElementById('loginActiveRow');
+  activeRow.style.display = u ? '' : 'none';
+  document.getElementById('loginActive').checked = u ? (u.active !== false && u.active !== 0) : true;
+  // Show/hide delete button
+  const session = getSession();
+  const isSelf = u && session && (String(session.userId) === String(u.id));
+  const delBtn = document.getElementById('loginDeleteBtn');
+  delBtn.style.display = (u && !isSelf) ? '' : 'none';
+  document.getElementById('loginModalOverlay').classList.add('active');
+  setTimeout(() => document.getElementById('loginName').focus(), 50);
+}
+
+function closeLoginModal() {
+  document.getElementById('loginModalOverlay').classList.remove('active');
+}
+
+async function saveLogin() {
+  const id       = document.getElementById('loginId').value;
+  const name     = document.getElementById('loginName').value.trim();
+  const username = document.getElementById('loginUsername').value.trim().toLowerCase();
+  const role     = document.getElementById('loginRole').value;
+  const password = document.getElementById('loginPassword').value;
+  const email    = document.getElementById('loginEmail').value.trim();
+  const phone    = document.getElementById('loginPhone').value.trim();
+  const active   = document.getElementById('loginActive').checked;
+
+  if (!name)     { showToast('Full name is required', 'error'); return; }
+  if (!username) { showToast('Username is required', 'error'); return; }
+  if (!/^[a-z0-9._-]+$/.test(username)) {
+    showToast('Username: letters, digits, dot, dash, underscore only', 'error'); return;
+  }
+  if (!id && password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+  if (id && password && password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+
+  const payload = { name, username, role, email, phone };
+  if (password) payload.password = password;
+  if (id) payload.active = active;
+
+  try {
+    markLocalMutation();
+    const url = id ? `/api/users/${id}` : '/api/users';
+    const method = id ? 'PATCH' : 'POST';
+    const r = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast(id ? 'Login updated' : 'Login created', 'success');
+    closeLoginModal();
+    await _api.users.fetch();
+    renderLoginsAccounts();
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteLogin() {
+  const id = document.getElementById('loginId').value;
   if (!id) return;
-  const x = loadSecondary().find(p => p.id === id);
-  if (x && !_secCanEdit(x)) { showToast('You can only delete your own listings', 'error'); return; }
-  if (!confirm('Delete this listing? Photos will also be removed.')) return;
-  saveSecondary(loadSecondary().filter(p => p.id !== id));
-  closeSecondaryModal();
-  if (_secCurrentId === id) _backToSecondaryList();
-  showToast('Listing deleted', 'success');
-}
-
-function _secLightbox(id, idx) {
-  const x = loadSecondary().find(p => p.id === id);
-  if (!x || !x.photos[idx]) return;
-  const photo = x.photos[idx];
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.write(`<html><head><title>${h(photo.name||x.title)}</title><style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}img{max-width:100%;max-height:100%}</style></head><body><img src="${photo.dataUrl}"></body></html>`);
-  w.document.close();
-}
-
-// ─── PDF export (ASG letterhead) ──────────────────
-function downloadSecondaryPDF(id) {
-  const x = loadSecondary().find(p => p.id === id);
-  if (!x) return;
-  const tm = SEC_TYPE_META[x.type]   || SEC_TYPE_META.apartment;
-  const sm = SEC_STATUS_META[x.status]|| SEC_STATUS_META.active;
-  const amenities = (x.amenities || '').split(',').map(s => s.trim()).filter(Boolean);
-  const fa = n => n ? 'AED ' + Number(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
-  const fd = s => s ? new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
-  const he = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-  const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-<title>${he(x.title)} — Secondary Listing</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
-body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;font-size:12.5px;line-height:1.55}
-.page{max-width:820px;margin:0 auto;padding:0 44px 110px;position:relative;min-height:1100px}
-.lh-header{position:relative;padding:22px 0 26px;margin-bottom:20px}
-.lh-header-frame{border:2px solid #c9a84c;border-bottom:none;border-radius:70px 70px 0 0;height:130px;position:absolute;top:0;left:-44px;right:-44px;pointer-events:none}
-.lh-logo-block{position:relative;padding:14px 0 0 6px;display:inline-block}
-.lh-logo-icon{display:flex;align-items:flex-end;gap:2px;height:42px;margin-bottom:2px}
-.lh-bar{background:#c9a84c;width:8px;border-radius:1px}
-.lh-bar.b1{height:24px}.lh-bar.b2{height:36px}.lh-bar.b3{height:30px}.lh-bar.b4{height:42px;width:10px}
-.lh-divider{height:2px;width:440px;background:#c9a84c;margin:8px 0 0}
-.lh-asg{font-size:34px;font-weight:900;letter-spacing:6px;color:#7a5d1e;line-height:1}
-.lh-sub{font-size:11.5px;letter-spacing:2.6px;color:#7a5d1e;font-weight:700;margin-top:3px}
-.lh-doc-meta{position:absolute;right:0;top:34px;text-align:right;max-width:320px}
-.doc-title{font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:#111}
-.doc-dates{font-size:11px;color:#555;margin-top:4px}
-.lh-watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:340px;font-weight:900;letter-spacing:30px;color:#f8efd5;z-index:0;pointer-events:none;user-select:none;white-space:nowrap}
-.page > *{position:relative;z-index:1}
-.lh-footer{position:fixed;left:0;right:0;bottom:0;background:#1a1f2e;color:#fff;padding:14px 44px;z-index:5}
-.lh-footer-grid{display:grid;grid-template-columns:1.1fr 1.1fr 1.6fr;gap:22px;max-width:820px;margin:0 auto;font-size:10.5px;line-height:1.4}
-.lh-fcol{display:flex;flex-direction:column;gap:6px}
-.lh-fitem{display:flex;align-items:center;gap:8px;color:#fff}
-.lh-icon{width:18px;height:18px;border:1.2px solid #c9a84c;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#c9a84c;font-size:9px;flex-shrink:0}
-
-.proj-hero{margin-bottom:20px}
-.proj-dev{font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:#7a5d1e;font-weight:700;margin-bottom:4px}
-.proj-name{font-size:26px;font-weight:900;color:#111;letter-spacing:-0.01em}
-.proj-meta-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:#555}
-.proj-status-pill{display:inline-block;padding:4px 12px;border-radius:99px;font-size:11px;font-weight:700;background:#dcfce7;color:#166534}
-
-.proj-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
-.proj-photo{aspect-ratio:4/3;background-size:cover;background-position:center;border-radius:6px;border:1px solid #e5e7eb}
-
-.proj-block{margin-top:18px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden}
-.proj-block-h{background:#f9fafb;padding:10px 14px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;border-bottom:1px solid #e5e7eb}
-.proj-rows{padding:10px 14px}
-.proj-r{display:grid;grid-template-columns:160px 1fr;gap:14px;padding:5px 0;font-size:12.5px}
-.proj-r span:first-child{color:#6b7280;font-weight:600}
-.proj-r strong{color:#111}
-.proj-text{padding:12px 14px;font-size:12.5px;color:#374151;line-height:1.6;white-space:pre-wrap}
-.proj-amenities{display:flex;flex-wrap:wrap;gap:6px;padding:12px 14px}
-.proj-amenity{padding:5px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;font-size:11.5px;color:#92400e;font-weight:600}
-
-@media print{.page{padding:0 26px 110px}@page{size:A4;margin:10mm 10mm 0 10mm}}
-</style></head><body>
-
-<div class="lh-watermark">ASG</div>
-<div class="page">
-
-<div class="lh-header">
-  <div class="lh-header-frame"></div>
-  <div class="lh-logo-block">
-    <div class="lh-logo-icon">
-      <span class="lh-bar b1"></span><span class="lh-bar b2"></span><span class="lh-bar b3"></span><span class="lh-bar b4"></span>
-    </div>
-    <div class="lh-divider"></div>
-    <div class="lh-asg">ASG</div>
-    <div class="lh-sub">COMMERCIAL PROPERTIES L.L.C.</div>
-  </div>
-  <div class="lh-doc-meta">
-    <div class="doc-title">Property Listing</div>
-    <div class="doc-dates">${fd(new Date().toISOString().split('T')[0])}</div>
-  </div>
-</div>
-
-<div class="proj-hero">
-  <div class="proj-dev">${he(SEC_TXN_META[x.transaction] || '')}</div>
-  <div class="proj-name">${he(x.title)}</div>
-  <div class="proj-meta-row">
-    <span class="proj-status-pill">${sm.icon} ${he(sm.label)}</span>
-    <span>${tm.icon} ${he(tm.label)}</span>
-    ${x.location ? `<span>📍 ${he(x.location)}</span>` : ''}
-  </div>
-</div>
-
-${(x.photos && x.photos.length) ? `
-  <div class="proj-photos">
-    ${x.photos.slice(0,6).map(ph => `<div class="proj-photo" style="background-image:url('${ph.dataUrl}')"></div>`).join('')}
-  </div>` : ''}
-
-<div class="proj-block">
-  <div class="proj-block-h">Pricing &amp; Specs</div>
-  <div class="proj-rows">
-    ${x.price ? `<div class="proj-r"><span>Sale Price</span><strong>${fa(x.price)}</strong></div>` : ''}
-    ${x.rent  ? `<div class="proj-r"><span>Annual Rent</span><strong>${fa(x.rent)}</strong></div>` : ''}
-    ${x.size  ? `<div class="proj-r"><span>Size</span><strong>${num(x.size)} sqft</strong></div>` : ''}
-    ${x.beds  ? `<div class="proj-r"><span>Bedrooms</span><strong>${x.beds}</strong></div>` : ''}
-    ${x.baths ? `<div class="proj-r"><span>Bathrooms</span><strong>${x.baths}</strong></div>` : ''}
-  </div>
-</div>
-
-${x.description ? `
-  <div class="proj-block">
-    <div class="proj-block-h">About</div>
-    <div class="proj-text">${he(x.description)}</div>
-  </div>` : ''}
-
-${amenities.length ? `
-  <div class="proj-block">
-    <div class="proj-block-h">Amenities</div>
-    <div class="proj-amenities">${amenities.map(a => `<span class="proj-amenity">${he(a)}</span>`).join('')}</div>
-  </div>` : ''}
-
-</div>
-
-<div class="lh-footer">
-  <div class="lh-footer-grid">
-    <div class="lh-fcol">
-      <div class="lh-fitem"><span class="lh-icon">⌾</span>asg.commercial_properties</div>
-      <div class="lh-fitem"><span class="lh-icon">⊕</span>www.asgholdings.ae</div>
-    </div>
-    <div class="lh-fcol">
-      <div class="lh-fitem"><span class="lh-icon">✉</span>info@asggroup.ae</div>
-      <div class="lh-fitem"><span class="lh-icon">☏</span>+971 4 264 2899</div>
-    </div>
-    <div class="lh-fcol">
-      <div class="lh-fitem" style="align-items:flex-start;">
-        <span class="lh-icon" style="margin-top:1px;">◉</span>
-        <span>Office No. 1006, 10<sup>th</sup> Floor, Dubai National<br>Insurance Building, Port Saeed - Dubai</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-</body></html>`;
-
-  const win = window.open('', '_blank');
-  if (!win) { showToast('Allow pop-ups to download the PDF', 'error'); return; }
-  win.document.write(doc); win.document.close(); win.focus();
-  setTimeout(() => win.print(), 600);
-}
-
-function shareSecondary(id) {
-  const x = loadSecondary().find(p => p.id === id);
-  if (!x) return;
-  const priceLine = x.price ? 'AED ' + Number(x.price).toLocaleString() : (x.rent ? 'AED ' + Number(x.rent).toLocaleString() + ' / yr' : '');
-  const msg = `${x.title}${x.location ? ' — ' + x.location : ''}${priceLine ? ' — ' + priceLine : ''}.\n\nLet me know if you want photos or a viewing.\n\n— ASG Commercial Properties`;
-  const wa = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-  const mail = `mailto:?subject=${encodeURIComponent(x.title + ' — Listing')}&body=${encodeURIComponent(msg)}`;
-  if (confirm('Share this listing?\n\nOK → WhatsApp\nCancel → Email')) window.open(wa, '_blank');
-  else window.open(mail, '_blank');
-  setTimeout(() => downloadSecondaryPDF(id), 200);
-}
-
-// ─── Wiring: showTab + showAgentTab ───────────────
-const _origShowTab3 = (typeof showTab === 'function') ? showTab : null;
-if (_origShowTab3) {
-  showTab = function(tab) {
-    _origShowTab3.apply(this, arguments);
-    const v = document.getElementById('secondaryView');
-    if (v) v.style.display = tab === 'secondary' ? '' : 'none';
-    const btn = document.getElementById('tabSecondary');
-    if (btn) btn.classList.toggle('active', tab === 'secondary');
-    if (tab === 'secondary') { _secView = 'list'; renderSecondary(); }
-  };
-}
-const _origShowAgentTab5 = (typeof showAgentTab === 'function') ? showAgentTab : null;
-if (_origShowAgentTab5) {
-  if (typeof AGENT_TABS !== 'undefined' && !AGENT_TABS.includes('secondary')) AGENT_TABS.push('secondary');
-  showAgentTab = function(tab) {
-    _origShowAgentTab5.apply(this, arguments);
-    if (tab === 'secondary') { _secView = 'list'; renderSecondary(); }
-  };
+  const session = getSession();
+  if (session && String(session.userId) === String(id)) {
+    showToast("You can't delete your own account", 'error');
+    return;
+  }
+  if (!confirm('Disable this login? The user will no longer be able to sign in. (Existing records they created are kept.)')) return;
+  try {
+    markLocalMutation();
+    const r = await fetch(`/api/users/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast('Login disabled', 'success');
+    closeLoginModal();
+    await _api.users.fetch();
+    renderLoginsAccounts();
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'error');
+  }
 }
 
 // ─── Mobile sidebar toggle ────────────────────────

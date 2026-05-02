@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260430L">
+  <link rel="stylesheet" href="styles.css?v=20260502A">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -189,14 +189,6 @@
           Land
           <span class="nav-count" id="navCountLand"></span>
         </button>
-        <button class="nav-item" id="tabOffplan" onclick="showTab('offplan')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/></svg>
-          Off-Plan
-        </button>
-        <button class="nav-item" id="tabSecondary" onclick="showTab('secondary')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          Secondary
-        </button>
       </div>
       <div class="nav-divider"></div>
       <div class="nav-group">
@@ -238,19 +230,13 @@
       <div class="nav-divider"></div>
       <div class="nav-group">
         <div class="nav-group-label">Management</div>
-        <button class="nav-item" id="tabMyTasks" onclick="showTab('mytasks')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          My Tasks
-          <span class="nav-count" id="navCountMyTasks"></span>
-        </button>
-        <button class="nav-item" id="tabTeam" onclick="showTab('team')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-          Team
-          <span class="nav-count" id="navCountTasks"></span>
-        </button>
         <button class="nav-item" id="tabFinancials" onclick="showTab('financials')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
           Financials
+        </button>
+        <button class="nav-item" id="tabLogins" onclick="showTab('logins')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          Logins
         </button>
       </div>
     </nav>
@@ -1690,337 +1676,6 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
-  <!-- SECONDARY (RESALE) VIEW (admin)        -->
-  <!-- ═══════════════════════════════════════ -->
-  <div id="secondaryView" style="display:none;">
-    <div class="tab-page">
-      <div id="secondaryListContent"></div>
-      <div id="secondaryDetailContent" style="display:none;"></div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- SECONDARY LISTING MODAL                -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="secondaryModalOverlay">
-    <div class="modal" style="max-width:640px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">🏷️</div>
-          <div>
-            <h2 id="secondaryModalTitle">Add Secondary Listing</h2>
-            <p class="modal-subtitle">Resale property listed on behalf of an external owner</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeSecondaryModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="secondaryId">
-        <div class="form-group">
-          <label>Title *</label>
-          <input type="text" id="secondaryTitle" placeholder="e.g. 3BR Apartment in Marina with sea view">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Type *</label>
-            <select id="secondaryType">
-              <option value="apartment">🏢 Apartment</option>
-              <option value="villa">🏠 Villa</option>
-              <option value="townhouse">🏘️ Townhouse</option>
-              <option value="warehouse">🏭 Warehouse</option>
-              <option value="office">🏢 Office</option>
-              <option value="retail">🏬 Retail</option>
-              <option value="land">📐 Land</option>
-              <option value="other">📌 Other</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Transaction *</label>
-            <select id="secondaryTransaction" onchange="_secToggleFields()">
-              <option value="sale">For Sale</option>
-              <option value="rent">For Rent</option>
-              <option value="both">Sale or Rent</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Location *</label>
-            <input type="text" id="secondaryLocation" placeholder="e.g. Dubai Marina, Tower X">
-          </div>
-          <div class="form-group">
-            <label>Status</label>
-            <select id="secondaryStatus">
-              <option value="active">🟢 Active</option>
-              <option value="reserved">🟡 Reserved</option>
-              <option value="sold">✅ Sold</option>
-              <option value="rented">✅ Rented</option>
-              <option value="inactive">⚪ Inactive</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row three-col">
-          <div class="form-group">
-            <label>Size (sq ft)</label>
-            <input type="number" id="secondarySize" min="0" placeholder="e.g. 1,250">
-          </div>
-          <div class="form-group" id="secondaryBedsGroup">
-            <label>Bedrooms</label>
-            <input type="number" id="secondaryBeds" min="0" placeholder="e.g. 3">
-          </div>
-          <div class="form-group" id="secondaryBathsGroup">
-            <label>Bathrooms</label>
-            <input type="number" id="secondaryBaths" min="0" placeholder="e.g. 2">
-          </div>
-        </div>
-        <div class="form-row" id="secondaryPriceRow">
-          <div class="form-group">
-            <label>Sale Price (AED) <span id="secondarySaleLabel" class="optional-label"></span></label>
-            <input type="number" id="secondaryPrice" min="0" placeholder="e.g. 2,500,000">
-          </div>
-          <div class="form-group">
-            <label>Annual Rent (AED) <span id="secondaryRentLabel" class="optional-label"></span></label>
-            <input type="number" id="secondaryRent" min="0" placeholder="e.g. 180,000">
-          </div>
-        </div>
-        <div class="form-section-divider">Owner Details</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Owner Name *</label>
-            <input type="text" id="secondaryOwnerName" placeholder="Owner's full name or company">
-          </div>
-          <div class="form-group">
-            <label>Owner Phone *</label>
-            <input type="tel" id="secondaryOwnerPhone" placeholder="+971 XX XXX XXXX">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Owner Email</label>
-          <input type="email" id="secondaryOwnerEmail" placeholder="owner@email.com">
-        </div>
-        <div class="form-section-divider">Listing Details</div>
-        <div class="form-group">
-          <label>Description</label>
-          <textarea id="secondaryDescription" rows="4" placeholder="Highlights, view, condition, recent renovations, motivated seller, etc."></textarea>
-        </div>
-        <div class="form-group">
-          <label>Amenities (comma-separated)</label>
-          <input type="text" id="secondaryAmenities" placeholder="Pool, Gym, Concierge, Sea View, Balcony, Parking">
-        </div>
-        <div class="form-group">
-          <label>Photos</label>
-          <input type="file" id="secondaryPhotosInput" accept="image/*" multiple onchange="handleSecondaryPhotos(event)" style="display:none;">
-          <button type="button" class="btn-ghost" onclick="document.getElementById('secondaryPhotosInput').click()">📷 Add Photos</button>
-          <span id="secondaryPhotoCount" style="margin-left:10px;font-size:12px;color:var(--text-3);">No photos yet</span>
-          <div class="meeting-photo-grid" id="secondaryPhotoGrid" style="margin-top:10px;"></div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-delete" id="secondaryDeleteBtn" onclick="deleteSecondaryListing()" style="display:none;">🗑️ Delete</button>
-        <div style="margin-left:auto;display:flex;gap:10px;">
-          <button class="btn-ghost" onclick="closeSecondaryModal()">Cancel</button>
-          <button class="btn-primary" onclick="saveSecondaryListing()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- OFF-PLAN VIEW (admin)                  -->
-  <!-- ═══════════════════════════════════════ -->
-  <div id="offplanView" style="display:none;">
-    <div class="tab-page">
-      <div class="op-breadcrumb" id="opBreadcrumb"></div>
-      <div id="offplanContent"></div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- DEVELOPER MODAL                        -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="developerModalOverlay">
-    <div class="modal" style="max-width:520px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">🏛️</div>
-          <div>
-            <h2 id="developerModalTitle">Add Developer</h2>
-            <p class="modal-subtitle">UAE real estate developer</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeDeveloperModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="developerId">
-        <div class="form-group">
-          <label>Developer Name *</label>
-          <input type="text" id="developerName" placeholder="e.g. Emaar Properties">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Region / Emirate</label>
-            <select id="developerRegion">
-              <option value="Dubai">Dubai</option>
-              <option value="Abu Dhabi">Abu Dhabi</option>
-              <option value="Sharjah">Sharjah</option>
-              <option value="Ajman">Ajman</option>
-              <option value="Ras Al Khaimah">Ras Al Khaimah</option>
-              <option value="Umm Al Quwain">Umm Al Quwain</option>
-              <option value="Fujairah">Fujairah</option>
-              <option value="UAE-wide">UAE-wide</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Website</label>
-            <input type="url" id="developerWebsite" placeholder="https://...">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Brief / About</label>
-          <textarea id="developerBrief" rows="3" placeholder="One or two lines about the developer"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Logo (optional)</label>
-          <input type="file" id="developerLogo" accept="image/*">
-          <div id="developerLogoPreview" style="margin-top:8px;"></div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-delete" id="developerDeleteBtn" onclick="deleteDeveloper()" style="display:none;">🗑️ Delete</button>
-        <div style="margin-left:auto;display:flex;gap:10px;">
-          <button class="btn-ghost" onclick="closeDeveloperModal()">Cancel</button>
-          <button class="btn-primary" onclick="saveDeveloper()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- PROJECT MODAL                          -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="projectModalOverlay">
-    <div class="modal" style="max-width:640px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">🏗️</div>
-          <div>
-            <h2 id="projectModalTitle">Add Project</h2>
-            <p class="modal-subtitle" id="projectModalSubtitle">Off-plan project details</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeProjectModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="projectId">
-        <input type="hidden" id="projectDevId">
-        <div class="form-group">
-          <label>Project Name *</label>
-          <input type="text" id="projectName" placeholder="e.g. Address Residences Sky Views">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Status</label>
-            <select id="projectStatus">
-              <option value="prelaunch">⏳ Pre-launch</option>
-              <option value="launched">🚀 Launched</option>
-              <option value="construction">🏗️ Under Construction</option>
-              <option value="ready">✅ Ready</option>
-              <option value="soldout">🔒 Sold Out</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Type</label>
-            <select id="projectType">
-              <option value="apartments">🏢 Apartments</option>
-              <option value="villas">🏠 Villas</option>
-              <option value="townhouses">🏘️ Townhouses</option>
-              <option value="offices">🏢 Offices</option>
-              <option value="mixed">🏙️ Mixed-use</option>
-              <option value="hotel">🏨 Hotel/Branded</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Location *</label>
-            <input type="text" id="projectLocation" placeholder="e.g. Downtown Dubai, Dubai Hills">
-          </div>
-          <div class="form-group">
-            <label>Unit Mix</label>
-            <input type="text" id="projectUnitMix" placeholder="e.g. 1, 2, 3 BR Apartments">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Launch Date</label>
-            <input type="date" id="projectLaunchDate">
-          </div>
-          <div class="form-group">
-            <label>Handover Date</label>
-            <input type="date" id="projectHandoverDate">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Price From (AED)</label>
-            <input type="number" id="projectPriceFrom" min="0" placeholder="e.g. 1,500,000">
-          </div>
-          <div class="form-group">
-            <label>Price To (AED)</label>
-            <input type="number" id="projectPriceTo" min="0" placeholder="optional">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Payment Plan</label>
-          <input type="text" id="projectPaymentPlan" placeholder="e.g. 20% on booking, 50% during construction, 30% on handover">
-        </div>
-        <div class="form-group">
-          <label>Amenities (comma-separated)</label>
-          <input type="text" id="projectAmenities" placeholder="Pool, Gym, Concierge, Kids Play Area, Beach Access">
-        </div>
-        <div class="form-group">
-          <label>Description</label>
-          <textarea id="projectDescription" rows="4" placeholder="Project highlights, view details, any unique selling points"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Photos (multiple)</label>
-          <input type="file" id="projectPhotosInput" accept="image/*" multiple onchange="handleProjectPhotos(event)" style="display:none;">
-          <button type="button" class="btn-ghost" onclick="document.getElementById('projectPhotosInput').click()">📷 Add Photos</button>
-          <span id="projectPhotoCount" style="margin-left:10px;font-size:12px;color:var(--text-3);">No photos yet</span>
-          <div class="meeting-photo-grid" id="projectPhotoGrid" style="margin-top:10px;"></div>
-        </div>
-        <div class="form-group">
-          <label>Brochure PDF (optional)</label>
-          <input type="file" id="projectBrochureInput" accept=".pdf" onchange="handleProjectBrochure(event)">
-          <div id="projectBrochureName" style="margin-top:6px;font-size:12px;color:var(--text-3);"></div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-delete" id="projectDeleteBtn" onclick="deleteProject()" style="display:none;">🗑️ Delete</button>
-        <div style="margin-left:auto;display:flex;gap:10px;">
-          <button class="btn-ghost" onclick="closeProjectModal()">Cancel</button>
-          <button class="btn-primary" onclick="saveProject()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
   <!-- PROPOSALS VIEW                         -->
   <!-- ═══════════════════════════════════════ -->
   <div id="proposalsView" style="display:none;">
@@ -2147,152 +1802,112 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
-  <!-- ═══════════════════════════════════════ -->
-  <!-- MY TASKS VIEW                          -->
-  <!-- ═══════════════════════════════════════ -->
-  <div id="myTasksView" style="display:none;">
-    <div class="page-hdr">
-      <h1>My Tasks</h1>
-      <p style="color:var(--text-3);font-size:13px;margin-top:4px;">Tasks assigned to you · Reply to update the requester</p>
-    </div>
-    <div id="myTasksList" style="padding:16px;"></div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- TEAM VIEW (admin only)               -->
-  <!-- ═══════════════════════════════════════ -->
-  <div id="teamView" style="display:none;">
-    <div class="team-page">
-
-      <!-- Agents Section -->
-      <div class="team-section" id="teamAgentsSection">
-        <div class="team-section-header">
-          <div>
-            <div class="team-section-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-              Agents
-            </div>
-            <div class="team-section-sub">Manage your team's login accounts and permissions</div>
-          </div>
-          <button class="btn-primary" onclick="openAgentModal()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add Agent
-          </button>
-        </div>
-        <div id="agentsList" class="agents-list"></div>
-      </div>
-
-      <!-- Tasks Section -->
-      <div class="team-section" id="teamTasksSection">
-        <div class="team-section-header">
-          <div>
-            <div class="team-section-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-              Tasks
-            </div>
-            <div class="team-section-sub">Assign and track tasks — only agents can update progress</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <select class="filter-select" id="taskFilterAgent" onchange="renderTeamTab()" style="width:160px;">
-              <option value="">All Agents</option>
-            </select>
-            <select class="filter-select" id="taskFilterStatus" onchange="renderTeamTab()" style="width:140px;">
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="in-progress">In Progress</option>
-              <option value="done">Done</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            <button class="btn-primary" onclick="openTaskModal()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Assign Task
-            </button>
-          </div>
-        </div>
-        <div id="tasksList"></div>
-      </div>
-
-      <!-- Leads Pipeline Section -->
-      <div class="team-section" id="teamLeadsSection">
-        <div class="team-section-header">
-          <div>
-            <div class="team-section-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg>
-              Leads Pipeline
-            </div>
-            <div class="team-section-sub">All inbound leads from Meta Ads and other sources — assign &amp; track progress</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select class="filter-select" id="leadFilterAgent" onchange="renderLeadsPipeline()" style="width:150px;">
-              <option value="">All Agents</option>
-            </select>
-            <select class="filter-select" id="leadFilterStage" onchange="renderLeadsPipeline()" style="width:140px;">
-              <option value="">All Stages</option>
-              <option value="new">New</option>
-              <option value="contacted">Contacted</option>
-              <option value="meeting">Meeting</option>
-              <option value="qualified">Qualified</option>
-              <option value="proposal">Proposal Sent</option>
-              <option value="negotiation">Negotiation</option>
-              <option value="won">Won</option>
-              <option value="lost">Lost</option>
-            </select>
-            <select class="filter-select" id="leadFilterSource" onchange="renderLeadsPipeline()" style="width:140px;">
-              <option value="">All Sources</option>
-              <option value="meta-ads">Meta Ads</option>
-              <option value="instagram">Instagram</option>
-              <option value="google">Google Ads</option>
-              <option value="referral">Referral</option>
-              <option value="walk-in">Walk-in</option>
-              <option value="website">Website</option>
-              <option value="other">Other</option>
-            </select>
-            <button class="btn-ghost" onclick="openApiSettings()" style="display:flex;align-items:center;gap:6px;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
-              Connect APIs
-              <span class="api-status-dot" id="apiStatusDot"></span>
-            </button>
-            <button class="btn-ghost" id="syncNowBtn" onclick="syncAllApis()" style="display:none;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-              Sync Now
-            </button>
-            <button class="btn-primary" onclick="openLeadModal()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Add Lead
-            </button>
-          </div>
-        </div>
-        <!-- API sync status bar -->
-        <div class="api-sync-bar" id="apiSyncBar" style="display:none;"></div>
-        <!-- Pipeline stage summary bar -->
-        <div class="pipeline-stage-bar" id="pipelineStageBar"></div>
-        <!-- Leads table -->
-        <div id="leadsTable"></div>
-      </div>
-
-      <!-- Pending Submissions Section -->
-      <div class="team-section" id="pendingPropsSection">
-        <div class="team-section-header">
-          <div>
-            <div class="team-section-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              Pending Property Submissions
-            </div>
-            <div class="team-section-sub">Properties submitted by agents — approve to add to the main dashboard</div>
-          </div>
-          <span class="pending-badge" id="pendingBadge" style="display:none;"></span>
-        </div>
-        <div id="pendingPropsList"></div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
   <!-- FINANCIALS TAB                         -->
   <!-- ═══════════════════════════════════════ -->
   <div id="financialsView" style="display:none;">
     <div class="fin-page" id="finPage"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- LOGINS TAB (admin)                     -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="loginsView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">🔑 Logins</h1>
+          <p class="tab-page-sub">Manage user accounts and review login history</p>
+        </div>
+        <button class="btn-primary" onclick="openLoginModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Login
+        </button>
+      </div>
+
+      <div class="logins-section">
+        <div class="logins-section-title">Active Accounts</div>
+        <div id="loginsAccountsList"></div>
+      </div>
+
+      <div class="logins-section">
+        <div class="logins-section-title">
+          Login History
+          <button class="btn-ghost btn-sm" onclick="renderLoginAudit()" style="margin-left:auto;">↻ Refresh</button>
+        </div>
+        <div id="loginsAuditList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- LOGIN MODAL (add / edit account)       -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="loginModalOverlay">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🔑</div>
+          <div>
+            <h2 id="loginModalTitle">Add Login</h2>
+            <p class="modal-subtitle">Create or edit a user account</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeLoginModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="loginId">
+        <div class="form-group">
+          <label>Full Name <span class="req">*</span></label>
+          <input type="text" id="loginName" placeholder="e.g. Sarah Khan">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Username <span class="req">*</span></label>
+            <input type="text" id="loginUsername" placeholder="lowercase, no spaces" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label>Role <span class="req">*</span></label>
+            <select id="loginRole">
+              <option value="agent">👤 Agent</option>
+              <option value="admin">👑 Admin</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Password <span id="loginPasswordReq" class="req">*</span></label>
+          <input type="text" id="loginPassword" placeholder="min 6 characters" autocomplete="new-password">
+          <div class="form-hint" id="loginPasswordHint" style="display:none;">Leave blank to keep the current password.</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="loginEmail" placeholder="optional">
+          </div>
+          <div class="form-group">
+            <label>Phone</label>
+            <input type="tel" id="loginPhone" placeholder="optional">
+          </div>
+        </div>
+        <div class="form-group" id="loginActiveRow" style="display:none;">
+          <label class="checkbox-row">
+            <input type="checkbox" id="loginActive" checked>
+            <span>Account active (uncheck to disable login)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-delete" id="loginDeleteBtn" onclick="deleteLogin()" style="display:none;">🗑️ Delete</button>
+        <div style="margin-left:auto;display:flex;gap:10px;">
+          <button class="btn-ghost" onclick="closeLoginModal()">Cancel</button>
+          <button class="btn-primary" onclick="saveLogin()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
     </main>
@@ -2350,14 +1965,6 @@
           Inventory
           <span class="nav-count" id="agentInvCount"></span>
         </button>
-        <button class="nav-item" id="aTab-offplan" onclick="showAgentTab('offplan')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h.01"/><path d="M9 12h.01"/><path d="M9 15h.01"/><path d="M9 18h.01"/></svg>
-          Off-Plan
-        </button>
-        <button class="nav-item" id="aTab-secondary" onclick="showAgentTab('secondary')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          Secondary
-        </button>
         <button class="nav-item" id="aTab-leads" onclick="showAgentTab('leads')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg>
           My Leads
@@ -2367,11 +1974,6 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           Meetings &amp; Viewings
           <span class="nav-count" id="agentMeetingCount"></span>
-        </button>
-        <button class="nav-item" id="aTab-tasks" onclick="showAgentTab('tasks')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          Tasks
-          <span class="nav-count" id="agentTaskCount"></span>
         </button>
       </div>
       <div class="nav-divider"></div>
@@ -2415,13 +2017,6 @@
           <div class="agent-section-title"><span>🏆</span> Client Wins <span class="agent-section-badge" id="agentWinsCount"></span></div>
           <div id="agentWinsList"></div>
         </div>
-        <div id="agentOverviewQuickTasks" style="display:none;">
-          <div class="agent-section-title"><span>📋</span> Active Tasks</div>
-          <div id="agentOverviewTasksList"></div>
-          <div style="text-align:center;margin-top:12px;">
-            <button class="btn-ghost" onclick="showAgentTab('tasks')" style="font-size:13px;">View all tasks →</button>
-          </div>
-        </div>
         <div id="agentOverviewQuickLeads" style="display:none;">
           <div class="agent-section-title"><span>👥</span> My Leads</div>
           <div id="agentOverviewLeadsList"></div>
@@ -2443,18 +2038,6 @@
       <!-- Tab: Leads -->
       <div id="agentTabLeads" class="agent-tab-page" style="display:none;">
         <div id="agentLeadsContent"></div>
-      </div>
-
-      <!-- Tab: Off-Plan -->
-      <div id="agentTabOffplan" class="agent-tab-page" style="display:none;">
-        <div class="op-breadcrumb" id="opBreadcrumbAgent"></div>
-        <div id="offplanContentAgent"></div>
-      </div>
-
-      <!-- Tab: Secondary (Resale) -->
-      <div id="agentTabSecondary" class="agent-tab-page" style="display:none;">
-        <div id="secondaryListContentAgent"></div>
-        <div id="secondaryDetailContentAgent" style="display:none;"></div>
       </div>
 
       <!-- Tab: Meetings & Viewings -->
@@ -2486,15 +2069,6 @@
           </div>
         </div>
         <div id="agentMeetingsList"></div>
-      </div>
-
-      <!-- Tab: Tasks -->
-      <div id="agentTabTasks" class="agent-tab-page" style="display:none;">
-        <div class="agent-tab-header">
-          <h2 class="agent-tab-title">📋 My Tasks</h2>
-          <p class="agent-tab-sub">Tasks assigned to you — update status &amp; add progress notes</p>
-        </div>
-        <div id="agentTasksList"></div>
       </div>
 
       <!-- Tab: Map -->
@@ -2921,250 +2495,6 @@
   <!-- Toast Notification -->
   <div class="toast" id="toast"></div>
 
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- ADD / EDIT AGENT MODAL                 -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="agentModalOverlay">
-    <div class="modal" style="max-width:480px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">👤</div>
-          <div>
-            <h2 id="agentModalTitle">Add Agent</h2>
-            <p class="modal-subtitle">Create a login account for your team member</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeAgentModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="agentId">
-        <div class="form-section" style="margin-bottom:0;">
-          <div class="form-row">
-            <div class="form-group">
-              <label>Full Name <span class="req">*</span></label>
-              <input type="text" id="agentName" placeholder="e.g. Ahmed Al Mansoori">
-            </div>
-            <div class="form-group">
-              <label>Role <span class="req">*</span></label>
-              <select id="agentRole">
-                <option value="sales">🏷️ Sales Agent — vacant inventory only</option>
-                <option value="leasing">📋 Leasing / Lease Manager — rented properties</option>
-                <option value="property_management">🏢 Property Management Manager — managed portfolio</option>
-                <option value="general">👤 General Agent — full access</option>
-                <option value="admin_assistant">📂 Admin Assistant — limited tools</option>
-              </select>
-              <div class="cf-note" id="agentRoleHint" style="margin-top:6px;font-size:11px;color:var(--text-3);"></div>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Phone</label>
-              <input type="tel" id="agentPhone" placeholder="+971 50 000 0000">
-            </div>
-            <div class="form-group">
-              <label>Email</label>
-              <input type="email" id="agentEmail" placeholder="agent@email.com">
-            </div>
-          </div>
-          <div class="form-section-divider">Login Credentials</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Username <span class="req">*</span></label>
-              <input type="text" id="agentUsername" placeholder="e.g. ahmed.mansoor" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label>Password <span class="req">*</span></label>
-              <input type="password" id="agentPassword" placeholder="Min 6 characters" autocomplete="new-password">
-            </div>
-          </div>
-          <div class="form-section-divider">Permissions</div>
-          <div class="agent-perms-grid">
-            <label class="perm-toggle">
-              <input type="checkbox" id="permViewFinancials">
-              <span class="perm-toggle-box"></span>
-              <span class="perm-toggle-label">
-                <strong>View Financials</strong>
-                <small>Rent amounts, cheque values</small>
-              </span>
-            </label>
-            <label class="perm-toggle">
-              <input type="checkbox" id="permViewTenant" checked>
-              <span class="perm-toggle-box"></span>
-              <span class="perm-toggle-label">
-                <strong>View Tenant Info</strong>
-                <small>Tenant name, contact, lease dates</small>
-              </span>
-            </label>
-            <label class="perm-toggle">
-              <input type="checkbox" id="permUpdateStatus" checked>
-              <span class="perm-toggle-box"></span>
-              <span class="perm-toggle-label">
-                <strong>Update Task Status</strong>
-                <small>Mark tasks in-progress or done</small>
-              </span>
-            </label>
-            <label class="perm-toggle">
-              <input type="checkbox" id="permAddNotes" checked>
-              <span class="perm-toggle-box"></span>
-              <span class="perm-toggle-label">
-                <strong>Add Task Notes</strong>
-                <small>Write progress updates</small>
-              </span>
-            </label>
-          </div>
-
-          <div class="form-section-divider">Team Hierarchy</div>
-          <div class="agent-team-block">
-            <label class="perm-toggle">
-              <input type="checkbox" id="agentIsLeader" onchange="onTeamLeaderToggle()">
-              <span class="perm-toggle-box"></span>
-              <span class="perm-toggle-label">
-                <strong>Team Leader</strong>
-                <small>Manages a team of agents — sees their leads, tasks &amp; performance</small>
-              </span>
-            </label>
-            <div class="form-group" id="agentReportsToGroup" style="margin-top:12px;">
-              <label>Reports To <span class="optional-label">(team leader)</span></label>
-              <select id="agentReportsTo">
-                <option value="">— Independent (no team leader) —</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeAgentModal()">Cancel</button>
-        <button class="btn-primary" onclick="saveAgent()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          Save Agent
-        </button>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- ASSIGN TASK MODAL                      -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="taskModalOverlay">
-    <div class="modal" style="max-width:540px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">📋</div>
-          <div>
-            <h2 id="taskModalTitle">Assign Task</h2>
-            <p class="modal-subtitle">Assign a task or property to a team member</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeTaskModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="taskId">
-        <div class="form-section" style="margin-bottom:0;">
-          <div class="form-row">
-            <div class="form-group">
-              <label>Assign To <span class="req">*</span></label>
-              <select id="taskAgent">
-                <option value="">— Select agent —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Task Type <span class="req">*</span></label>
-              <select id="taskType">
-                <option value="find-tenant">🔍 Find Tenant</option>
-                <option value="follow-up">📞 Follow Up</option>
-                <option value="site-visit">🏗️ Site Visit</option>
-                <option value="maintenance">🔧 Maintenance Check</option>
-                <option value="documents">📄 Document Collection</option>
-                <option value="negotiation">🤝 Negotiation</option>
-                <option value="other">📌 Other</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Task Title <span class="req">*</span></label>
-            <input type="text" id="taskTitle" placeholder="e.g. Find tenant for Warehouse A, Industrial Road">
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Linked Property</label>
-              <select id="taskProp">
-                <option value="">— No specific property —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Priority</label>
-              <select id="taskPriority">
-                <option value="high">🔴 High</option>
-                <option value="medium" selected>🟡 Medium</option>
-                <option value="low">🟢 Low</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Deadline</label>
-              <input type="date" id="taskDeadline">
-            </div>
-            <div class="form-group">
-              <label>Current Status</label>
-              <!-- Read-only: only agents can change task status -->
-              <div id="taskStatusDisplay" class="task-status-readonly"></div>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Instructions / Description</label>
-            <textarea id="taskDesc" rows="3" placeholder="Specific instructions for the agent…" style="resize:vertical;"></textarea>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeTaskModal()">Cancel</button>
-        <button class="btn-primary" onclick="saveTask()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          Assign Task
-        </button>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ═══════════════════════════════════════ -->
-  <!-- TASK NOTES MODAL (agent view)          -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="taskNotesOverlay">
-    <div class="modal chat-modal" style="max-width:540px;">
-      <div class="modal-header chat-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">💬</div>
-          <div>
-            <h2>Conversation</h2>
-            <p class="modal-subtitle" id="taskNotesPropName"></p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeTaskNotes()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body chat-body">
-        <input type="hidden" id="taskNotesTaskId">
-        <div id="taskNotesList" class="chat-thread"></div>
-        <div class="chat-composer">
-          <textarea id="taskNoteInput" placeholder="Write a message…" rows="1"
-                    onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();submitTaskNote();}"
-                    oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';"></textarea>
-          <button class="chat-send-btn" onclick="submitTaskNote()" title="Send">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- ═══════════════════════════════════════ -->
   <!-- LEAD MODAL (admin creates/edits)       -->
@@ -3868,56 +3198,6 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
-  <!-- ANNOUNCEMENT COMPOSER MODAL            -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="announceModalOverlay">
-    <div class="modal" style="max-width:520px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">📢</div>
-          <div>
-            <h2 id="announceModalTitle">New Announcement</h2>
-            <p class="modal-subtitle">Broadcast to all agents</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeAnnouncementModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="announceId">
-        <div class="form-group">
-          <label>Title *</label>
-          <input type="text" id="announceTitle" placeholder="e.g. Office closed Friday">
-        </div>
-        <div class="form-group">
-          <label>Message *</label>
-          <textarea id="announceBody" rows="5" placeholder="Write your announcement here…" style="resize:vertical;"></textarea>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Expires On (optional)</label>
-            <input type="date" id="announceExpiresAt">
-          </div>
-          <div class="form-group" style="display:flex;align-items:center;">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:24px;">
-              <input type="checkbox" id="announcePinned" style="width:auto;margin:0;">
-              <span>📌 Pin to top</span>
-            </label>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeAnnouncementModal()">Cancel</button>
-        <button class="btn-primary" onclick="saveAnnouncement()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          Post Announcement
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
   <!-- MEETING / VIEWING MODAL                -->
   <!-- ═══════════════════════════════════════ -->
   <div class="modal-overlay" id="meetingModalOverlay">
@@ -4009,55 +3289,9 @@
     </div>
   </div>
 
-  <!-- ═══════════════════════════════════════ -->
-  <!-- LEAVE / TIME-OFF MODAL                 -->
-  <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="leaveModalOverlay">
-    <div class="modal" style="max-width:480px;">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <div class="modal-header-icon">🌴</div>
-          <div>
-            <h2>Add Leave</h2>
-            <p class="modal-subtitle">Mark an agent as on leave for specific dates</p>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeLeaveModal()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label>Agent *</label>
-          <select id="leaveAgent"></select>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Start Date *</label>
-            <input type="date" id="leaveStart">
-          </div>
-          <div class="form-group">
-            <label>End Date *</label>
-            <input type="date" id="leaveEnd">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Reason (optional)</label>
-          <input type="text" id="leaveReason" placeholder="e.g. Annual leave, Sick, Personal">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeLeaveModal()">Cancel</button>
-        <button class="btn-primary" onclick="saveLeave()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          Save Leave
-        </button>
-      </div>
-    </div>
-  </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260430L"></script>
+  <script src="app.js?v=20260502B"></script>
 </body>
 </html>
