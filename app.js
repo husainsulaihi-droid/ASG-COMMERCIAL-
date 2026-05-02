@@ -102,6 +102,7 @@ async function doLogout() {
     console.warn('[doLogout] Backend unreachable:', e.message);
   }
   sessionStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(_FIN_UNLOCK_KEY);
   location.reload();
 }
 
@@ -7238,10 +7239,36 @@ function _lightenHex(hex, amount) {
 let _finYear = new Date().getFullYear();
 let _finType = 'all';   // all | warehouse | office | residential | land
 
+// ── PIN gate ──────────────────────────────────────
+// 4-digit PIN required to view the Financials tab. Hash lives in
+// localStorage (persists across sessions); unlock flag is per-tab in
+// sessionStorage (cleared on logout / hard-refresh).
+const _FIN_PIN_KEY      = 'asg_fin_pin_hash';
+const _FIN_UNLOCK_KEY   = 'asg_fin_unlocked';
+async function _finHashPin(pin) {
+  const buf = new TextEncoder().encode('asg-fin-pin-v1:' + String(pin));
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function _finPinIsSet()    { return !!localStorage.getItem(_FIN_PIN_KEY); }
+function _finIsUnlocked()  { return sessionStorage.getItem(_FIN_UNLOCK_KEY) === '1'; }
+function _finLock() {
+  sessionStorage.removeItem(_FIN_UNLOCK_KEY);
+  if (typeof activeTab === 'string' && activeTab === 'financials') renderFinancials();
+}
+
 function renderFinancials() {
+  const root = document.getElementById('finPage');
+  if (!root) return;
+
+  // ─ Gate: unlock screen if locked ─
+  if (!_finIsUnlocked()) {
+    _finRenderGate(root);
+    return;
+  }
+
   const props = loadProps();
   const yearsAvail = _finCollectYears(props);
-  const root = document.getElementById('finPage');
   if (!root) return;
 
   // Build year selector options (current ± span)
@@ -7279,6 +7306,8 @@ function renderFinancials() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:4px;"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download Report
         </button>
+        <button class="btn-ghost" onclick="_finChangePin()" style="height:36px;" title="Change PIN">🔑</button>
+        <button class="btn-ghost" onclick="_finLock()" style="height:36px;" title="Lock now">🔒</button>
       </div>
     </div>
     <div id="finBody"></div>
@@ -7289,6 +7318,136 @@ function renderFinancials() {
 
 function _finSetYear(y) { _finYear = y; renderFinancials(); }
 function _finSetType(t) { _finType = t; renderFinancials(); }
+
+// ── PIN gate UI ───────────────────────────────────
+function _finRenderGate(root) {
+  const isFirstTime = !_finPinIsSet();
+  root.innerHTML = `
+    <div class="fin-gate">
+      <div class="fin-gate-card">
+        <div class="fin-gate-icon">🔒</div>
+        <h1 class="fin-gate-title">Financials Locked</h1>
+        <p class="fin-gate-sub">${isFirstTime
+          ? 'Set a 4-digit PIN to protect this tab. You\'ll be asked for it each session.'
+          : 'Enter your 4-digit PIN to view financial data.'}</p>
+
+        <form onsubmit="event.preventDefault(); _finPinSubmit();" autocomplete="off">
+          <div class="fin-pin-row">
+            <input id="finPin1" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+            <input id="finPin2" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+            <input id="finPin3" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+            <input id="finPin4" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+          </div>
+          ${isFirstTime ? `
+          <p class="fin-gate-sub" style="margin-top:18px;">Confirm your PIN:</p>
+          <div class="fin-pin-row">
+            <input id="finPin1c" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+            <input id="finPin2c" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+            <input id="finPin3c" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+            <input id="finPin4c" class="fin-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off">
+          </div>` : ''}
+          <div id="finGateError" class="fin-gate-error"></div>
+          <button type="submit" class="btn-primary fin-gate-submit">
+            ${isFirstTime ? 'Set PIN & Unlock' : 'Unlock'}
+          </button>
+          ${isFirstTime ? '' : `
+          <button type="button" class="btn-ghost fin-gate-reset" onclick="_finResetPinFlow()">Forgot PIN — reset</button>`}
+        </form>
+      </div>
+    </div>
+  `;
+  _finWirePinInputs(isFirstTime);
+  setTimeout(() => { const el = document.getElementById('finPin1'); if (el) el.focus(); }, 50);
+}
+
+function _finWirePinInputs(isFirstTime) {
+  const fields = ['finPin1','finPin2','finPin3','finPin4'];
+  if (isFirstTime) fields.push('finPin1c','finPin2c','finPin3c','finPin4c');
+  fields.forEach((id, idx) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', e => {
+      e.target.value = e.target.value.replace(/[^0-9]/g, '');
+      if (e.target.value && idx < fields.length - 1) {
+        const nxt = document.getElementById(fields[idx + 1]);
+        if (nxt) nxt.focus();
+      }
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !e.target.value && idx > 0) {
+        const prv = document.getElementById(fields[idx - 1]);
+        if (prv) { prv.focus(); prv.value = ''; }
+      }
+    });
+  });
+}
+
+function _finReadPin(suffix) {
+  const v = ['1','2','3','4'].map(n => (document.getElementById('finPin' + n + (suffix||''))?.value || '')).join('');
+  return v;
+}
+
+async function _finPinSubmit() {
+  const errEl = document.getElementById('finGateError');
+  if (errEl) errEl.textContent = '';
+  const pin = _finReadPin('');
+  if (pin.length !== 4) {
+    if (errEl) errEl.textContent = 'Enter all 4 digits.';
+    return;
+  }
+
+  if (!_finPinIsSet()) {
+    const pin2 = _finReadPin('c');
+    if (pin2.length !== 4) {
+      if (errEl) errEl.textContent = 'Enter all 4 digits in both rows.';
+      return;
+    }
+    if (pin !== pin2) {
+      if (errEl) errEl.textContent = 'PINs don\'t match. Try again.';
+      const r = document.getElementById('finPin1c'); if (r) r.focus();
+      return;
+    }
+    const hash = await _finHashPin(pin);
+    localStorage.setItem(_FIN_PIN_KEY, hash);
+    sessionStorage.setItem(_FIN_UNLOCK_KEY, '1');
+    showToast('PIN set — Financials unlocked', 'success');
+    renderFinancials();
+    return;
+  }
+
+  const stored = localStorage.getItem(_FIN_PIN_KEY);
+  const hash = await _finHashPin(pin);
+  if (hash !== stored) {
+    if (errEl) errEl.textContent = 'Wrong PIN.';
+    ['finPin1','finPin2','finPin3','finPin4'].forEach(i => { const el = document.getElementById(i); if (el) el.value = ''; });
+    const r = document.getElementById('finPin1'); if (r) r.focus();
+    return;
+  }
+  sessionStorage.setItem(_FIN_UNLOCK_KEY, '1');
+  renderFinancials();
+}
+
+function _finResetPinFlow() {
+  if (!confirm('This will clear the saved PIN and let you set a new one. Continue?')) return;
+  localStorage.removeItem(_FIN_PIN_KEY);
+  sessionStorage.removeItem(_FIN_UNLOCK_KEY);
+  renderFinancials();
+}
+
+async function _finChangePin() {
+  const cur = prompt('Enter your CURRENT 4-digit PIN:');
+  if (cur == null) return;
+  if (!/^\d{4}$/.test(cur)) { showToast('PIN must be exactly 4 digits', 'error'); return; }
+  const curHash = await _finHashPin(cur);
+  if (curHash !== localStorage.getItem(_FIN_PIN_KEY)) { showToast('Wrong current PIN', 'error'); return; }
+  const newPin = prompt('Enter your NEW 4-digit PIN:');
+  if (newPin == null) return;
+  if (!/^\d{4}$/.test(newPin)) { showToast('PIN must be exactly 4 digits', 'error'); return; }
+  const confirm2 = prompt('Confirm your NEW PIN:');
+  if (confirm2 !== newPin) { showToast('PINs don\'t match', 'error'); return; }
+  localStorage.setItem(_FIN_PIN_KEY, await _finHashPin(newPin));
+  showToast('PIN updated', 'success');
+}
 
 function _finCollectYears(props) {
   const years = new Set();

@@ -5230,3 +5230,53 @@ body, button, input, select, textarea {
   .audit-row { grid-template-columns: 24px 1fr 1fr; }
   .audit-row .audit-ip, .audit-row .audit-ua { display:none; }
 }
+
+/* ─── Financials PIN gate ────────────────────────── */
+.fin-gate {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 60vh; padding: 40px 20px;
+}
+.fin-gate-card {
+  background: var(--bg-1); border: 1px solid var(--border-1);
+  border-radius: 14px; padding: 36px 40px;
+  max-width: 380px; width: 100%; text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+.fin-gate-icon {
+  font-size: 40px; line-height: 1;
+  margin-bottom: 12px;
+}
+.fin-gate-title {
+  font-size: 20px; font-weight: 800; color: var(--text-1);
+  margin: 0 0 6px;
+}
+.fin-gate-sub {
+  font-size: 13px; color: var(--text-3); margin: 0 0 20px; line-height: 1.5;
+}
+.fin-pin-row {
+  display: flex; justify-content: center; gap: 10px;
+  margin: 6px 0;
+}
+.fin-pin-input {
+  width: 48px; height: 56px;
+  font-size: 24px; font-weight: 700; text-align: center;
+  border: 2px solid var(--border-1); border-radius: 8px;
+  background: var(--bg-2); color: var(--text-1);
+  -webkit-text-security: disc; text-security: disc;
+}
+.fin-pin-input:focus {
+  outline: none; border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(201, 168, 76, 0.15);
+}
+.fin-gate-error {
+  font-size: 12.5px; color: var(--danger); min-height: 18px;
+  margin: 12px 0 4px; font-weight: 600;
+}
+.fin-gate-submit {
+  width: 100%; margin-top: 10px; height: 42px;
+  font-weight: 700;
+}
+.fin-gate-reset {
+  display: block; margin: 12px auto 0;
+  font-size: 12px; color: var(--text-3);
+}
