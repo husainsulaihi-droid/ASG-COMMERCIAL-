@@ -7236,7 +7236,7 @@ function _lightenHex(hex, amount) {
 // FINANCIALS TAB (admin only)
 // ═══════════════════════════════════════════════════
 let _finYear = new Date().getFullYear();
-let _finType = 'warehouse';   // warehouse | office | residential | all
+let _finType = 'all';   // all | warehouse | office | residential | land
 
 function renderFinancials() {
   const props = loadProps();
@@ -7249,10 +7249,11 @@ function renderFinancials() {
     .sort((a,b)=>b-a);
 
   const typeOpts = [
+    ['all',         'All Properties'],
     ['warehouse',   'Warehouses'],
     ['office',      'Offices'],
     ['residential', 'Residential'],
-    ['all',         'All Properties']
+    ['land',        'Land']
   ];
 
   root.innerHTML = `
@@ -7470,9 +7471,12 @@ function _finRenderBody(props) {
   // (collected on top of rent, paid through to the government). So the
   // grand total ADDS maintenance and SUBTRACTS VAT.
   const grandTotal = rentTotalOurs + mgmtTotal + maintTotalFin + brokerTotal + feesTotal - vatTotal;
-  const typeLabel  = _finType === 'all' ? 'Properties'
-                   : _finType === 'warehouse' ? 'Warehouses'
-                   : _finType === 'office' ? 'Offices' : 'Residential';
+  const typeLabel  = _finType === 'all'         ? 'Properties'
+                   : _finType === 'warehouse'   ? 'Warehouses'
+                   : _finType === 'office'      ? 'Offices'
+                   : _finType === 'residential' ? 'Residential'
+                   : _finType === 'land'        ? 'Land'
+                   : 'Properties';
 
   body.innerHTML = `
     <!-- ── KPI ROW ──────────────────────────────── -->
