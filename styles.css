@@ -1145,10 +1145,10 @@ body, button, input, select, textarea {
 }
 
 .rc-countdown {
-  font-size: 40px;
+  font-size: 20px;
   font-weight: 800;
-  line-height: 1;
-  letter-spacing: -1px;
+  line-height: 1.1;
+  letter-spacing: -0.2px;
 }
 .rc-countdown.cd-expired  { color: var(--danger); }
 .rc-countdown.cd-critical { color: #f97316; }
