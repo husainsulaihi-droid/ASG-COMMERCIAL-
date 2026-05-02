@@ -1835,7 +1835,7 @@ function showExisting(key, info) {
 }
 
 function resetFileZones() {
-  const labels = { drec: 'Upload DREC', ijari: 'Upload Owner Ijari', ijari2: 'Upload Tenancy Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract' };
+  const labels = { drec: 'Upload DREC / Title Deed', ijari: 'Upload Owner Ijari', ijari2: 'Upload Tenancy Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract' };
   ['drec', 'ijari', 'ijari2', 'affection', 'tenancy'].forEach(key => {
     // Reset every <input type=file> tied to this key (e.g. fileIjari and fileIjari2)
     document.querySelectorAll(`.file-zone[data-doc-key="${key}"] input[type="file"]`).forEach(inp => { inp.value = ''; });
@@ -2384,7 +2384,7 @@ async function openDetailModal(id) {
       <div class="detail-block">
         <div class="detail-block-header">📁 Documents & Attachments</div>
         <div class="docs-grid">
-          ${docTile('DREC Certificate', p.files?.drec)}
+          ${docTile('DREC / Title Deed', p.files?.drec)}
           ${docTile('Ijari (Owner)', p.files?.ijari)}
           ${docTile('Ijari (Tenancy)', p.files?.ijari2)}
           ${docTile('Affection Plan', p.files?.affection)}
