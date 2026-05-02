@@ -1832,6 +1832,19 @@ function showExisting(key, info) {
       tagEl.style.display = 'none';
     }
   });
+
+  // Mirror the green "has-file" visual on the zone itself so an already-
+  // uploaded document is just as visible as a freshly attached one.
+  document.querySelectorAll(`.file-zone[data-doc-key="${key}"]`).forEach(zone => {
+    const lbl = zone.querySelector('.file-zone-text');
+    if (info?.name) {
+      zone.classList.add('has-file');
+      const display = info.name.length > 24 ? info.name.slice(0, 22) + '…' : info.name;
+      if (lbl) lbl.textContent = display;
+    } else {
+      zone.classList.remove('has-file');
+    }
+  });
 }
 
 function resetFileZones() {
