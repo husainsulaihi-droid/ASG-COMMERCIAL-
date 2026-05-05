@@ -7784,10 +7784,16 @@ function _finRenderBody(props) {
                               : o === 'partnership' ? `<span class="fin-chip fin-chip-part">Partnership</span>`
                               : o === 'management'  ? `<span class="fin-chip fin-chip-mgmt">Managed</span>`
                               : `<span class="fin-chip">—</span>`;
+                const compoundName = r.p.compoundId
+                  ? (_compoundsCache.find(c => String(c.id) === String(r.p.compoundId))?.name || '')
+                  : '';
+                const compoundTag = compoundName
+                  ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px;">🏢 ${h(compoundName)} (charges at compound)</div>`
+                  : '';
                 return `
                 <tr onclick="openDetailModal('${r.p.id}')" class="fin-row-click">
                   <td class="fin-num">${i+1}</td>
-                  <td><strong>${h(r.p.name)}</strong></td>
+                  <td><strong>${h(r.p.name)}</strong>${compoundTag}</td>
                   <td>${h(r.p.tenantName||'—')}</td>
                   <td>${ownChip}</td>
                   <td class="ta-r">AED ${r.annual.toLocaleString()}</td>
@@ -7813,6 +7819,26 @@ function _finRenderBody(props) {
                 <td class="ta-r fin-our"><strong>AED ${rentTotalOurs.toLocaleString()}</strong></td>
                 <td></td>
               </tr>
+              ${compoundDedTotal ? `
+              <tr style="background:rgba(220,38,38,0.04);">
+                <td colspan="8" class="ta-r" style="color:var(--text-2);">
+                  <strong>− Compound Deductions</strong>
+                  <span style="font-size:11px;color:var(--text-3);font-weight:400;">
+                    (${compoundDedRows.length} compound${compoundDedRows.length===1?'':'s'} · shared land/service/license/CD bills)
+                  </span>
+                </td>
+                <td class="ta-r" style="color:var(--danger);"><strong>− AED ${compoundDedTotal.toLocaleString()}</strong></td>
+                <td></td>
+                <td class="ta-r fin-our" style="color:var(--danger);"><strong>− AED ${compoundDedTotal.toLocaleString()}</strong></td>
+                <td></td>
+              </tr>
+              <tr style="background:var(--bg-2);">
+                <td colspan="8" class="ta-r"><strong>NET OF COMPOUND</strong></td>
+                <td class="ta-r"><strong>AED ${(rentTotalNet - compoundDedTotal).toLocaleString()}</strong></td>
+                <td></td>
+                <td class="ta-r fin-our"><strong>AED ${(rentTotalOurs - compoundDedTotal).toLocaleString()}</strong></td>
+                <td></td>
+              </tr>` : ''}
             </tfoot>
           </table>
         </div>
