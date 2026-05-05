@@ -117,19 +117,26 @@ router.patch('/:id', requireAdmin, (req, res) => {
   res.json({ compound: rowToApi(row) });
 });
 
+// Atomically unlink any linked properties (compound_id → NULL) and delete the
+// compound row. The four compound-level charges those properties used to
+// inherit (land, service, license, civil-defense) will simply not be deducted
+// from financials anymore — admin can re-enter them per-property if needed.
 router.delete('/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const linked = getDb().prepare(
+  const db = getDb();
+  const existing = db.prepare('SELECT id FROM compounds WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Compound not found' });
+
+  const linkedCount = db.prepare(
     'SELECT COUNT(*) AS n FROM properties WHERE compound_id = ?'
   ).get(id).n;
-  if (linked > 0) {
-    return res.status(409).json({
-      error: `Cannot delete: ${linked} propert${linked === 1 ? 'y is' : 'ies are'} linked to this compound. Unlink them first.`,
-    });
-  }
-  const result = getDb().prepare('DELETE FROM compounds WHERE id = ?').run(id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Compound not found' });
-  res.json({ ok: true });
+
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE properties SET compound_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE compound_id = ?').run(id);
+    db.prepare('DELETE FROM compounds WHERE id = ?').run(id);
+  });
+  tx();
+  res.json({ ok: true, unlinked: linkedCount });
 });
 
 module.exports = router;

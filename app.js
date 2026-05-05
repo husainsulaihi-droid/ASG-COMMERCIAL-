@@ -10395,7 +10395,11 @@ async function saveCompound() {
 async function deleteCompound() {
   const id = document.getElementById('compoundId').value;
   if (!id) return;
-  if (!confirm('Delete this compound? Properties currently linked to it must be unlinked first.')) return;
+  const linked = _compoundSelectedIds.size;
+  const msg = linked > 0
+    ? `Delete this compound?\n\n${linked} ${linked === 1 ? 'property is' : 'properties are'} currently linked — they will be unlinked automatically (their per-property land/service/license/civil-defense fields will become editable again).`
+    : 'Delete this compound?';
+  if (!confirm(msg)) return;
   try {
     if (typeof markLocalMutation === 'function') markLocalMutation();
     const r = await fetch(`/api/compounds/${id}`, { method: 'DELETE', credentials: 'same-origin' });
@@ -10403,9 +10407,13 @@ async function deleteCompound() {
       const e = await r.json().catch(() => ({}));
       throw new Error(e.error || 'HTTP ' + r.status);
     }
-    showToast('Compound deleted', 'success');
+    const data = await r.json().catch(() => ({}));
+    showToast(data.unlinked ? `Compound deleted · ${data.unlinked} property unlinked` : 'Compound deleted', 'success');
     closeCompoundModal();
     await fetchCompounds(true);
+    if (typeof fetchProperties === 'function') {
+      try { await fetchProperties(); } catch (_) {}
+    }
     renderCompounds();
   } catch (e) {
     showToast('Delete failed: ' + e.message, 'error');
