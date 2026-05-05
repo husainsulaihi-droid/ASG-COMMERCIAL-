@@ -7703,14 +7703,20 @@ function _finRenderBody(props) {
       </div>
       <div class="fin-kpi">
         <div class="fin-kpi-label">Rental Income (Net)</div>
-        <div class="fin-kpi-value">AED ${rentTotalOurs.toLocaleString()}</div>
-        <div class="fin-kpi-sub">${rentRows.length} active rental${rentRows.length===1?'':'s'} · after deductions, our share</div>
+        <div class="fin-kpi-value">AED ${(rentTotalOurs - compoundDedTotal).toLocaleString()}</div>
+        <div class="fin-kpi-sub">${rentRows.length} active rental${rentRows.length===1?'':'s'} · after deductions, our share${compoundDedTotal?` · less AED ${compoundDedTotal.toLocaleString()} compound charges`:''}</div>
       </div>
       ${deductionsTotal ? `
       <div class="fin-kpi">
         <div class="fin-kpi-label">Deductions</div>
         <div class="fin-kpi-value fin-kpi-warn">− AED ${deductionsTotal.toLocaleString()}</div>
         <div class="fin-kpi-sub">Land ${rentTotalLand.toLocaleString()} · License ${rentTotalLic.toLocaleString()} · Service ${rentTotalSvc.toLocaleString()} · DEWA ${rentTotalDewa.toLocaleString()} · Ejari ${rentTotalEjari.toLocaleString()} · CD ${rentTotalCD.toLocaleString()} · Legal ${rentTotalLegal.toLocaleString()} · Tax ${rentTotalCtax.toLocaleString()}${rentTotalMFee?` · Mgmt ${rentTotalMFee.toLocaleString()}`:''}</div>
+      </div>` : ''}
+      ${compoundDedTotal ? `
+      <div class="fin-kpi">
+        <div class="fin-kpi-label">Compound Deductions</div>
+        <div class="fin-kpi-value fin-kpi-warn">− AED ${compoundDedTotal.toLocaleString()}</div>
+        <div class="fin-kpi-sub">${compoundDedRows.length} compound${compoundDedRows.length===1?'':'s'} · shared land/service/license/CD bills</div>
       </div>` : ''}
       <div class="fin-kpi">
         <div class="fin-kpi-label">Management Income</div>
@@ -8239,10 +8245,10 @@ function _buildFinancialReportHTML(s) {
 
   // ── Donut chart: income composition (positive only — VAT excluded) ──
   const donutSegs = [
-    { label: 'Rental Income',     value: k.rentalNet,                color: '#1c2b4a' },
-    { label: 'Management Income', value: k.mgmtIncome,               color: '#c9a84c' },
-    { label: 'Maintenance',       value: k.maintenance,              color: '#7c3aed' },
-    { label: 'Brokerage + Fees',  value: k.brokerage + k.lateFees,   color: '#0d9488' },
+    { label: 'Rental Income',     value: k.rentalNet - (k.compoundDeductions || 0), color: '#1c2b4a' },
+    { label: 'Management Income', value: k.mgmtIncome,                               color: '#c9a84c' },
+    { label: 'Maintenance',       value: k.maintenance,                              color: '#7c3aed' },
+    { label: 'Brokerage + Fees',  value: k.brokerage + k.lateFees,                   color: '#0d9488' },
   ].filter(seg => seg.value > 0);
   const donut = _svgDonut(donutSegs, 180);
 
@@ -8393,8 +8399,8 @@ function _buildFinancialReportHTML(s) {
     </div>
     <div class="kpi">
       <div class="kpi-label">Rental Income (Net)</div>
-      <div class="kpi-value">${fmt(k.rentalNet)}</div>
-      <div class="kpi-sub">${k.rentedCount} active rental${k.rentedCount===1?'':'s'} · after deductions, our share</div>
+      <div class="kpi-value">${fmt(k.rentalNet - (k.compoundDeductions || 0))}</div>
+      <div class="kpi-sub">${k.rentedCount} active rental${k.rentedCount===1?'':'s'} · after deductions, our share${k.compoundDeductions?` · less ${fmt(k.compoundDeductions)} compound charges`:''}</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Management Income</div>
