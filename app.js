@@ -8186,6 +8186,11 @@ function _finRenderBody(props) {
         <span>&nbsp;&nbsp;↳ Deductions applied (Land + License + Service + DEWA + Ejari + Civil Defense + Legal + Corporate Tax + Management Fee)</span>
         <span>− AED ${deductionsTotal.toLocaleString()}</span>
       </div>` : ''}
+      ${compoundDedTotal ? `
+      <div class="fin-grand-row" style="color:var(--danger);font-weight:500;">
+        <span>Compound Deductions (${compoundDedRows.length} compound${compoundDedRows.length===1?'':'s'} · shared land + service + license + civil defense)</span>
+        <span>− AED ${compoundDedTotal.toLocaleString()}</span>
+      </div>` : ''}
       <div class="fin-grand-row">
         <span>Management Fee Income</span>
         <span>AED ${mgmtTotal.toLocaleString()}</span>
