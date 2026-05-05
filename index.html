@@ -1897,6 +1897,14 @@
           <label>Notes</label>
           <textarea id="compoundNotes" rows="2" placeholder="optional"></textarea>
         </div>
+        <div class="form-group">
+          <label>Linked Properties <span class="optional-label" id="compoundPropsCount"></span></label>
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:6px;">
+            Tick the warehouses that belong to this compound. Properties already linked to another compound are hidden.
+          </div>
+          <input type="text" id="compoundPropsFilter" placeholder="Search by name…" style="margin-bottom:6px;" oninput="_renderCompoundPropPicker()">
+          <div id="compoundPropsList" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px;background:#f9fafb;"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-ghost" onclick="closeCompoundModal()">Cancel</button>
@@ -3390,6 +3398,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260505A"></script>
+  <script src="app.js?v=20260505B"></script>
 </body>
 </html>

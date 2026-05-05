@@ -10246,7 +10246,12 @@ async function renderCompounds() {
   }).join('');
 }
 
-function openCompoundModal(id) {
+// Track the in-modal selection state separately so unsaved changes are not
+// committed until the user clicks Save.
+let _compoundEditingId = null;
+let _compoundSelectedIds = new Set();
+
+async function openCompoundModal(id) {
   const c = id ? _compoundsCache.find(x => String(x.id) === String(id)) : null;
   document.getElementById('compoundModalTitle').textContent = c ? 'Edit Compound' : 'Add Compound';
   document.getElementById('compoundId').value             = c ? c.id : '';
@@ -10258,8 +10263,88 @@ function openCompoundModal(id) {
   document.getElementById('compoundCivilDefense').value   = c ? (c.civilDefenseCharges || '') : '';
   document.getElementById('compoundNotes').value          = c ? (c.notes || '') : '';
   document.getElementById('compoundDeleteBtn').style.display = c ? '' : 'none';
+  document.getElementById('compoundPropsFilter').value = '';
+
+  _compoundEditingId = c ? c.id : null;
+  _compoundSelectedIds = new Set();
+  // For an existing compound, fetch its current linked-property IDs.
+  if (c) {
+    try {
+      const r = await fetch(`/api/compounds/${c.id}`, { credentials: 'same-origin' });
+      if (r.ok) {
+        const data = await r.json();
+        (data.compound?.propertyIds || []).forEach(id => _compoundSelectedIds.add(String(id)));
+      }
+    } catch (_) {}
+  }
+  _renderCompoundPropPicker();
+
   document.getElementById('compoundModalOverlay').classList.add('active');
   setTimeout(() => document.getElementById('compoundName').focus(), 50);
+}
+
+// Render the checkbox list of eligible properties. Eligible = unlinked, OR
+// already linked to the compound being edited.
+function _renderCompoundPropPicker() {
+  const listEl = document.getElementById('compoundPropsList');
+  const countEl = document.getElementById('compoundPropsCount');
+  const filterStr = (document.getElementById('compoundPropsFilter')?.value || '').trim().toLowerCase();
+  if (!listEl) return;
+  const props = (typeof loadProps === 'function' ? loadProps() : []) || [];
+  const editingId = _compoundEditingId == null ? null : String(_compoundEditingId);
+  const eligible = props.filter(p => {
+    const cid = p.compoundId == null ? '' : String(p.compoundId);
+    if (cid === '') return true;                     // unlinked
+    if (editingId && cid === editingId) return true; // already in this compound
+    return false;                                     // linked elsewhere
+  });
+  const filtered = filterStr
+    ? eligible.filter(p => (p.name || '').toLowerCase().includes(filterStr))
+    : eligible;
+
+  if (countEl) countEl.textContent = `${_compoundSelectedIds.size} selected · ${filtered.length} eligible`;
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<div style="padding:12px;text-align:center;color:var(--text-3);font-size:12px;">${eligible.length === 0 ? 'No eligible properties — all are linked to other compounds.' : 'No matches for that filter.'}</div>`;
+    return;
+  }
+
+  // Group by type for readability
+  const byType = {};
+  filtered.forEach(p => {
+    const t = p.type || 'other';
+    (byType[t] = byType[t] || []).push(p);
+  });
+  const order = ['warehouse', 'office', 'residential', 'land', 'other'];
+  const typeLabel = { warehouse:'🏭 Warehouses', office:'🏢 Offices', residential:'🏠 Residential', land:'🟫 Land', other:'Other' };
+  const html = order.filter(t => byType[t]).map(t => {
+    const rows = byType[t].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    return `
+      <div style="font-size:11px;font-weight:700;color:var(--text-3);padding:6px 4px 2px;text-transform:uppercase;letter-spacing:.04em;">${typeLabel[t] || t}</div>
+      ${rows.map(p => {
+        const checked = _compoundSelectedIds.has(String(p.id)) ? 'checked' : '';
+        const sub = [p.location, p.tenantName].filter(Boolean).map(h).join(' · ');
+        return `
+          <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-radius:4px;cursor:pointer;background:${checked?'#eff6ff':'transparent'};">
+            <input type="checkbox" value="${p.id}" ${checked} onchange="_toggleCompoundProp(this)">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:600;">${h(p.name || '')}</div>
+              ${sub ? `<div style="font-size:11px;color:var(--text-3);">${sub}</div>` : ''}
+            </div>
+            ${p.status === 'rented' ? '<span class="login-status-on">●</span>' : '<span style="color:#9ca3af;font-size:11px;">vacant</span>'}
+          </label>`;
+      }).join('')}
+    `;
+  }).join('');
+  listEl.innerHTML = html;
+}
+
+function _toggleCompoundProp(cb) {
+  const id = String(cb.value);
+  if (cb.checked) _compoundSelectedIds.add(id);
+  else _compoundSelectedIds.delete(id);
+  // Re-render to update count + row highlight (cheap; list is small)
+  _renderCompoundPropPicker();
 }
 
 function closeCompoundModal() {
@@ -10276,6 +10361,7 @@ async function saveCompound() {
     licenseFees:         Number(document.getElementById('compoundLicenseFees').value) || 0,
     civilDefenseCharges: Number(document.getElementById('compoundCivilDefense').value) || 0,
     notes:               document.getElementById('compoundNotes').value.trim(),
+    propertyIds:         [..._compoundSelectedIds].map(s => parseInt(s, 10)).filter(Number.isFinite),
   };
   if (!payload.name) { showToast('Compound name is required', 'error'); return; }
   try {
@@ -10294,6 +10380,11 @@ async function saveCompound() {
     showToast(id ? 'Compound updated' : 'Compound created', 'success');
     closeCompoundModal();
     await fetchCompounds(true);
+    // Properties' compound_id may have changed — refresh the local cache so
+    // the Financials tab and property cards reflect the new linkage.
+    if (typeof fetchProperties === 'function') {
+      try { await fetchProperties(); } catch (_) {}
+    }
     renderCompounds();
   } catch (e) {
     showToast('Save failed: ' + e.message, 'error');

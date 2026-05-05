@@ -39,8 +39,32 @@ router.get('/:id', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const row = getDb().prepare('SELECT * FROM compounds WHERE id = ?').get(id);
   if (!row) return res.status(404).json({ error: 'Compound not found' });
-  res.json({ compound: rowToApi(row) });
+  const linked = getDb().prepare(
+    'SELECT id FROM properties WHERE compound_id = ? ORDER BY name'
+  ).all(id).map(r => r.id);
+  res.json({ compound: { ...rowToApi(row), propertyIds: linked } });
 });
+
+// Sync the set of properties linked to this compound. Anything in `ids` that
+// isn't already linked gets compound_id = compoundId; anything currently
+// linked but not in `ids` gets compound_id = NULL.
+function syncCompoundProperties(compoundId, ids) {
+  const db = getDb();
+  const want = new Set((ids || []).map(n => parseInt(n, 10)).filter(Number.isFinite));
+  const current = new Set(
+    db.prepare('SELECT id FROM properties WHERE compound_id = ?').all(compoundId).map(r => r.id)
+  );
+  const toAdd    = [...want].filter(id => !current.has(id));
+  const toRemove = [...current].filter(id => !want.has(id));
+  const setStmt   = db.prepare('UPDATE properties SET compound_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+  const clearStmt = db.prepare('UPDATE properties SET compound_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+  const tx = db.transaction(() => {
+    for (const id of toAdd)    setStmt.run(compoundId, id);
+    for (const id of toRemove) clearStmt.run(id);
+  });
+  tx();
+  return { added: toAdd.length, removed: toRemove.length };
+}
 
 router.post('/', requireAdmin, (req, res) => {
   const data = bodyToDb(req.body, COMPOUND_FIELDS);
@@ -57,6 +81,9 @@ router.post('/', requireAdmin, (req, res) => {
   const result = getDb().prepare(
     `INSERT INTO compounds (${cols.join(', ')}) VALUES (${placeholders})`
   ).run(...values);
+  if (Array.isArray(req.body.propertyIds)) {
+    syncCompoundProperties(result.lastInsertRowid, req.body.propertyIds);
+  }
   const row = getDb().prepare('SELECT * FROM compounds WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json({ compound: rowToApi(row) });
 });
@@ -67,7 +94,8 @@ router.patch('/:id', requireAdmin, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Compound not found' });
 
   const data = bodyToDb(req.body, COMPOUND_FIELDS);
-  if (!Object.keys(data).length) return res.json({ compound: rowToApi(existing) });
+  const hasIds = Array.isArray(req.body.propertyIds);
+  if (!Object.keys(data).length && !hasIds) return res.json({ compound: rowToApi(existing) });
 
   if (data.name && data.name !== existing.name) {
     const dup = getDb().prepare(
@@ -76,11 +104,14 @@ router.patch('/:id', requireAdmin, (req, res) => {
     if (dup) return res.status(409).json({ error: `A compound named "${data.name}" already exists.` });
   }
 
-  const sets   = Object.keys(data).map(k => `${k} = ?`).join(', ');
-  const values = [...Object.values(data), id];
-  getDb().prepare(
-    `UPDATE compounds SET ${sets}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-  ).run(...values);
+  if (Object.keys(data).length) {
+    const sets   = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(data), id];
+    getDb().prepare(
+      `UPDATE compounds SET ${sets}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(...values);
+  }
+  if (hasIds) syncCompoundProperties(id, req.body.propertyIds);
 
   const row = getDb().prepare('SELECT * FROM compounds WHERE id = ?').get(id);
   res.json({ compound: rowToApi(row) });
