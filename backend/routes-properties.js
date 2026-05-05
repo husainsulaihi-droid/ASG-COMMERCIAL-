@@ -48,7 +48,8 @@ const PROP_FIELDS = [
   'status', 'annual_rent', 'service_charges', 'maintenance_fees', 'management_fees', 'vat',
   'tenant_name', 'tenant_phone', 'tenant_email', 'reminder_days',
   'lease_start', 'lease_end', 'num_cheques', 'notes', 'coords',
-  'holding_company', 'plot_no', 'ejari_number', 'deposit'
+  'holding_company', 'plot_no', 'ejari_number', 'deposit',
+  'compound_id'
 ];
 
 const FINANCIAL_FIELDS = [

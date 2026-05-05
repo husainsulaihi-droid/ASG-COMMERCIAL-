@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ASG Commercial — Property Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260502C">
+  <link rel="stylesheet" href="styles.css?v=20260505A">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -233,6 +233,10 @@
         <button class="nav-item" id="tabFinancials" onclick="showTab('financials')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
           Financials
+        </button>
+        <button class="nav-item" id="tabCompounds" onclick="showTab('compounds')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Compounds
         </button>
         <button class="nav-item" id="tabLogins" onclick="showTab('logins')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
@@ -873,6 +877,14 @@
               <div class="form-group">
                 <label>Current Market Value (AED)</label>
                 <input type="number" id="propMarketValue" placeholder="Optional estimate" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Compound <span class="optional-label">link to a shared compound — land/service/license/civil-defense are paid at compound level</span></label>
+                <select id="propCompoundId" onchange="toggleCompoundLockedFields()">
+                  <option value="">— None (charges per-property) —</option>
+                </select>
               </div>
             </div>
             <div class="form-row">
@@ -1813,6 +1825,85 @@
   <!-- ═══════════════════════════════════════ -->
   <div id="financialsView" style="display:none;">
     <div class="fin-page" id="finPage"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- COMPOUNDS TAB (admin)                  -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="compoundsView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">🏭 Compounds</h1>
+          <p class="tab-page-sub">Group warehouses that share land / service / license / civil-defense charges</p>
+        </div>
+        <button class="btn-primary" onclick="openCompoundModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Compound
+        </button>
+      </div>
+      <div id="compoundsList"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- COMPOUND MODAL (add / edit)            -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="compoundModalOverlay">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🏭</div>
+          <div>
+            <h2 id="compoundModalTitle">Add Compound</h2>
+            <p class="modal-subtitle">Charges paid once for the whole compound</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeCompoundModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="compoundId">
+        <div class="form-group">
+          <label>Compound Name <span class="req">*</span></label>
+          <input type="text" id="compoundName" placeholder="e.g. Al Quoz Industrial 3 — Plot 42">
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="compoundLocation" placeholder="e.g. Al Quoz, Dubai">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Land Main Lease (AED / year)</label>
+            <input type="number" id="compoundLandCharges" placeholder="e.g. 80,000" min="0">
+          </div>
+          <div class="form-group">
+            <label>Service Charges (AED / year)</label>
+            <input type="number" id="compoundServiceCharges" placeholder="e.g. 30,000" min="0">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>License Fees (AED / year)</label>
+            <input type="number" id="compoundLicenseFees" placeholder="e.g. 20,000" min="0">
+          </div>
+          <div class="form-group">
+            <label>Civil Defense (AED / year)</label>
+            <input type="number" id="compoundCivilDefense" placeholder="e.g. 6,000" min="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <textarea id="compoundNotes" rows="2" placeholder="optional"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeCompoundModal()">Cancel</button>
+        <button class="btn-danger" id="compoundDeleteBtn" onclick="deleteCompound()" style="display:none;">Delete</button>
+        <button class="btn-primary" onclick="saveCompound()">Save</button>
+      </div>
+    </div>
   </div>
 
   <!-- ═══════════════════════════════════════ -->
@@ -3299,6 +3390,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260502K"></script>
+  <script src="app.js?v=20260505A"></script>
 </body>
 </html>

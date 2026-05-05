@@ -805,8 +805,9 @@ function showTab(tab) {
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
   const loginsEl = $('loginsView');     if (loginsEl) loginsEl.style.display = tab === 'logins' ? '' : 'none';
+  const compEl = $('compoundsView');    if (compEl) compEl.style.display = tab === 'compounds' ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','Financials','Logins'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','Financials','Logins','Compounds'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -827,6 +828,7 @@ function showTab(tab) {
   if (tab === 'map')          initMapTab();
   if (tab === 'financials')   renderFinancials();
   if (tab === 'logins')       renderLogins();
+  if (tab === 'compounds')    renderCompounds();
 }
 
 // ─── Contract Builder ─────────────────────────────
@@ -1529,6 +1531,7 @@ function openAddModal() {
   toggleOwnership();
   toggleRentalSection();
   if (typeof togglePropUsageCustom === 'function') togglePropUsageCustom();
+  if (typeof _populateCompoundDropdown === 'function') _populateCompoundDropdown('');
   $('propNumCheques').value = '';
   $('chequeFields').innerHTML = '';
   const partnerFieldsEl = $('partnerFields');
@@ -1603,6 +1606,7 @@ async function openEditModal(id) {
   $('propMgmtAdminFee').value    = p.mgmtAdminFee    || '';
   $('propPurchaseDate').value    = p.purchaseDate    || '';
   $('propMarketValue').value   = p.marketValue   || '';
+  if (typeof _populateCompoundDropdown === 'function') _populateCompoundDropdown(p.compoundId);
   $('propLandCharges').value   = p.landCharges   || '';
   $('propLicenseFees').value   = p.licenseFees   || '';
   $('propDewaCharges').value           = p.dewaCharges          || '';
@@ -2037,6 +2041,7 @@ async function handleSave() {
     purchasePrice: Number($('propPurchasePrice').value) || null,
     purchaseDate:  $('propPurchaseDate').value          || null,
     marketValue:   Number($('propMarketValue').value)   || null,
+    compoundId:            (() => { const v = $('propCompoundId')?.value; return v ? Number(v) : null; })(),
     landCharges:           Number($('propLandCharges').value)           || null,
     licenseFees:           Number($('propLicenseFees').value)           || null,
     dewaCharges:           Number($('propDewaCharges').value)           || null,
@@ -7283,6 +7288,12 @@ function renderFinancials() {
     return;
   }
 
+  // Fire-and-forget compound fetch — re-render once it lands so the
+  // Compound Deductions section appears without a manual refresh.
+  if (typeof fetchCompounds === 'function' && !_compoundsFetched) {
+    fetchCompounds(true).then(() => renderFinancials());
+  }
+
   const props = loadProps();
   const yearsAvail = _finCollectYears(props);
   if (!root) return;
@@ -7528,12 +7539,16 @@ function _finRenderBody(props) {
     .map(p => {
       const months = _finActiveInYear(p, _finYear) ? _finMonthsActive(p, _finYear) : 0;
       const annual = Number(p.annualRent)  || 0;
-      const land   = Number(p.landCharges) || 0;
-      const lic    = Number(p.licenseFees) || 0;
-      const svc    = Number(p.serviceCharges) || 0;
+      // Compound-linked properties: land/license/service/civil-defense are
+      // paid at compound level, not per-warehouse — zero them here so they
+      // don't double-count against this row's net income.
+      const inCompound = !!p.compoundId;
+      const land   = inCompound ? 0 : (Number(p.landCharges) || 0);
+      const lic    = inCompound ? 0 : (Number(p.licenseFees) || 0);
+      const svc    = inCompound ? 0 : (Number(p.serviceCharges) || 0);
+      const cd     = inCompound ? 0 : (Number(p.civilDefenseCharges) || 0);
       const dewa   = Number(p.dewaCharges) || 0;
       const ejari  = Number(p.ejariFees)   || 0;
-      const cd     = Number(p.civilDefenseCharges) || 0;
       const legal  = Number(p.legalFee)    || 0;
       const ctax   = Number(p.corporateTax) || 0;
       const mfee   = Number(p.managementFees) || 0;   // paid to mgmt arm — also counted in mgmt income below
@@ -7545,6 +7560,22 @@ function _finRenderBody(props) {
                incomeYr: net, sharePct, ourIncome };
     })
     .sort((a,b) => b.ourIncome - a.ourIncome);
+
+  // ── Compound deductions: one row per compound that has ≥1 property in pool ──
+  const usedCompoundIds = new Set(pool.map(p => p.compoundId).filter(Boolean).map(String));
+  const compoundDedRows = (_compoundsCache || [])
+    .filter(c => usedCompoundIds.has(String(c.id)))
+    .map(c => {
+      const linked = pool.filter(p => String(p.compoundId) === String(c.id)).length;
+      const land    = Number(c.landCharges)         || 0;
+      const lic     = Number(c.licenseFees)         || 0;
+      const svc     = Number(c.serviceCharges)      || 0;
+      const cd      = Number(c.civilDefenseCharges) || 0;
+      return { id: c.id, name: c.name, location: c.location || '',
+               linked, land, lic, svc, cd, total: land + lic + svc + cd };
+    })
+    .sort((a, b) => b.total - a.total);
+  const compoundDedTotal = compoundDedRows.reduce((s, r) => s + r.total, 0);
 
   const rentTotalGross = rentRows.reduce((s,r)=>s+r.annual, 0);
   const rentTotalLand  = rentRows.reduce((s,r)=>s+r.land,   0);
@@ -7650,7 +7681,11 @@ function _finRenderBody(props) {
   // Maintenance is income (we collect & keep). VAT is an outflow
   // (collected on top of rent, paid through to the government). So the
   // grand total ADDS maintenance and SUBTRACTS VAT.
-  const grandTotal = rentTotalOurs + mgmtTotal + maintTotalFin + brokerTotal + feesTotal - vatTotal;
+  // Compound-level charges (compoundDedTotal) are subtracted once at the
+  // grand-total level — rentRows for compound-linked properties already
+  // exclude these so we don't double-count.
+  const grandTotal = rentTotalOurs + mgmtTotal + maintTotalFin + brokerTotal + feesTotal
+                   - vatTotal - compoundDedTotal;
   const typeLabel  = _finType === 'all'         ? 'Properties'
                    : _finType === 'warehouse'   ? 'Warehouses'
                    : _finType === 'office'      ? 'Offices'
@@ -7777,6 +7812,62 @@ function _finRenderBody(props) {
         </div>
       `}
     </div>
+
+    <!-- ── COMPOUND DEDUCTIONS ───────────────────── -->
+    ${compoundDedRows.length ? `
+    <div class="fin-section">
+      <div class="fin-section-hdr">
+        <div>
+          <h2>Compound Deductions</h2>
+          <span class="fin-section-sub">Charges paid once for the whole compound (land · service · license · civil defense)</span>
+        </div>
+        <div class="fin-section-total">
+          <span class="fin-tot-label">− Total</span>
+          <span class="fin-tot-value" style="color:var(--danger);">AED ${compoundDedTotal.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="fin-tbl-wrap">
+        <table class="fin-tbl">
+          <thead>
+            <tr>
+              <th style="width:34px">#</th>
+              <th>Compound</th>
+              <th>Linked</th>
+              <th class="ta-r">Land</th>
+              <th class="ta-r">Service</th>
+              <th class="ta-r">License</th>
+              <th class="ta-r">Civil Defense</th>
+              <th class="ta-r">Total / yr</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${compoundDedRows.map((c, i) => `
+              <tr>
+                <td class="fin-num">${i+1}</td>
+                <td><strong>${h(c.name)}</strong>${c.location ? `<div style="font-size:11px;color:var(--text-3);">${h(c.location)}</div>` : ''}</td>
+                <td>${c.linked} ${c.linked === 1 ? 'property' : 'properties'}</td>
+                <td class="ta-r" style="color:${c.land?'var(--danger)':'#9ca3af'};">${c.land ? '− AED ' + c.land.toLocaleString() : '—'}</td>
+                <td class="ta-r" style="color:${c.svc?'var(--danger)':'#9ca3af'};">${c.svc ? '− AED ' + c.svc.toLocaleString() : '—'}</td>
+                <td class="ta-r" style="color:${c.lic?'var(--danger)':'#9ca3af'};">${c.lic ? '− AED ' + c.lic.toLocaleString() : '—'}</td>
+                <td class="ta-r" style="color:${c.cd?'var(--danger)':'#9ca3af'};">${c.cd ? '− AED ' + c.cd.toLocaleString() : '—'}</td>
+                <td class="ta-r"><strong style="color:var(--danger);">− AED ${c.total.toLocaleString()}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="ta-r"><strong>TOTAL</strong></td>
+              <td class="ta-r" style="color:var(--danger);"><strong>${compoundDedRows.reduce((s,c)=>s+c.land,0).toLocaleString()}</strong></td>
+              <td class="ta-r" style="color:var(--danger);"><strong>${compoundDedRows.reduce((s,c)=>s+c.svc,0).toLocaleString()}</strong></td>
+              <td class="ta-r" style="color:var(--danger);"><strong>${compoundDedRows.reduce((s,c)=>s+c.lic,0).toLocaleString()}</strong></td>
+              <td class="ta-r" style="color:var(--danger);"><strong>${compoundDedRows.reduce((s,c)=>s+c.cd,0).toLocaleString()}</strong></td>
+              <td class="ta-r"><strong style="color:var(--danger);">− AED ${compoundDedTotal.toLocaleString()}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    ` : ''}
 
     <!-- ── MANAGEMENT FEE INCOME ────────────────── -->
     <div class="fin-section">
@@ -8417,6 +8508,47 @@ function _buildFinancialReportHTML(s) {
     <div class="ded-cell"><div class="ded-cell-name">Corporate Tax</div>    <div class="ded-cell-val">${fmt(ded.corporateTax)}</div></div>
     <div class="ded-cell"><div class="ded-cell-name">Management Fees</div>  <div class="ded-cell-val">${fmt(ded.managementFees || 0)}</div></div>
   </div>
+
+  ${(s.compoundRows && s.compoundRows.length) ? `
+  <h2>Compound Deductions</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:24px;">#</th>
+        <th>Compound</th>
+        <th>Linked</th>
+        <th class="num">Land</th>
+        <th class="num">Service</th>
+        <th class="num">License</th>
+        <th class="num">Civil Defense</th>
+        <th class="num">Total / Year</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${s.compoundRows.map((c, i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td><strong>${esc(c.name)}</strong>${c.location ? `<div style="font-size:9px;color:#6b7280;">${esc(c.location)}</div>` : ''}</td>
+          <td>${c.propertyCount} ${c.propertyCount === 1 ? 'property' : 'properties'}</td>
+          <td class="num">${fmt(c.landCharges)}</td>
+          <td class="num">${fmt(c.serviceCharges)}</td>
+          <td class="num">${fmt(c.licenseFees)}</td>
+          <td class="num">${fmt(c.civilDefenseCharges)}</td>
+          <td class="num" style="color:#b91c1c;"><strong>− ${fmt(c.total)}</strong></td>
+        </tr>`).join('')}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3">TOTAL · ${s.compoundRows.length} compound${s.compoundRows.length === 1 ? '' : 's'}</td>
+        <td class="num">${fmt(s.compoundRows.reduce((x,c) => x + c.landCharges, 0))}</td>
+        <td class="num">${fmt(s.compoundRows.reduce((x,c) => x + c.serviceCharges, 0))}</td>
+        <td class="num">${fmt(s.compoundRows.reduce((x,c) => x + c.licenseFees, 0))}</td>
+        <td class="num">${fmt(s.compoundRows.reduce((x,c) => x + c.civilDefenseCharges, 0))}</td>
+        <td class="num" style="color:#b91c1c;"><strong>− ${fmt(k.compoundDeductions || 0)}</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+  ` : ''}
 
   <h2>Management Portfolio</h2>
   ${s.mgmtRows.length === 0 ? '<div class="empty">No managed properties.</div>' : `
@@ -10064,6 +10196,162 @@ async function deleteLogin() {
   } catch (e) {
     showToast('Delete failed: ' + e.message, 'error');
   }
+}
+
+// ─── Compounds (admin) ────────────────────────────
+let _compoundsCache = [];
+let _compoundsFetched = 0;
+
+async function fetchCompounds(force) {
+  if (!force && _compoundsCache.length && (Date.now() - _compoundsFetched) < 60000) return _compoundsCache;
+  try {
+    const r = await fetch('/api/compounds', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _compoundsCache = data.compounds || [];
+    _compoundsFetched = Date.now();
+  } catch (e) {
+    console.warn('[compounds] fetch failed', e);
+  }
+  return _compoundsCache;
+}
+
+async function renderCompounds() {
+  await fetchCompounds(true);
+  const el = document.getElementById('compoundsList');
+  if (!el) return;
+  if (!_compoundsCache.length) {
+    el.innerHTML = `<div class="audit-empty">No compounds yet. Click <strong>Add Compound</strong> above to group warehouses that share charges.</div>`;
+    return;
+  }
+  el.innerHTML = _compoundsCache.map(c => {
+    const total = (c.landCharges || 0) + (c.serviceCharges || 0) + (c.licenseFees || 0) + (c.civilDefenseCharges || 0);
+    const linked = c.propertyCount || 0;
+    return `
+      <div class="login-row" style="grid-template-columns: 2fr 1.5fr 1fr 1fr auto;">
+        <div>
+          <div class="login-name">${h(c.name || '')}</div>
+          ${c.location ? `<div style="font-size:12px;color:var(--text-3);">${h(c.location)}</div>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--text-2);">
+          Land ${money(c.landCharges || 0)} · Service ${money(c.serviceCharges || 0)}<br>
+          License ${money(c.licenseFees || 0)} · CD ${money(c.civilDefenseCharges || 0)}
+        </div>
+        <div><strong>${money(total)}</strong><div style="font-size:11px;color:var(--text-3);">total / yr</div></div>
+        <div>${linked} ${linked === 1 ? 'property' : 'properties'}</div>
+        <div class="login-actions">
+          <button class="btn-sm btn-ghost" onclick="openCompoundModal('${c.id}')">✏️ Edit</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openCompoundModal(id) {
+  const c = id ? _compoundsCache.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('compoundModalTitle').textContent = c ? 'Edit Compound' : 'Add Compound';
+  document.getElementById('compoundId').value             = c ? c.id : '';
+  document.getElementById('compoundName').value           = c ? (c.name || '') : '';
+  document.getElementById('compoundLocation').value       = c ? (c.location || '') : '';
+  document.getElementById('compoundLandCharges').value    = c ? (c.landCharges || '') : '';
+  document.getElementById('compoundServiceCharges').value = c ? (c.serviceCharges || '') : '';
+  document.getElementById('compoundLicenseFees').value    = c ? (c.licenseFees || '') : '';
+  document.getElementById('compoundCivilDefense').value   = c ? (c.civilDefenseCharges || '') : '';
+  document.getElementById('compoundNotes').value          = c ? (c.notes || '') : '';
+  document.getElementById('compoundDeleteBtn').style.display = c ? '' : 'none';
+  document.getElementById('compoundModalOverlay').classList.add('active');
+  setTimeout(() => document.getElementById('compoundName').focus(), 50);
+}
+
+function closeCompoundModal() {
+  document.getElementById('compoundModalOverlay').classList.remove('active');
+}
+
+async function saveCompound() {
+  const id      = document.getElementById('compoundId').value;
+  const payload = {
+    name:                document.getElementById('compoundName').value.trim(),
+    location:            document.getElementById('compoundLocation').value.trim(),
+    landCharges:         Number(document.getElementById('compoundLandCharges').value) || 0,
+    serviceCharges:      Number(document.getElementById('compoundServiceCharges').value) || 0,
+    licenseFees:         Number(document.getElementById('compoundLicenseFees').value) || 0,
+    civilDefenseCharges: Number(document.getElementById('compoundCivilDefense').value) || 0,
+    notes:               document.getElementById('compoundNotes').value.trim(),
+  };
+  if (!payload.name) { showToast('Compound name is required', 'error'); return; }
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const url = id ? `/api/compounds/${id}` : '/api/compounds';
+    const method = id ? 'PATCH' : 'POST';
+    const r = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast(id ? 'Compound updated' : 'Compound created', 'success');
+    closeCompoundModal();
+    await fetchCompounds(true);
+    renderCompounds();
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteCompound() {
+  const id = document.getElementById('compoundId').value;
+  if (!id) return;
+  if (!confirm('Delete this compound? Properties currently linked to it must be unlinked first.')) return;
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const r = await fetch(`/api/compounds/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast('Compound deleted', 'success');
+    closeCompoundModal();
+    await fetchCompounds(true);
+    renderCompounds();
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+// Populate the <select id="propCompoundId"> dropdown on the property modal.
+async function _populateCompoundDropdown(currentId) {
+  const sel = document.getElementById('propCompoundId');
+  if (!sel) return;
+  await fetchCompounds();
+  const opts = ['<option value="">— None (charges per-property) —</option>']
+    .concat(_compoundsCache.map(c => {
+      const sel = String(c.id) === String(currentId || '') ? ' selected' : '';
+      return `<option value="${c.id}"${sel}>${h(c.name)}${c.location ? ' — ' + h(c.location) : ''}</option>`;
+    }));
+  sel.innerHTML = opts.join('');
+  if (currentId) sel.value = String(currentId);
+  toggleCompoundLockedFields();
+}
+
+// When a compound is selected, the four compound-level charges are paid at
+// compound level — disable the per-property fields so the user can't enter
+// values that would be ignored.
+function toggleCompoundLockedFields() {
+  const sel = document.getElementById('propCompoundId');
+  if (!sel) return;
+  const linked = !!sel.value;
+  const ids = ['propLandCharges', 'propLicenseFees', 'propServiceCharges', 'propCivilDefenseCharges'];
+  ids.forEach(id => {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    inp.disabled = linked;
+    inp.style.background = linked ? '#f3f4f6' : '';
+    inp.style.cursor = linked ? 'not-allowed' : '';
+    inp.title = linked ? 'Paid at compound level — see Compounds tab' : '';
+    if (linked) inp.value = '';
+  });
 }
 
 // ─── Mobile sidebar toggle ────────────────────────

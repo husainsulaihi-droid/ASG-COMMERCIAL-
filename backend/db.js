@@ -58,10 +58,27 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_login_audit_user    ON login_audit(user_id);
   `);
 
+  // Compounds: groups of warehouses sharing one set of land/service/license/civil-defense charges.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS compounds (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      name                   TEXT NOT NULL UNIQUE,
+      location               TEXT,
+      land_charges           REAL DEFAULT 0,
+      service_charges        REAL DEFAULT 0,
+      license_fees           REAL DEFAULT 0,
+      civil_defense_charges  REAL DEFAULT 0,
+      notes                  TEXT,
+      created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at             DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Idempotent column adds. SQLite has no "ADD COLUMN IF NOT EXISTS",
   // so we try and swallow the duplicate-column error.
   for (const [tbl, col, type] of [
     ['properties', 'management_fees', 'REAL'],
+    ['properties', 'compound_id',     'INTEGER'],
   ]) {
     try { db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${type}`); }
     catch (e) { if (!/duplicate column/i.test(e.message)) console.warn('[db] add-col failed:', e.message); }
