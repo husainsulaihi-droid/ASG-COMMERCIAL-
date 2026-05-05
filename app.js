@@ -10224,6 +10224,7 @@ async function renderCompounds() {
     el.innerHTML = `<div class="audit-empty">No compounds yet. Click <strong>Add Compound</strong> above to group warehouses that share charges.</div>`;
     return;
   }
+  const aed = v => 'AED ' + Math.round(Number(v) || 0).toLocaleString();
   el.innerHTML = _compoundsCache.map(c => {
     const total = (c.landCharges || 0) + (c.serviceCharges || 0) + (c.licenseFees || 0) + (c.civilDefenseCharges || 0);
     const linked = c.propertyCount || 0;
@@ -10234,10 +10235,10 @@ async function renderCompounds() {
           ${c.location ? `<div style="font-size:12px;color:var(--text-3);">${h(c.location)}</div>` : ''}
         </div>
         <div style="font-size:12px;color:var(--text-2);">
-          Land ${money(c.landCharges || 0)} · Service ${money(c.serviceCharges || 0)}<br>
-          License ${money(c.licenseFees || 0)} · CD ${money(c.civilDefenseCharges || 0)}
+          Land ${aed(c.landCharges)} · Service ${aed(c.serviceCharges)}<br>
+          License ${aed(c.licenseFees)} · CD ${aed(c.civilDefenseCharges)}
         </div>
-        <div><strong>${money(total)}</strong><div style="font-size:11px;color:var(--text-3);">total / yr</div></div>
+        <div><strong>${aed(total)}</strong><div style="font-size:11px;color:var(--text-3);">total / yr</div></div>
         <div>${linked} ${linked === 1 ? 'property' : 'properties'}</div>
         <div class="login-actions">
           <button class="btn-sm btn-ghost" onclick="openCompoundModal('${c.id}')">✏️ Edit</button>
