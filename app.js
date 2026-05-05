@@ -10225,7 +10225,15 @@ async function renderCompounds() {
     return;
   }
   const aed = v => 'AED ' + Math.round(Number(v) || 0).toLocaleString();
-  el.innerHTML = _compoundsCache.map(c => {
+  const sum = (k) => _compoundsCache.reduce((s, c) => s + (Number(c[k]) || 0), 0);
+  const sumLand    = sum('landCharges');
+  const sumService = sum('serviceCharges');
+  const sumLicense = sum('licenseFees');
+  const sumCD      = sum('civilDefenseCharges');
+  const sumProps   = _compoundsCache.reduce((s, c) => s + (c.propertyCount || 0), 0);
+  const grand      = sumLand + sumService + sumLicense + sumCD;
+
+  const rowsHtml = _compoundsCache.map(c => {
     const total = (c.landCharges || 0) + (c.serviceCharges || 0) + (c.licenseFees || 0) + (c.civilDefenseCharges || 0);
     const linked = c.propertyCount || 0;
     return `
@@ -10245,6 +10253,30 @@ async function renderCompounds() {
         </div>
       </div>`;
   }).join('');
+
+  const totalsHtml = `
+    <div style="margin-top:18px;padding:14px 16px;border-top:2px solid var(--border-2);background:var(--bg-2);border-radius:8px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:10px;">
+        Totals across all compounds
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:12px;color:var(--text-2);">
+        <div><div style="color:var(--text-3);">Land</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumLand)}</strong></div>
+        <div><div style="color:var(--text-3);">Service</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumService)}</strong></div>
+        <div><div style="color:var(--text-3);">License</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumLicense)}</strong></div>
+        <div><div style="color:var(--text-3);">Civil Defense</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumCD)}</strong></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--border-2);">
+        <div style="font-size:12px;color:var(--text-3);">
+          ${_compoundsCache.length} ${_compoundsCache.length === 1 ? 'compound' : 'compounds'} · ${sumProps} ${sumProps === 1 ? 'property linked' : 'properties linked'}
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:11px;color:var(--text-3);">Total deductions / yr</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text-1);">${aed(grand)}</div>
+        </div>
+      </div>
+    </div>`;
+
+  el.innerHTML = rowsHtml + totalsHtml;
 }
 
 // Track the in-modal selection state separately so unsaved changes are not
