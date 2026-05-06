@@ -198,10 +198,26 @@ router.delete('/:id', requireAuth, canWrite, (req, res) => {
 
 // Bulk: every cheque across every property. Used by the dashboard cache so
 // the Rentals tab can render without making one API call per property.
-router.get('/cheques/all', requireAdmin, (req, res) => {
-  const rows = getDb().prepare(
-    'SELECT * FROM property_cheques ORDER BY property_id, cheque_num'
-  ).all();
+// External managers see only cheques attached to properties they added.
+router.get('/cheques/all', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.agentRole !== 'external_manager') {
+    // Other agent roles don't need cheque data — return empty list (not a 403,
+    // so the boot path doesn't error).
+    return res.json({ cheques: [] });
+  }
+  let rows;
+  if (req.user.role === 'admin') {
+    rows = getDb().prepare(
+      'SELECT * FROM property_cheques ORDER BY property_id, cheque_num'
+    ).all();
+  } else {
+    rows = getDb().prepare(`
+      SELECT pc.* FROM property_cheques pc
+      JOIN properties p ON p.id = pc.property_id
+      WHERE p.added_by_id = ?
+      ORDER BY pc.property_id, pc.cheque_num
+    `).all(req.user.id);
+  }
   res.json({ cheques: rows.map(rowToApi) });
 });
 
