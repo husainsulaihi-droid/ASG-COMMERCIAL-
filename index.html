@@ -1978,10 +1978,24 @@
           </div>
           <div class="form-group">
             <label>Role <span class="req">*</span></label>
-            <select id="loginRole">
+            <select id="loginRole" onchange="onLoginRoleChange()">
               <option value="agent">👤 Agent</option>
               <option value="admin">👑 Admin</option>
             </select>
+          </div>
+        </div>
+        <div class="form-row" id="loginAgentRoleRow">
+          <div class="form-group" style="grid-column:1 / -1;">
+            <label>Agent Type <span class="req">*</span></label>
+            <select id="loginAgentRole">
+              <option value="general">👤 General Agent</option>
+              <option value="sales">🏷️ Sales Agent</option>
+              <option value="leasing">📋 Leasing Manager</option>
+              <option value="property_management">🏢 Property Management Manager</option>
+              <option value="admin_assistant">📂 Admin Assistant</option>
+              <option value="external_manager">🔑 External Property Manager</option>
+            </select>
+            <div class="form-hint" id="loginAgentRoleHint" style="font-size:11px;color:var(--text-3);margin-top:6px;"></div>
           </div>
         </div>
         <div class="form-group">
@@ -3401,6 +3415,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260506B"></script>
+  <script src="app.js?v=20260506C"></script>
 </body>
 </html>

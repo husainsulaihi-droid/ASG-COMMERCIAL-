@@ -10219,6 +10219,8 @@ function openLoginModal(id) {
   document.getElementById('loginName').value     = u ? (u.name || '') : '';
   document.getElementById('loginUsername').value = u ? (u.username || '') : '';
   document.getElementById('loginRole').value     = u ? (u.role === 'admin' ? 'admin' : 'agent') : 'agent';
+  document.getElementById('loginAgentRole').value = (u && u.agentRole) ? u.agentRole : 'general';
+  onLoginRoleChange();
   document.getElementById('loginPassword').value = '';
   document.getElementById('loginEmail').value    = u ? (u.email || '') : '';
   document.getElementById('loginPhone').value    = u ? (u.phone || '') : '';
@@ -10242,15 +10244,35 @@ function closeLoginModal() {
   document.getElementById('loginModalOverlay').classList.remove('active');
 }
 
+// Show the agent-type dropdown only when role = agent. Refresh the per-role
+// hint below the dropdown so admin can see what the agent will be able to do.
+function onLoginRoleChange() {
+  const role = document.getElementById('loginRole').value;
+  const row  = document.getElementById('loginAgentRoleRow');
+  if (row) row.style.display = role === 'agent' ? '' : 'none';
+  refreshLoginAgentRoleHint();
+}
+
+function refreshLoginAgentRoleHint() {
+  const sub = document.getElementById('loginAgentRole')?.value || 'general';
+  const meta = (typeof AGENT_ROLES !== 'undefined' && AGENT_ROLES[sub]) || null;
+  const el = document.getElementById('loginAgentRoleHint');
+  if (el && meta) el.textContent = meta.hint || '';
+}
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'loginAgentRole') refreshLoginAgentRoleHint();
+});
+
 async function saveLogin() {
-  const id       = document.getElementById('loginId').value;
-  const name     = document.getElementById('loginName').value.trim();
-  const username = document.getElementById('loginUsername').value.trim().toLowerCase();
-  const role     = document.getElementById('loginRole').value;
-  const password = document.getElementById('loginPassword').value;
-  const email    = document.getElementById('loginEmail').value.trim();
-  const phone    = document.getElementById('loginPhone').value.trim();
-  const active   = document.getElementById('loginActive').checked;
+  const id        = document.getElementById('loginId').value;
+  const name      = document.getElementById('loginName').value.trim();
+  const username  = document.getElementById('loginUsername').value.trim().toLowerCase();
+  const role      = document.getElementById('loginRole').value;
+  const agentRole = role === 'agent' ? document.getElementById('loginAgentRole').value : null;
+  const password  = document.getElementById('loginPassword').value;
+  const email     = document.getElementById('loginEmail').value.trim();
+  const phone     = document.getElementById('loginPhone').value.trim();
+  const active    = document.getElementById('loginActive').checked;
 
   if (!name)     { showToast('Full name is required', 'error'); return; }
   if (!username) { showToast('Username is required', 'error'); return; }
@@ -10261,6 +10283,7 @@ async function saveLogin() {
   if (id && password && password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
 
   const payload = { name, username, role, email, phone };
+  if (role === 'agent') payload.agentRole = agentRole;
   if (password) payload.password = password;
   if (id) payload.active = active;
 
