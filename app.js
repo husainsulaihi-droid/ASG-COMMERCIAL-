@@ -9376,6 +9376,30 @@ if (_origCloseDetail) {
   };
 }
 
+// Wrapper for the external_manager's "+ Add Property" button. The admin
+// flow's openAddModal() depends on a few admin-only DOM elements; if any
+// is missing we surface the error to the user instead of silently failing.
+function externalManagerAddProperty() {
+  try {
+    if (typeof openAddModal !== 'function') {
+      console.error('[externalManager] openAddModal is not defined');
+      if (typeof showToast === 'function') showToast('Add Property is not available — please refresh the page.', 'error');
+      return;
+    }
+    openAddModal();
+    // Belt-and-braces: ensure the overlay is visible regardless of any prior CSS state.
+    const ov = document.getElementById('propertyModalOverlay');
+    if (ov) {
+      ov.classList.add('active');
+      ov.style.display = 'flex';
+    }
+  } catch (err) {
+    console.error('[externalManager] Add Property failed:', err);
+    if (typeof showToast === 'function') showToast('Could not open Add Property: ' + (err.message || err), 'error');
+    else alert('Could not open Add Property: ' + (err.message || err));
+  }
+}
+
 // Replace agent inventory rendering with admin-style cards
 const _origRenderAgentInventory = renderAgentInventory;
 renderAgentInventory = function() {
@@ -9398,7 +9422,7 @@ renderAgentInventory = function() {
         <div class="aii-title">My Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
         <div class="aii-sub">Properties you manage. Click <strong>+ Add Property</strong> to add a warehouse you manage. New properties default to "Management" ownership.</div>
       </div>
-      <button class="btn-primary" onclick="openAddModal()" style="white-space:nowrap;">+ Add Property</button>
+      <button class="btn-primary" onclick="externalManagerAddProperty()" style="white-space:nowrap;">+ Add Property</button>
     </div>`;
     if (!props.length) {
       list.innerHTML = `${introExt}<div class="team-empty"><div class="empty-icon">🏗️</div><p>No properties yet — click <strong>+ Add Property</strong> above to get started.</p></div>`;
@@ -9453,7 +9477,7 @@ renderAgentInventory = function() {
         <div class="aii-title">My Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
         <div class="aii-sub">Properties you manage. Add new ones, update tenants, and track payments — only visible to you.</div>
       </div>
-      <button class="btn-primary" onclick="openAddModal()" style="white-space:nowrap;">+ Add Property</button>
+      <button class="btn-primary" onclick="externalManagerAddProperty()" style="white-space:nowrap;">+ Add Property</button>
     </div>`;
   }
 
