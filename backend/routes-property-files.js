@@ -25,6 +25,31 @@ const UPLOAD_ROOT = process.env.ASG_UPLOAD_ROOT || '/var/asg/uploads';
 const ALLOWED_CATS = new Set(['ijari', 'ijari2', 'tenancy', 'affection', 'drec', 'license', 'tenantlicense', 'addendum', 'photo', 'other']);
 const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
 
+// Allow admin OR external_manager who owns the property the file is attached to.
+function canWriteFile(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  if (req.user.agentRole !== 'external_manager') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+  const propId = parseInt(req.params.id, 10);
+  const prop = getDb().prepare('SELECT added_by_id FROM properties WHERE id = ?').get(propId);
+  if (!prop) return res.status(404).json({ error: 'property not found' });
+  if (prop.added_by_id !== req.user.id) return res.status(403).json({ error: 'Not your property' });
+  next();
+}
+
+// Block external_manager from reading files attached to properties they didn't add.
+// Other roles fall through to existing requireAuth behavior.
+function blockNonOwnerExternalManager(req, res, next) {
+  if (req.user && req.user.agentRole === 'external_manager') {
+    const propId = parseInt(req.params.id, 10);
+    const prop = getDb().prepare('SELECT added_by_id FROM properties WHERE id = ?').get(propId);
+    if (!prop) return res.status(404).json({ error: 'property not found' });
+    if (prop.added_by_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+}
+
 // ─── Multer setup: drop the file into <property folder>/<category>/ ──
 // Note: req.body fields parsed before file upload only when the form is
 // submitted with category appended BEFORE file (frontend follows this).
@@ -53,7 +78,7 @@ const upload = multer({ storage, limits: { fileSize: MAX_SIZE } });
 const router = express.Router({ mergeParams: true });
 
 // ─── List files for a property ────────────────────────────────────
-router.get('/', requireAuth, (req, res) => {
+router.get('/', requireAuth, blockNonOwnerExternalManager, (req, res) => {
   const propId = parseInt(req.params.id, 10);
   const rows = getDb().prepare(
     'SELECT * FROM property_files WHERE property_id = ? ORDER BY uploaded_at DESC'
@@ -62,7 +87,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // ─── Download a file (streams from disk) ──────────────────────────
-router.get('/:fileId/download', requireAuth, (req, res) => {
+router.get('/:fileId/download', requireAuth, blockNonOwnerExternalManager, (req, res) => {
   const propId = parseInt(req.params.id, 10);
   const fileId = parseInt(req.params.fileId, 10);
   const row = getDb().prepare(
@@ -94,7 +119,7 @@ router.get('/:fileId/download', requireAuth, (req, res) => {
 });
 
 // ─── Upload a file ────────────────────────────────────────────────
-router.post('/', requireAdmin, upload.single('file'), async (req, res) => {
+router.post('/', requireAuth, canWriteFile, upload.single('file'), async (req, res) => {
   const propId = parseInt(req.params.id, 10);
   const file = req.file;
   const category = (req.body.category || 'other').toLowerCase();
@@ -142,7 +167,7 @@ router.post('/', requireAdmin, upload.single('file'), async (req, res) => {
 });
 
 // ─── Delete a file ────────────────────────────────────────────────
-router.delete('/:fileId', requireAdmin, async (req, res) => {
+router.delete('/:fileId', requireAuth, canWriteFile, async (req, res) => {
   const propId = parseInt(req.params.id, 10);
   const fileId = parseInt(req.params.fileId, 10);
   const row = getDb().prepare('SELECT * FROM property_files WHERE id = ? AND property_id = ?').get(fileId, propId);

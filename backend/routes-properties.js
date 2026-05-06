@@ -68,6 +68,7 @@ const TENANT_FIELDS = [
 function visibleByRole(rows, user) {
   if (user.role === 'admin') return rows;
   const r = user.agentRole || 'general';
+  if (r === 'external_manager')           return rows.filter(p => p.added_by_id === user.id);
   if (r === 'sales' || r === 'general')   return rows.filter(p => p.status === 'vacant');
   if (r === 'leasing')                    return rows.filter(p => p.status === 'rented');
   if (r === 'property_management')        return rows.filter(p => p.ownership === 'management');
@@ -77,15 +78,35 @@ function visibleByRole(rows, user) {
 
 function canSeeTenantInfo(user) {
   if (user.role === 'admin') return true;
-  return user.agentRole === 'leasing' || user.agentRole === 'property_management';
+  return user.agentRole === 'leasing'
+      || user.agentRole === 'property_management'
+      || user.agentRole === 'external_manager';
 }
 
 function shapeForViewer(row, user) {
   let api = rowToApi(row);
   if (user.role === 'admin') return api;
+  // External managers manage their own portfolio — show full detail for rows
+  // they added (visibleByRole already restricts them to those rows).
+  if (user.agentRole === 'external_manager' && row.added_by_id === user.id) return api;
   for (const f of FINANCIAL_FIELDS) delete api[f];
   if (!canSeeTenantInfo(user))    for (const f of TENANT_FIELDS) delete api[f];
   return api;
+}
+
+// Allow admin OR external_manager. For PATCH/DELETE on a specific :id,
+// external_manager must also be the row's added_by_id.
+function canWrite(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  if (req.user.agentRole !== 'external_manager') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+  if (req.params.id != null) {
+    const row = getDb().prepare('SELECT added_by_id FROM properties WHERE id = ?').get(parseInt(req.params.id, 10));
+    if (!row) return res.status(404).json({ error: 'Property not found' });
+    if (row.added_by_id !== req.user.id) return res.status(403).json({ error: 'Not your property' });
+  }
+  next();
 }
 
 // ─── Properties CRUD ───────────────────────────
@@ -116,7 +137,7 @@ function nameTakenBy(name, exceptId) {
   return row ? row.id : null;
 }
 
-router.post('/', requireAdmin, (req, res) => {
+router.post('/', requireAuth, canWrite, (req, res) => {
   const data = bodyToDb(req.body, PROP_FIELDS);
   if (!data.name) return res.status(400).json({ error: 'name required' });
   if (nameTakenBy(data.name)) {
@@ -137,7 +158,7 @@ router.post('/', requireAdmin, (req, res) => {
   res.status(201).json({ property: rowToApi(row) });
 });
 
-router.patch('/:id', requireAdmin, (req, res) => {
+router.patch('/:id', requireAuth, canWrite, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const existing = getDb().prepare('SELECT * FROM properties WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Property not found' });
@@ -163,7 +184,7 @@ router.patch('/:id', requireAdmin, (req, res) => {
   res.json({ property: rowToApi(row) });
 });
 
-router.delete('/:id', requireAdmin, (req, res) => {
+router.delete('/:id', requireAuth, canWrite, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const existing = getDb().prepare('SELECT folder_name FROM properties WHERE id = ?').get(id);
   const result = getDb().prepare('DELETE FROM properties WHERE id = ?').run(id);
@@ -184,7 +205,7 @@ router.get('/cheques/all', requireAdmin, (req, res) => {
   res.json({ cheques: rows.map(rowToApi) });
 });
 
-router.get('/:id/cheques', requireAdmin, (req, res) => {
+router.get('/:id/cheques', requireAuth, canWrite, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const rows = getDb().prepare(
     'SELECT * FROM property_cheques WHERE property_id = ? ORDER BY cheque_num'
@@ -192,7 +213,7 @@ router.get('/:id/cheques', requireAdmin, (req, res) => {
   res.json({ cheques: rows.map(rowToApi) });
 });
 
-router.post('/:id/cheques', requireAdmin, (req, res) => {
+router.post('/:id/cheques', requireAuth, canWrite, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const b = req.body || {};
   const result = getDb().prepare(
@@ -203,7 +224,7 @@ router.post('/:id/cheques', requireAdmin, (req, res) => {
   res.status(201).json({ cheque: rowToApi(row) });
 });
 
-router.patch('/:id/cheques/:cid', requireAdmin, (req, res) => {
+router.patch('/:id/cheques/:cid', requireAuth, canWrite, (req, res) => {
   const cid = parseInt(req.params.cid, 10);
   const b = req.body || {};
   const updates = [];
@@ -226,7 +247,7 @@ router.patch('/:id/cheques/:cid', requireAdmin, (req, res) => {
   res.json({ cheque: rowToApi(row) });
 });
 
-router.delete('/:id/cheques/:cid', requireAdmin, (req, res) => {
+router.delete('/:id/cheques/:cid', requireAuth, canWrite, (req, res) => {
   const cid = parseInt(req.params.cid, 10);
   const propId = parseInt(req.params.id, 10);
   getDb().prepare('DELETE FROM property_cheques WHERE id = ?').run(cid);

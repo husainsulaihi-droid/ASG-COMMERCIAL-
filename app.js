@@ -4242,6 +4242,14 @@ const AGENT_ROLES = {
     hint:     'Read-only support staff with full visibility but no status-change rights.',
     defaultPerms: { viewFinancials: false, viewTenant: true,  updateStatus: false, addNotes: true },
   },
+  external_manager: {
+    label:    'External Property Manager',
+    icon:     '🔑',
+    color:    '#0369a1',
+    inventoryFilter: () => true, // server already restricts to their own added rows
+    hint:     'For external partners who manage their own warehouses on the platform. They can add, edit, and view ONLY the properties they create. They cannot see admin-owned properties, financials, compounds, or other agents.',
+    defaultPerms: { viewFinancials: true, viewTenant: true, updateStatus: true, addNotes: true },
+  },
 };
 function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; }
 
@@ -9284,6 +9292,16 @@ openDetailModal = async function(id) {
 function applyAgentDetailMode() {
   const body = document.getElementById('detailBody');
   if (!body) return;
+  // External managers see full admin-style detail (incl. financials + edit/delete)
+  // because the row is their own — no stripping needed.
+  const sess = getSession();
+  if (sess && sess.role === 'external_manager') {
+    const delBtn  = document.getElementById('deletePropertyBtn');
+    const editBtn = document.getElementById('editFromDetailBtn');
+    if (delBtn)  delBtn.style.display  = '';
+    if (editBtn) editBtn.style.display = '';
+    return;
+  }
   body.classList.add('detail-agent-mode');
 
   // Remove the Financial Details block by header text match
@@ -9390,6 +9408,15 @@ renderAgentInventory = function() {
         <div class="aii-title">Managed Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
         <div class="aii-sub">Click any property for full details, photos, and documents.</div>
       </div>
+    </div>`;
+  } else if (role === 'external_manager') {
+    intro = `<div class="agent-inv-intro" style="background:linear-gradient(135deg,#0369a110,#0369a105);border-left-color:#0369a1;">
+      <div class="aii-icon">🔑</div>
+      <div style="flex:1;">
+        <div class="aii-title">My Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
+        <div class="aii-sub">Properties you manage. Add new ones, update tenants, and track payments — only visible to you.</div>
+      </div>
+      <button class="btn-primary" onclick="openAddModal()" style="white-space:nowrap;">+ Add Property</button>
     </div>`;
   }
 
