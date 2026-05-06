@@ -1406,6 +1406,13 @@ function cardHTML(p) {
   const agentSourcedChip = p.addedByAgent
     ? `<span class="chip chip-agent-sourced" title="Sourced by ${h(p.addedByAgentName||'agent')}">⭐ ${h(p.addedByAgentName||'Agent')}</span>`
     : '';
+  // Show a chip when the property was added by a non-admin (external manager).
+  // Only render to admin viewers — agents shouldn't see who else uses the system.
+  const sess = (typeof getSession === 'function') ? getSession() : null;
+  const isAdminViewer = sess && sess.type === 'admin';
+  const externalChip = (isAdminViewer && p.addedByName && p.addedByName !== (sess.name || '') && p.addedByName.toLowerCase() !== 'admin')
+    ? `<span class="chip" style="background:#0369a115;color:#0369a1;border:1px solid #0369a130;" title="Added by external manager">🔑 ${h(p.addedByName)}</span>`
+    : '';
 
   const mapChip = p.mapLink
     ? `<span class="chip chip-map" onclick="event.stopPropagation();window.open('${p.mapLink}','_blank')">🗺 Map</span>`
@@ -1480,6 +1487,7 @@ function cardHTML(p) {
           <span class="chip ${p.mezzanine === 'yes' ? 'chip-on' : 'chip-off'}">${p.mezzanine === 'yes' ? '✓' : '✗'} Mezzanine</span>
           ${ownershipChip}
           ${agentSourcedChip}
+          ${externalChip}
           ${mapChip}
         </div>
         ${vacantBanner}
