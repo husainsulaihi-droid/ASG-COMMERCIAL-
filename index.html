@@ -1020,8 +1020,11 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>VAT (5%) <span class="optional-label">auto-calculated from rent</span></label>
-                <input type="number" id="propVat" readonly placeholder="0" style="background:#f9fafb;cursor:not-allowed;">
+                <label>VAT (5%) <span class="optional-label" id="propVatHint">auto-calculated from rent · editable</span></label>
+                <div style="display:flex;gap:6px;align-items:stretch;">
+                  <input type="number" id="propVat" placeholder="0" min="0" style="flex:1;" oninput="onVatManualEdit()">
+                  <button type="button" id="propVatResetBtn" onclick="resetVatToAuto()" title="Reset to 5% of annual rent" style="display:none;padding:0 10px;border:1px solid var(--border-2);background:var(--bg-2);border-radius:6px;cursor:pointer;font-size:12px;">↻ Auto</button>
+                </div>
               </div>
               <div class="form-group"></div>
             </div>
@@ -3398,6 +3401,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260505H"></script>
+  <script src="app.js?v=20260505I"></script>
 </body>
 </html>

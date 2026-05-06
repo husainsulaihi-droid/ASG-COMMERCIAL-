@@ -1538,6 +1538,7 @@ function openAddModal() {
   if (partnerFieldsEl) partnerFieldsEl.innerHTML = '';
   const cashGroupEl = document.getElementById('cashAmountGroup');
   if (cashGroupEl) cashGroupEl.style.display = 'none';
+  _initVatState(0, 0);
   $('propertyModalOverlay').classList.add('active');
 }
 
@@ -1633,7 +1634,9 @@ async function openEditModal(id) {
   $('propMaintenanceFees').value = p.maintenanceFees || '';
   $('propManagementFees').value  = p.managementFees  || '';
   $('propSubLeaseFees').value    = p.subLeaseFees    || '';
-  recalcVat();
+  _initVatState(p.vat, p.annualRent);
+  if (_propVatManual) $('propVat').value = p.vat || '';
+  else recalcVat();
   $('propTenantName').value    = p.tenantName    || '';
   $('propTenantPhone').value   = p.tenantPhone   || '';
   $('propTenantEmail').value   = p.tenantEmail   || '';
@@ -1734,12 +1737,50 @@ function renderPartnerFields(prefill) {
   container.innerHTML = html;
 }
 
-// Auto-calculate 5% VAT from annual rent only
+// VAT defaults to 5% of annual rent but can be overridden manually.
+// Once the user types in the VAT field, _propVatManual blocks auto-recalc
+// until they hit the "↻ Auto" reset button (or the form is reopened).
+let _propVatManual = false;
+
 function recalcVat() {
+  if (_propVatManual) return;
   const rent = Number(document.getElementById('propRent')?.value) || 0;
   const vat  = Math.round(rent * 0.05);
   const out  = document.getElementById('propVat');
   if (out) out.value = vat || '';
+}
+
+// Called from openAddModal/openEditModal to seed the VAT state. If the saved
+// VAT value diverges from 5% of the saved rent, treat it as a manual override
+// so the user sees the "↻ Auto" reset button on edit.
+function _initVatState(savedVat, savedRent) {
+  const rent = Number(savedRent) || 0;
+  const auto = Math.round(rent * 0.05);
+  const v    = Number(savedVat) || 0;
+  _propVatManual = !!v && v !== auto;
+  const btn  = document.getElementById('propVatResetBtn');
+  const hint = document.getElementById('propVatHint');
+  if (btn)  btn.style.display = _propVatManual ? '' : 'none';
+  if (hint) hint.textContent = _propVatManual
+    ? 'manual override · click ↻ to restore auto'
+    : 'auto-calculated from rent · editable';
+}
+
+function onVatManualEdit() {
+  _propVatManual = true;
+  const btn  = document.getElementById('propVatResetBtn');
+  const hint = document.getElementById('propVatHint');
+  if (btn)  btn.style.display = '';
+  if (hint) hint.textContent = 'manual override · click ↻ to restore auto';
+}
+
+function resetVatToAuto() {
+  _propVatManual = false;
+  const btn  = document.getElementById('propVatResetBtn');
+  const hint = document.getElementById('propVatHint');
+  if (btn)  btn.style.display = 'none';
+  if (hint) hint.textContent = 'auto-calculated from rent · editable';
+  recalcVat();
 }
 
 function renderChequeFields() {
