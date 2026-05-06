@@ -754,7 +754,8 @@ async function boot() {
     document.getElementById('agentDashboard').style.display = '';
     await fetchProperties();   // agents also need property cache
     await fetchAllEntities();
-    showAgentTab('overview');
+    // External managers go straight to their inventory — that's their workspace.
+    showAgentTab(session.role === 'external_manager' ? 'inventory' : 'overview');
     updateAgentBadges();
   }
 }
@@ -1536,6 +1537,12 @@ function openAddModal() {
   pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
   resetFileZones();
   renderMediaPreviews();
+  // External managers manage warehouses for outside owners — default ownership
+  // to "management" so the property is treated correctly in financials.
+  const _sess = (typeof getSession === 'function') ? getSession() : null;
+  if (_sess && _sess.role === 'external_manager' && $('propOwnership')) {
+    $('propOwnership').value = 'management';
+  }
   toggleOwnership();
   toggleRentalSection();
   if (typeof togglePropUsageCustom === 'function') togglePropUsageCustom();
@@ -8825,7 +8832,7 @@ boot = async function() {
     document.getElementById('agentDashboard').style.display = '';
     await fetchProperties();           // agents also need property cache
     await fetchAllEntities();          // and every other entity
-    showAgentTab('overview');
+    showAgentTab(session.role === 'external_manager' ? 'inventory' : 'overview');
     updateAgentBadges();
     startRealtimeSync();
   }
@@ -9381,6 +9388,28 @@ renderAgentInventory = function() {
   const role = sess.role || 'general';
   const meta = agentRoleMeta(role);
   const props = allProps.filter(meta.inventoryFilter || (() => true));
+
+  // External managers always get their own intro + Add Property button,
+  // even when the portfolio is empty (they need to be able to add the first one).
+  if (role === 'external_manager') {
+    const introExt = `<div class="agent-inv-intro" style="background:linear-gradient(135deg,#0369a110,#0369a105);border-left-color:#0369a1;display:flex;align-items:center;gap:14px;padding:14px 16px;">
+      <div class="aii-icon">🔑</div>
+      <div style="flex:1;">
+        <div class="aii-title">My Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
+        <div class="aii-sub">Properties you manage. Click <strong>+ Add Property</strong> to add a warehouse you manage. New properties default to "Management" ownership.</div>
+      </div>
+      <button class="btn-primary" onclick="openAddModal()" style="white-space:nowrap;">+ Add Property</button>
+    </div>`;
+    if (!props.length) {
+      list.innerHTML = `${introExt}<div class="team-empty"><div class="empty-icon">🏗️</div><p>No properties yet — click <strong>+ Add Property</strong> above to get started.</p></div>`;
+      return;
+    }
+    list.innerHTML = `${introExt}<div class="grid agent-inventory-grid">${props.map(agentCardHTML).join('')}</div>`;
+    if (typeof loadCardMedia === 'function') {
+      props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+    }
+    return;
+  }
 
   // Re-use original intro banner by calling original (which writes intro+empty too) only when empty
   if (!allProps.length) {
