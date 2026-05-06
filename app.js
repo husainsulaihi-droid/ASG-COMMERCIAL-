@@ -752,6 +752,12 @@ async function boot() {
     document.getElementById('appBody').style.display        = 'none';
     document.getElementById('agentHeader').style.display    = '';
     document.getElementById('agentDashboard').style.display = '';
+    ['propertyModalOverlay','detailModalOverlay','chequeEditOverlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName !== 'BODY') {
+        document.body.appendChild(el);
+      }
+    });
     await fetchProperties();   // agents also need property cache
     await fetchAllEntities();
     // External managers go straight to their inventory — that's their workspace.
@@ -8830,6 +8836,14 @@ boot = async function() {
     document.getElementById('appBody').style.display        = 'none';
     document.getElementById('agentHeader').style.display    = 'none'; // sidebar has profile
     document.getElementById('agentDashboard').style.display = '';
+    // Reparent admin-only modals to <body> so they still render once #appBody
+    // is hidden for agent sessions.
+    ['propertyModalOverlay','detailModalOverlay','chequeEditOverlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName !== 'BODY') {
+        document.body.appendChild(el);
+      }
+    });
     await fetchProperties();           // agents also need property cache
     await fetchAllEntities();          // and every other entity
     showAgentTab(session.role === 'external_manager' ? 'inventory' : 'overview');
@@ -9381,14 +9395,20 @@ if (_origCloseDetail) {
 // is missing we surface the error to the user instead of silently failing.
 function externalManagerAddProperty() {
   try {
+    // The propertyModalOverlay sits inside #appBody in the markup. When an
+    // external_manager (or any agent) logs in, #appBody gets display:none,
+    // and the modal disappears with it. Reparent the overlay to <body> so it
+    // can render regardless of which dashboard is active. Idempotent.
+    const ov = document.getElementById('propertyModalOverlay');
+    if (ov && ov.parentElement && ov.parentElement.tagName !== 'BODY') {
+      document.body.appendChild(ov);
+    }
     if (typeof openAddModal !== 'function') {
       console.error('[externalManager] openAddModal is not defined');
       if (typeof showToast === 'function') showToast('Add Property is not available — please refresh the page.', 'error');
       return;
     }
     openAddModal();
-    // Belt-and-braces: ensure the overlay is visible regardless of any prior CSS state.
-    const ov = document.getElementById('propertyModalOverlay');
     if (ov) {
       ov.classList.add('active');
       ov.style.display = 'flex';
