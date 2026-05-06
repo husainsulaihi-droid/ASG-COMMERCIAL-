@@ -758,6 +758,7 @@ async function boot() {
         document.body.appendChild(el);
       }
     });
+    bindPropertyModalUI();
     await fetchProperties();   // agents also need property cache
     await fetchAllEntities();
     // External managers go straight to their inventory — that's their workspace.
@@ -767,11 +768,30 @@ async function boot() {
 }
 
 // ─── Event Bindings ───────────────────────────────
+// Bind ONLY the property/detail modal handlers. Safe to call for both admin
+// and agent sessions — the modal lives in a single shared markup block, and
+// agent sessions need these handlers when the external_manager workflow opens
+// the same modal. Idempotent via a flag so admin's bindUI doesn't double-bind.
+function bindPropertyModalUI() {
+  if (window.__asgPropertyModalBound) return;
+  window.__asgPropertyModalBound = true;
+  $('closePropertyModal')?.addEventListener('click', closeAddModal);
+  $('cancelPropertyBtn')?.addEventListener('click', closeAddModal);
+  $('savePropertyBtn')?.addEventListener('click', handleSave);
+  $('closeDetailModal')?.addEventListener('click', closeDetailModal);
+  $('closeDetailBtn')?.addEventListener('click', closeDetailModal);
+  $('editFromDetailBtn')?.addEventListener('click', () => { closeDetailModal(); openEditModal(currentDetailId); });
+  $('deletePropertyBtn')?.addEventListener('click', handleDelete);
+  $('propertyModalOverlay')?.addEventListener('click', e => { if (e.target === $('propertyModalOverlay')) closeAddModal(); });
+  $('detailModalOverlay')?.addEventListener('click',   e => { if (e.target === $('detailModalOverlay'))   closeDetailModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { try { closeLightbox(); } catch(_){}; closeAddModal(); closeDetailModal(); }
+  });
+}
+
 function bindUI() {
+  bindPropertyModalUI();
   $('addPropertyBtn').addEventListener('click', openAddModal);
-  $('closePropertyModal').addEventListener('click', closeAddModal);
-  $('cancelPropertyBtn').addEventListener('click', closeAddModal);
-  $('savePropertyBtn').addEventListener('click', handleSave);
 
   $('closeDetailModal').addEventListener('click', closeDetailModal);
   $('closeDetailBtn').addEventListener('click', closeDetailModal);
@@ -8844,6 +8864,7 @@ boot = async function() {
         document.body.appendChild(el);
       }
     });
+    bindPropertyModalUI();
     await fetchProperties();           // agents also need property cache
     await fetchAllEntities();          // and every other entity
     showAgentTab(session.role === 'external_manager' ? 'inventory' : 'overview');
