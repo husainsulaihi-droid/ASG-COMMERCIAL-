@@ -5307,8 +5307,18 @@ body, button, input, select, textarea {
     box-sizing: border-box;
   }
 
-  /* Slim down the chrome that eats horizontal space */
-  .header { padding: 0 10px !important; gap: 6px; height: 56px !important; }
+  /* Slim down the chrome that eats horizontal space.
+     Add safe-area-top padding so iOS status bar (time/battery) doesn't
+     overlap the header when the PWA runs full-screen with
+     apple-mobile-web-app-status-bar-style=black-translucent. */
+  .header {
+    padding: env(safe-area-inset-top, 0) 10px 0 !important;
+    gap: 6px;
+    height: calc(56px + env(safe-area-inset-top, 0)) !important;
+    align-items: flex-end !important;
+    padding-bottom: 8px !important;
+  }
+  .app-body { padding-bottom: env(safe-area-inset-bottom, 0); }
   .logo-mark { width: 32px; height: 32px; font-size: 11px; }
   .logo-title { font-size: 13px; }
 
