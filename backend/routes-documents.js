@@ -1,11 +1,12 @@
 /**
- * Per-user persistent documents — two editable slots per user.
+ * Shared documents — exactly two editable slots, visible to every
+ * logged-in user. Used by the Documents tab.
  *
- *   GET  /api/documents          — returns the caller's two slots
- *   PUT  /api/documents/:slot    — upsert html + name + filename for slot
+ *   GET    /api/documents          — returns both slots (shared)
+ *   PUT    /api/documents/:slot    — upsert html + name + filename
+ *   DELETE /api/documents/:slot    — clear the slot
  *
- * Used by the Documents tab. There's no "list everyone" endpoint — each
- * user only sees their own. Admins are users too.
+ * No per-user scoping. Last-write-wins.
  */
 
 const express = require('express');
@@ -17,8 +18,8 @@ const router = express.Router();
 
 router.get('/', requireAuth, (req, res) => {
   const rows = getDb().prepare(
-    'SELECT * FROM documents WHERE owner_id = ? ORDER BY slot ASC'
-  ).all(req.user.id);
+    'SELECT * FROM documents ORDER BY slot ASC'
+  ).all();
   res.json({ documents: rows.map(rowToApi) });
 });
 
@@ -30,26 +31,25 @@ router.put('/:slot', requireAuth, (req, res) => {
   const { name, filename, html } = req.body || {};
   const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT id FROM documents WHERE owner_id = ? AND slot = ?'
-  ).get(req.user.id, slot);
-
+  const existing = db.prepare('SELECT id FROM documents WHERE slot = ?').get(slot);
   if (existing) {
     db.prepare(`
       UPDATE documents
-         SET name = ?, filename = ?, html = ?, updated_at = CURRENT_TIMESTAMP
+         SET name = ?, filename = ?, html = ?,
+             updated_by_id = ?, updated_by_name = ?,
+             updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
-    `).run(name ?? null, filename ?? null, html ?? null, existing.id);
+    `).run(name ?? null, filename ?? null, html ?? null,
+           req.user.id, req.user.name, existing.id);
   } else {
     db.prepare(`
-      INSERT INTO documents (owner_id, slot, name, filename, html)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(req.user.id, slot, name ?? null, filename ?? null, html ?? null);
+      INSERT INTO documents (slot, name, filename, html, updated_by_id, updated_by_name)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(slot, name ?? null, filename ?? null, html ?? null,
+           req.user.id, req.user.name);
   }
 
-  const row = db.prepare(
-    'SELECT * FROM documents WHERE owner_id = ? AND slot = ?'
-  ).get(req.user.id, slot);
+  const row = db.prepare('SELECT * FROM documents WHERE slot = ?').get(slot);
   res.json({ document: rowToApi(row) });
 });
 
@@ -58,9 +58,7 @@ router.delete('/:slot', requireAuth, (req, res) => {
   if (slot !== 1 && slot !== 2) {
     return res.status(400).json({ error: 'slot must be 1 or 2' });
   }
-  getDb().prepare(
-    'DELETE FROM documents WHERE owner_id = ? AND slot = ?'
-  ).run(req.user.id, slot);
+  getDb().prepare('DELETE FROM documents WHERE slot = ?').run(slot);
   res.json({ ok: true });
 });
 

@@ -132,22 +132,56 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_contracts_prop       ON contracts(prop_id);
   `);
 
-  // Per-user persistent documents — two editable slots per user, used by the
-  // Documents tab. Each slot stores HTML (rich text) plus a display name.
+  // Shared persistent documents — exactly two editable slots, visible to
+  // and editable by every logged-in user (admin + agents). Last write wins.
   db.exec(`
     CREATE TABLE IF NOT EXISTS documents (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      owner_id    INTEGER NOT NULL,
-      slot        INTEGER NOT NULL,
-      name        TEXT,
-      filename    TEXT,
-      html        TEXT,
-      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(owner_id, slot)
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      slot          INTEGER NOT NULL UNIQUE,
+      name          TEXT,
+      filename      TEXT,
+      html          TEXT,
+      updated_by_id   INTEGER,
+      updated_by_name TEXT,
+      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-    CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(owner_id);
   `);
+
+  // One-time migration: earlier deploys created `documents` with an
+  // owner_id column (per-user). If we find that shape, collapse it to
+  // shared by keeping the most-recently-updated row per slot.
+  try {
+    const cols = db.prepare("PRAGMA table_info(documents)").all();
+    if (cols.some(c => c.name === 'owner_id')) {
+      console.log('[db] Migrating documents table from per-user to shared...');
+      db.exec(`
+        CREATE TABLE documents_new (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          slot          INTEGER NOT NULL UNIQUE,
+          name          TEXT,
+          filename      TEXT,
+          html          TEXT,
+          updated_by_id   INTEGER,
+          updated_by_name TEXT,
+          created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO documents_new (slot, name, filename, html, updated_by_id, created_at, updated_at)
+          SELECT d.slot, d.name, d.filename, d.html, d.owner_id, d.created_at, d.updated_at
+            FROM documents d
+            JOIN (
+              SELECT slot, MAX(updated_at) AS mx
+                FROM documents GROUP BY slot
+            ) m ON m.slot = d.slot AND m.mx = d.updated_at;
+        DROP TABLE documents;
+        ALTER TABLE documents_new RENAME TO documents;
+      `);
+      console.log('[db] documents migration complete.');
+    }
+  } catch (e) {
+    console.warn('[db] documents migration check failed:', e.message);
+  }
 
   // Idempotent column adds. SQLite has no "ADD COLUMN IF NOT EXISTS",
   // so we try and swallow the duplicate-column error.

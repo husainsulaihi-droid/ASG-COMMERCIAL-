@@ -10161,7 +10161,7 @@ function initDocumentsTab(containerId) {
 
   cont.innerHTML = `
     <div class="doc-tab-info" style="background:#f5f7fa;border:1px solid #dfe5ee;border-radius:10px;padding:12px 14px;font-size:13px;color:#4a5568;margin-bottom:18px;line-height:1.5;">
-      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF, edit the text, then print. Both slots are saved to your account automatically — you don't need to re-upload next time.
+      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF, edit the text, then print. Both slots are <strong>shared with everyone</strong> on the team — your edits are saved automatically and the next person to open this tab sees them.
       <div style="margin-top:6px;font-size:12px;color:#888;">PDFs are converted to plain text on upload — original formatting (tables, columns, fonts) is lost. .docx files keep most of their formatting.</div>
     </div>
     <div class="doc-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
@@ -10239,7 +10239,10 @@ function _docPopulate(slot, doc) {
     editor.innerHTML = doc.html || '';
     if (nameInp) nameInp.value = doc.name || '';
     if (fileLbl) fileLbl.textContent = doc.filename || (doc.html ? 'Saved' : 'No file loaded');
-    if (status)  status.textContent  = doc.updatedAt ? 'Saved · ' + _docFmtTime(doc.updatedAt) : '';
+    if (status) {
+      const who = doc.updatedByName ? ' by ' + doc.updatedByName : '';
+      status.textContent = doc.updatedAt ? 'Last edited' + who + ' · ' + _docFmtTime(doc.updatedAt) : '';
+    }
   } else {
     editor.innerHTML = '';
     if (nameInp) nameInp.value = '';
