@@ -10223,6 +10223,13 @@ async function _docFetchAll() {
       const doc = docs.find(d => d.slot === slot);
       _docPopulate(slot, doc);
       const st = _docState[slot]; if (st) st.loaded = true;
+      // VPS-seeded files come back with hasFile=true but no html.
+      // Fetch the binary and parse it client-side so the editor isn't blank.
+      if (doc && doc.hasFile && !(doc.html && doc.html.trim())) {
+        _docParseFromServer(slot, doc).catch(err => {
+          console.warn(`[docs slot ${slot}] auto-parse from server failed`, err);
+        });
+      }
     }
   } catch (e) {
     console.warn('[docs] fetch failed', e);
@@ -10230,6 +10237,63 @@ async function _docFetchAll() {
     for (const slot of [1, 2]) {
       const st = _docState[slot]; if (st) st.loaded = true;
     }
+  }
+}
+
+// Fetch the slot's binary from the server, parse via vendored
+// mammoth/pdf.js, populate the editor, and persist the parsed html.
+async function _docParseFromServer(slot, doc) {
+  const editor = document.getElementById('docEditor_'+slot);
+  const busy   = document.getElementById('docBusy_'+slot);
+  if (!editor) return;
+  console.log(`[docs slot ${slot}] auto-parsing server-seeded file: ${doc.filename || '(unnamed)'}`);
+  if (busy) busy.style.display = '';
+  try {
+    const r = await fetch(`/api/documents/${slot}/file?t=${Date.now()}`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const buf = await r.arrayBuffer();
+    const mime = (doc.mime || r.headers.get('Content-Type') || '').toLowerCase();
+    const filename = (doc.filename || '').toLowerCase();
+    let html = '';
+    if (mime.includes('wordprocessingml') || filename.endsWith('.docx')) {
+      const mammoth = await _loadMammoth();
+      const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+      html = result.value || '<p>(empty document)</p>';
+    } else if (mime.includes('pdf') || filename.endsWith('.pdf')) {
+      const pdfjsLib = await _loadPdfjs();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      const parts = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const txt = await page.getTextContent();
+        const lines = [];
+        let curY = null;
+        let curLine = [];
+        for (const item of txt.items) {
+          const y = Math.round(item.transform[5]);
+          if (curY === null || Math.abs(y - curY) <= 2) {
+            curLine.push(item.str); curY = y;
+          } else {
+            lines.push(curLine.join(' ').replace(/\s+/g, ' ').trim());
+            curLine = [item.str]; curY = y;
+          }
+        }
+        if (curLine.length) lines.push(curLine.join(' ').replace(/\s+/g, ' ').trim());
+        const pageHtml = lines.filter(Boolean).map(l => `<p>${_docEscape(l)}</p>`).join('') || '<p>&nbsp;</p>';
+        parts.push(pageHtml + (i < pdf.numPages ? '<p style="page-break-after:always;"></p>' : ''));
+      }
+      html = parts.join('');
+    } else {
+      console.warn(`[docs slot ${slot}] unknown mime "${mime}", filename "${filename}" — skipping auto-parse`);
+      return;
+    }
+    editor.innerHTML = html;
+    editor.dataset.empty = editor.textContent.trim() ? '0' : '1';
+    // Persist parsed html so next visitor doesn't re-parse on every page load.
+    _docSaveSlot(slot);
+    console.log(`[docs slot ${slot}] auto-parse complete`);
+  } finally {
+    if (busy) busy.style.display = 'none';
   }
 }
 
@@ -10299,6 +10363,7 @@ async function _docSaveSlot(slot, extra) {
     if ('mime' in extra)     payload.mime     = extra.mime;
   }
   if (status) status.textContent = 'Saving…';
+  const errorBox = document.getElementById('docError_'+slot);
   st.savingPromise = (async () => {
     try {
       const r = await fetch(`/api/documents/${slot}`, {
@@ -10307,11 +10372,24 @@ async function _docSaveSlot(slot, extra) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) {
+        // Surface the real failure — silent "save failed" is what made
+        // earlier disappear-on-refresh bugs invisible.
+        let detail = '';
+        try { const j = await r.json(); detail = j.error || JSON.stringify(j); }
+        catch (_) { try { detail = await r.text(); } catch (_) {} }
+        throw new Error('HTTP ' + r.status + (detail ? ' — ' + detail : ''));
+      }
       if (status) status.textContent = 'Saved · just now';
+      if (errorBox) { errorBox.textContent = ''; errorBox.style.display = 'none'; }
     } catch (e) {
       console.warn('[docs] save failed', e);
-      if (status) status.textContent = 'Save failed — retrying on next edit';
+      if (status) status.textContent = 'Save failed';
+      if (errorBox) {
+        errorBox.textContent = 'Save failed: ' + (e.message || e) +
+          '. Your edits are NOT saved — most likely the backend needs to be restarted on the VPS, or the file is too large.';
+        errorBox.style.display = '';
+      }
     } finally {
       st.savingPromise = null;
     }

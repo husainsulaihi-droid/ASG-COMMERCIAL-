@@ -77,6 +77,27 @@ app.use((req, res, next) => {
 // ─── Database ─────────────────────────────────────────
 initDb();
 
+// ─── Document slot seed ───────────────────────────────
+// Look for /var/asg/documents/slot{1,2}.{pdf,docx} and ingest into the
+// documents table for any slot that's currently empty. Lets the user
+// drop files on the VPS and have them appear in the Documents tab
+// without going through the browser file picker.
+try {
+  const { seedAll, DOCS_DIR } = require('./seed-documents');
+  const results = seedAll();
+  for (const r of results) {
+    if (r.status === 'ingested') {
+      console.log(`[seed-documents] slot ${r.slot}: ingested ${r.filename} (${r.size} bytes)`);
+    } else if (r.status === 'no_file') {
+      console.log(`[seed-documents] slot ${r.slot}: no slot${r.slot}.pdf or slot${r.slot}.docx in ${DOCS_DIR} — skipping`);
+    } else if (r.status === 'exists') {
+      console.log(`[seed-documents] slot ${r.slot}: already populated, skipping (use POST /api/documents/reload to force)`);
+    }
+  }
+} catch (err) {
+  console.warn('[seed-documents] startup seed failed:', err.message);
+}
+
 // GC expired sessions every hour
 setInterval(() => {
   try {

@@ -17,8 +17,19 @@ const express = require('express');
 const { getDb } = require('./db');
 const { requireAuth } = require('./middleware');
 const { rowToApi } = require('./utils');
+const { seedAll, DOCS_DIR } = require('./seed-documents');
 
 const router = express.Router();
+
+// Force-reload from VPS seed directory. Admin only — replaces any
+// existing slot content with the file currently on disk.
+router.post('/reload', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+  const results = seedAll({ force: true });
+  res.json({ dir: DOCS_DIR, results });
+});
 
 // Strip the heavy BLOB before serializing — we don't ship binaries in
 // list responses; the dedicated /:slot/file endpoint is for that.
