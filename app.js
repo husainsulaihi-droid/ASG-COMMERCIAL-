@@ -830,12 +830,13 @@ function showTab(tab) {
   $('constructionView').style.display = tab === 'construction' ? '' : 'none';
   $('paymentView').style.display      = tab === 'payment'      ? '' : 'none';
   const proposalsEl = $('proposalsView'); if (proposalsEl) proposalsEl.style.display = tab === 'proposals' ? '' : 'none';
+  const docsEl = $('documentsView');    if (docsEl) docsEl.style.display = tab === 'documents' ? '' : 'none';
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
   const loginsEl = $('loginsView');     if (loginsEl) loginsEl.style.display = tab === 'logins' ? '' : 'none';
   const compEl = $('compoundsView');    if (compEl) compEl.style.display = tab === 'compounds' ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Map','Financials','Logins','Compounds'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins','Compounds'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -853,6 +854,7 @@ function showTab(tab) {
   if (tab === 'construction') renderProjects();
   if (tab === 'payment')      renderPayments();
   if (tab === 'proposals')    renderProposals();
+  if (tab === 'documents')    initDocumentsTab('documentsContainer');
   if (tab === 'map')          initMapTab();
   if (tab === 'financials')   renderFinancials();
   if (tab === 'logins')       renderLogins();
@@ -5697,7 +5699,7 @@ saveAgentProperty = function() {
 let currentAgentTab = 'overview';
 let agentMlMap = null;
 
-const AGENT_TABS = ['overview','inventory','leads','tasks','map','proposals','contracts','submissions'];
+const AGENT_TABS = ['overview','inventory','leads','tasks','map','proposals','contracts','documents','submissions'];
 
 function showAgentTab(tab) {
   currentAgentTab = tab;
@@ -9893,6 +9895,9 @@ if (_origShowAgentTab2) {
       }
       if (typeof renderContracts === 'function') renderContracts();
     }
+    if (tab === 'documents' && typeof initDocumentsTab === 'function') {
+      initDocumentsTab('agentDocumentsContainer');
+    }
   };
 }
 
@@ -10083,6 +10088,289 @@ function _hydrateAgentContractForm(c) {
   const usage = (c.propUsage || 'Commercial').toLowerCase();
   const r = document.getElementById('acf_usage_' + (usage.includes('resid') ? 'residential' : usage.includes('indus') ? 'industrial' : 'commercial'));
   if (r) r.checked = true;
+}
+
+// ═══════════════════════════════════════════════════════
+//  DOCUMENTS — upload .docx / .pdf, edit, print (no save)
+// ═══════════════════════════════════════════════════════
+//
+// Lazy-loads two CDN libraries the first time the tab is opened:
+//   - mammoth.js: .docx → HTML (preserves most formatting)
+//   - pdf.js: .pdf → plain text (loses formatting; PDFs aren't editable
+//     pixel-by-pixel in any browser. Original PDF formatting is dropped.)
+// Two slots only, each with its own contenteditable area and Print button.
+// Nothing persists; closing the tab discards the document.
+
+const _DOC_CDN = {
+  mammoth: 'https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js',
+  pdfjs:   'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+  pdfjsWorker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
+};
+let _docMammothPromise = null;
+let _docPdfjsPromise   = null;
+
+function _loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === '1') return resolve();
+      existing.addEventListener('load',  () => resolve());
+      existing.addEventListener('error', () => reject(new Error('Failed to load ' + src)));
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload  = () => { s.dataset.loaded = '1'; resolve(); };
+    s.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+function _loadMammoth() {
+  if (window.mammoth) return Promise.resolve(window.mammoth);
+  if (!_docMammothPromise) {
+    _docMammothPromise = _loadScript(_DOC_CDN.mammoth).then(() => window.mammoth);
+  }
+  return _docMammothPromise;
+}
+
+function _loadPdfjs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!_docPdfjsPromise) {
+    _docPdfjsPromise = _loadScript(_DOC_CDN.pdfjs).then(() => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = _DOC_CDN.pdfjsWorker;
+      return window.pdfjsLib;
+    });
+  }
+  return _docPdfjsPromise;
+}
+
+function initDocumentsTab(containerId) {
+  const cont = document.getElementById(containerId);
+  if (!cont) return;
+  if (cont.dataset.ready === '1') return;
+  cont.dataset.ready = '1';
+
+  cont.innerHTML = `
+    <div class="doc-tab-info" style="background:#f5f7fa;border:1px solid #dfe5ee;border-radius:10px;padding:12px 14px;font-size:13px;color:#4a5568;margin-bottom:18px;line-height:1.5;">
+      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF, edit the text below, then print to PDF. Nothing is saved — close the tab and the document is gone.
+      <div style="margin-top:6px;font-size:12px;color:#888;">PDFs are converted to plain text on upload — original formatting (tables, columns, fonts) is lost. .docx files keep most of their formatting.</div>
+    </div>
+    <div class="doc-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      ${_docSlotHTML(1)}
+      ${_docSlotHTML(2)}
+    </div>
+    <style>
+      @media (max-width: 900px) {
+        .doc-grid { grid-template-columns: 1fr !important; }
+      }
+      .doc-card { background:#fff; border:1px solid #e3e7ee; border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:10px; }
+      .doc-card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+      .doc-card-title { font-size:14px; font-weight:700; color:#1c2b4a; }
+      .doc-file-name { font-size:12px; color:#6b7280; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .doc-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding:6px; background:#f7f9fc; border:1px solid #e3e7ee; border-radius:6px; }
+      .doc-tb-btn { background:#fff; border:1px solid #d4dae3; border-radius:4px; padding:4px 9px; font-size:12px; cursor:pointer; min-width:30px; }
+      .doc-tb-btn:hover { background:#eef2f7; }
+      .doc-tb-btn.is-bold { font-weight:700; }
+      .doc-tb-btn.is-italic { font-style:italic; }
+      .doc-tb-btn.is-underline { text-decoration:underline; }
+      .doc-tb-sep { width:1px; background:#d4dae3; margin:0 2px; }
+      .doc-editor { min-height:340px; max-height:520px; overflow-y:auto; border:1px solid #d4dae3; border-radius:6px; padding:14px 16px; font-family:'Helvetica Neue',Arial,sans-serif; font-size:13px; line-height:1.55; color:#222; background:#fff; }
+      .doc-editor:focus { outline:2px solid #1c2b4a; outline-offset:-2px; }
+      .doc-editor[data-empty="1"]::before { content: attr(data-placeholder); color:#aaa; pointer-events:none; }
+      .doc-editor table { border-collapse:collapse; }
+      .doc-editor table td, .doc-editor table th { border:1px solid #ccc; padding:4px 6px; }
+      .doc-actions { display:flex; gap:8px; flex-wrap:wrap; }
+      .doc-actions .btn-primary, .doc-actions .btn-ghost { padding:6px 12px; font-size:13px; }
+      .doc-upload-label { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; font-size:13px; background:#1c2b4a; color:#fff; border-radius:6px; cursor:pointer; font-weight:600; }
+      .doc-upload-label input[type=file] { display:none; }
+      .doc-busy { font-size:12px; color:#1c2b4a; font-style:italic; }
+    </style>
+  `;
+
+  // Wire each slot
+  for (const slot of [1, 2]) _wireDocSlot(slot);
+}
+
+function _docSlotHTML(slot) {
+  return `
+    <div class="doc-card" data-slot="${slot}">
+      <div class="doc-card-head">
+        <span class="doc-card-title">Document ${slot}</span>
+        <span class="doc-file-name" id="docFileName_${slot}">No file loaded</span>
+      </div>
+      <div class="doc-actions">
+        <label class="doc-upload-label">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload .docx / .pdf
+          <input type="file" id="docFile_${slot}" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        </label>
+        <button class="btn-primary" id="docPrint_${slot}" type="button">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print
+        </button>
+        <button class="btn-ghost" id="docClear_${slot}" type="button">Clear</button>
+        <span class="doc-busy" id="docBusy_${slot}" style="display:none;">Loading…</span>
+      </div>
+      <div class="doc-toolbar">
+        <button class="doc-tb-btn is-bold" type="button" data-cmd="bold" title="Bold (Ctrl+B)">B</button>
+        <button class="doc-tb-btn is-italic" type="button" data-cmd="italic" title="Italic (Ctrl+I)">I</button>
+        <button class="doc-tb-btn is-underline" type="button" data-cmd="underline" title="Underline (Ctrl+U)">U</button>
+        <span class="doc-tb-sep"></span>
+        <button class="doc-tb-btn" type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+        <button class="doc-tb-btn" type="button" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+        <span class="doc-tb-sep"></span>
+        <button class="doc-tb-btn" type="button" data-cmd="justifyLeft" title="Align left">⯇</button>
+        <button class="doc-tb-btn" type="button" data-cmd="justifyCenter" title="Center">≡</button>
+        <button class="doc-tb-btn" type="button" data-cmd="justifyRight" title="Align right">⯈</button>
+      </div>
+      <div class="doc-editor"
+           id="docEditor_${slot}"
+           contenteditable="true"
+           data-placeholder="Upload a Word doc or PDF above, or just start typing here…"
+           data-empty="1"></div>
+    </div>`;
+}
+
+function _wireDocSlot(slot) {
+  const file    = document.getElementById('docFile_'+slot);
+  const editor  = document.getElementById('docEditor_'+slot);
+  const fileLbl = document.getElementById('docFileName_'+slot);
+  const printBt = document.getElementById('docPrint_'+slot);
+  const clearBt = document.getElementById('docClear_'+slot);
+  const busy    = document.getElementById('docBusy_'+slot);
+  const toolbar = editor?.parentElement?.querySelector('.doc-toolbar');
+
+  if (!file || !editor) return;
+
+  // Toolbar buttons → execCommand on the editor
+  toolbar?.addEventListener('mousedown', e => {
+    const btn = e.target.closest('.doc-tb-btn');
+    if (!btn) return;
+    e.preventDefault();
+    editor.focus();
+    try { document.execCommand(btn.dataset.cmd, false, null); }
+    catch (_) {}
+  });
+
+  // Empty-state placeholder toggle
+  const updateEmpty = () => {
+    editor.dataset.empty = editor.textContent.trim() ? '0' : '1';
+  };
+  editor.addEventListener('input', updateEmpty);
+  editor.addEventListener('blur',  updateEmpty);
+
+  file.addEventListener('change', async () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    const name = f.name;
+    const lower = name.toLowerCase();
+    busy.style.display = '';
+    fileLbl.textContent = name;
+    try {
+      if (lower.endsWith('.docx')) {
+        const buf = await f.arrayBuffer();
+        const mammoth = await _loadMammoth();
+        const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+        editor.innerHTML = result.value || '<p>(empty document)</p>';
+      } else if (lower.endsWith('.pdf')) {
+        const buf = await f.arrayBuffer();
+        const pdfjsLib = await _loadPdfjs();
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        const parts = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const txt = await page.getTextContent();
+          // Group by Y so we get something close to lines.
+          const lines = [];
+          let curY = null;
+          let curLine = [];
+          for (const item of txt.items) {
+            const y = Math.round(item.transform[5]);
+            if (curY === null || Math.abs(y - curY) <= 2) {
+              curLine.push(item.str);
+              curY = y;
+            } else {
+              lines.push(curLine.join(' ').replace(/\s+/g, ' ').trim());
+              curLine = [item.str];
+              curY = y;
+            }
+          }
+          if (curLine.length) lines.push(curLine.join(' ').replace(/\s+/g, ' ').trim());
+          const pageHtml = lines.filter(Boolean).map(l => `<p>${_docEscape(l)}</p>`).join('') || '<p>&nbsp;</p>';
+          parts.push(pageHtml + (i < pdf.numPages ? '<p style="page-break-after:always;"></p>' : ''));
+        }
+        editor.innerHTML = parts.join('');
+        showToast('PDF text extracted — original formatting is lost', 'info');
+      } else if (lower.endsWith('.doc')) {
+        showToast('Old .doc format isn\'t supported. Save it as .docx and try again.', 'error');
+        fileLbl.textContent = 'No file loaded';
+        return;
+      } else {
+        showToast('Unsupported file type. Upload .docx or .pdf.', 'error');
+        fileLbl.textContent = 'No file loaded';
+        return;
+      }
+      updateEmpty();
+    } catch (err) {
+      console.error('[docs] load failed', err);
+      showToast('Failed to read file: ' + (err.message || err), 'error');
+    } finally {
+      busy.style.display = 'none';
+      // Reset input so re-uploading the same file fires `change` again
+      file.value = '';
+    }
+  });
+
+  printBt.addEventListener('click', () => {
+    const html = editor.innerHTML.trim();
+    if (!html || editor.dataset.empty === '1') {
+      showToast('Nothing to print', 'error');
+      return;
+    }
+    const title = (fileLbl.textContent && fileLbl.textContent !== 'No file loaded')
+      ? fileLbl.textContent.replace(/\.[^.]+$/, '')
+      : 'Document ' + slot;
+    const w = window.open('', '_blank');
+    if (!w) { showToast('Pop-up blocked — allow pop-ups and try again', 'error'); return; }
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${_docEscape(title)}</title>
+<style>
+  @page { margin: 18mm 16mm; }
+  body { font-family:'Helvetica Neue',Arial,sans-serif; font-size:12pt; line-height:1.5; color:#111; }
+  p { margin:0 0 8pt; }
+  table { border-collapse:collapse; }
+  table td, table th { border:1px solid #999; padding:4px 6px; }
+  img { max-width:100%; }
+  h1,h2,h3,h4 { color:#1c2b4a; }
+</style></head><body>${html}</body></html>`);
+    w.document.close();
+    w.addEventListener('load', () => {
+      const imgs = w.document.images;
+      let loaded = 0;
+      const total = imgs.length;
+      const fire = () => setTimeout(() => w.print(), 200);
+      if (!total) return fire();
+      const tryPrint = () => { if (++loaded >= total) fire(); };
+      Array.from(imgs).forEach(img => {
+        if (img.complete) tryPrint();
+        else { img.onload = tryPrint; img.onerror = tryPrint; }
+      });
+    });
+  });
+
+  clearBt.addEventListener('click', () => {
+    if (editor.textContent.trim() && !confirm('Clear this document?')) return;
+    editor.innerHTML = '';
+    fileLbl.textContent = 'No file loaded';
+    updateEmpty();
+  });
+
+  updateEmpty();
+}
+
+function _docEscape(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ═══════════════════════════════════════════════════════

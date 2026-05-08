@@ -241,6 +241,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           Proposals
         </button>
+        <button class="nav-item" id="tabDocuments" onclick="showTab('documents')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="16" y1="13" x2="10.5" y2="13"/></svg>
+          Documents
+        </button>
         <button class="nav-item" id="tabMap" onclick="showTab('map')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
           Map
@@ -1767,6 +1771,24 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
+  <!-- DOCUMENTS VIEW (upload / edit / print) -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="documentsView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="16" y1="13" x2="10.5" y2="13"/></svg>
+            Documents
+          </h1>
+          <p class="tab-page-sub">Upload a Word doc or PDF, edit the text in your browser, then print it. Nothing is saved — close the tab and the document is gone.</p>
+        </div>
+      </div>
+      <div id="documentsContainer"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
   <!-- CALENDAR VIEW                          -->
   <!-- ═══════════════════════════════════════ -->
   <div id="calendarView" style="display:none;">
@@ -2161,6 +2183,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Contracts
         </button>
+        <button class="nav-item" id="aTab-documents" onclick="showAgentTab('documents')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="16" y1="13" x2="10.5" y2="13"/></svg>
+          Documents
+        </button>
         <button class="nav-item" id="aTab-submissions" onclick="showAgentTab('submissions')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           My Submissions
@@ -2282,6 +2308,15 @@
             <p>Fill in the lessor, lessee, property, and rental details — then generate a complete tenancy contract as a PDF. The contract is auto-filled from the property you select.</p>
           </div>
         </div>
+      </div>
+
+      <!-- Tab: Documents -->
+      <div id="agentTabDocuments" class="agent-tab-page" style="display:none;">
+        <div class="agent-tab-header">
+          <h2 class="agent-tab-title">📂 Documents</h2>
+          <p class="agent-tab-sub">Upload a Word doc or PDF, edit the text, then print.</p>
+        </div>
+        <div id="agentDocumentsContainer"></div>
       </div>
 
       <!-- Tab: Submissions -->
@@ -3467,6 +3502,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260508B"></script>
+  <script src="app.js?v=20260508C"></script>
 </body>
 </html>
