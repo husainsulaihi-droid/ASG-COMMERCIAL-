@@ -579,8 +579,8 @@
               <input type="text" id="cf_property_type" placeholder="e.g. Warehouse, Office">
             </div>
             <div class="form-group">
-              <label>Property Area (sq.m) — مساحة العقار</label>
-              <input type="number" id="cf_property_area" placeholder="e.g. 500" min="0" step="0.01">
+              <label>Property Area (sq ft) — مساحة العقار (قدم مربع)</label>
+              <input type="number" id="cf_property_area" placeholder="e.g. 5,000" min="0" step="0.01">
             </div>
           </div>
           <div class="form-row">
@@ -614,7 +614,7 @@
           <div class="form-row">
             <div class="form-group">
               <label>Contract Value (AED) — قيمة العقد</label>
-              <input type="number" id="cf_contract_value" placeholder="e.g. 180,000" min="0">
+              <input type="text" id="cf_contract_value" placeholder="e.g. 180,000  or  AED 180,000 + 5% VAT">
             </div>
             <div class="form-group">
               <label>Annual Rent (AED) — الايجار السنوي</label>
@@ -655,9 +655,29 @@
             <label>Term 4</label>
             <input type="text" id="cf_term_4" placeholder="Additional term or condition...">
           </div>
-          <div class="form-group full-width">
+          <div class="form-group full-width" style="margin-bottom:10px;">
             <label>Term 5</label>
             <input type="text" id="cf_term_5" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 6</label>
+            <input type="text" id="cf_term_6" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 7</label>
+            <input type="text" id="cf_term_7" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 8</label>
+            <input type="text" id="cf_term_8" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width" style="margin-bottom:10px;">
+            <label>Term 9</label>
+            <input type="text" id="cf_term_9" placeholder="Additional term or condition...">
+          </div>
+          <div class="form-group full-width">
+            <label>Term 10</label>
+            <input type="text" id="cf_term_10" placeholder="Additional term or condition...">
           </div>
         </div>
 
@@ -673,6 +693,14 @@
         </div>
 
       </div><!-- end contract-form-body -->
+
+      <!-- Saved contracts list — populated by renderContracts() -->
+      <div class="contract-saved-section" style="margin-top:24px;">
+        <h3 class="contract-saved-title" style="margin:0 0 12px;font-size:15px;font-weight:700;color:#222;">
+          Saved Contracts
+        </h3>
+        <div id="contractsList"></div>
+      </div>
     </div><!-- end contract-page -->
   </div><!-- end #contractView -->
 
@@ -2976,8 +3004,8 @@
               <input type="text" id="acf_property_type" placeholder="e.g. Warehouse, Office, Apartment">
             </div>
             <div class="form-group">
-              <label>Property Area (m²) — مساحة العقار</label>
-              <input type="number" id="acf_property_area" placeholder="Area in square metres" min="0">
+              <label>Property Area (sq ft) — مساحة العقار (قدم مربع)</label>
+              <input type="number" id="acf_property_area" placeholder="Area in square feet" min="0">
             </div>
           </div>
           <div class="form-row">
@@ -3011,7 +3039,7 @@
           <div class="form-row">
             <div class="form-group">
               <label>Contract Value (AED) — قيمة العقد</label>
-              <input type="number" id="acf_contract_value" placeholder="Total contract value">
+              <input type="text" id="acf_contract_value" placeholder="e.g. 180,000  or  AED 180,000 + 5% VAT">
             </div>
             <div class="form-group">
               <label>Annual Rent (AED) — الإيجار السنوي</label>
@@ -3041,6 +3069,11 @@
           <div class="form-group"><label>3.</label><input type="text" id="acf_add3" placeholder="Additional condition (optional)"></div>
           <div class="form-group"><label>4.</label><input type="text" id="acf_add4" placeholder="Additional condition (optional)"></div>
           <div class="form-group"><label>5.</label><input type="text" id="acf_add5" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>6.</label><input type="text" id="acf_add6" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>7.</label><input type="text" id="acf_add7" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>8.</label><input type="text" id="acf_add8" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>9.</label><input type="text" id="acf_add9" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>10.</label><input type="text" id="acf_add10" placeholder="Additional condition (optional)"></div>
         </div>
 
       </div>
@@ -3434,6 +3467,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260506H"></script>
+  <script src="app.js?v=20260508B"></script>
 </body>
 </html>

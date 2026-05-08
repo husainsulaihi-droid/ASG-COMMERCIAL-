@@ -74,11 +74,74 @@ function initDb() {
     );
   `);
 
+  // Tenancy contracts generated from the Contract Builder (admin) and Agent
+  // Contract Builder. Mirrors the proposals table — flat record with provenance.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      title             TEXT,
+      contract_date     DATE,
+      prop_id           INTEGER,
+      prop_name         TEXT,
+      property_type     TEXT,
+      property_area     REAL,
+      location          TEXT,
+      plot_no           TEXT,
+      makani_no         TEXT,
+      building_name     TEXT,
+      property_no       TEXT,
+      dewa_no           TEXT,
+      prop_usage        TEXT,
+      owner_name        TEXT,
+      lessor_name       TEXT,
+      lessor_eid        TEXT,
+      lessor_license    TEXT,
+      lessor_authority  TEXT,
+      lessor_phone      TEXT,
+      lessor_email      TEXT,
+      tenant_name       TEXT,
+      tenant_eid        TEXT,
+      tenant_license    TEXT,
+      tenant_authority  TEXT,
+      tenant_phone      TEXT,
+      tenant_email      TEXT,
+      co_occupants      TEXT,
+      contract_from     DATE,
+      contract_to       DATE,
+      contract_value    REAL,
+      annual_rent       REAL,
+      security_deposit  REAL,
+      payment_mode      TEXT,
+      term1             TEXT,
+      term2             TEXT,
+      term3             TEXT,
+      term4             TEXT,
+      term5             TEXT,
+      term6             TEXT,
+      term7             TEXT,
+      term8             TEXT,
+      term9             TEXT,
+      term10            TEXT,
+      created_by_id     INTEGER,
+      created_by_name   TEXT,
+      created_by_type   TEXT,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_contracts_created_by ON contracts(created_by_id);
+    CREATE INDEX IF NOT EXISTS idx_contracts_prop       ON contracts(prop_id);
+  `);
+
   // Idempotent column adds. SQLite has no "ADD COLUMN IF NOT EXISTS",
   // so we try and swallow the duplicate-column error.
   for (const [tbl, col, type] of [
     ['properties', 'management_fees', 'REAL'],
     ['properties', 'compound_id',     'INTEGER'],
+    ['contracts',  'term6',           'TEXT'],
+    ['contracts',  'term7',           'TEXT'],
+    ['contracts',  'term8',           'TEXT'],
+    ['contracts',  'term9',           'TEXT'],
+    ['contracts',  'term10',          'TEXT'],
   ]) {
     try { db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${type}`); }
     catch (e) { if (!/duplicate column/i.test(e.message)) console.warn('[db] add-col failed:', e.message); }

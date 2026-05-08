@@ -19,6 +19,7 @@ const ENTITY_MAP = [
   ['/api/announcements',       'announcements'],
   ['/api/leaves',              'leaves'],
   ['/api/proposals',           'proposals'],
+  ['/api/contracts',           'contracts'],
   ['/api/pending-properties',  'pending'],
   ['/api/disputes',            'disputes'],
   ['/api/construction',        'construction'],

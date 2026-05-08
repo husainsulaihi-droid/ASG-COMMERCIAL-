@@ -333,6 +333,7 @@ const _api = {
   announcements:   makeApiList('/api/announcements',           'announcements'),
   leaves:          makeApiList('/api/leaves',                  'leaves'),
   proposals:       makeApiList('/api/proposals',               'proposals'),
+  contracts:       makeApiList('/api/contracts',               'contracts'),
   meetings:        makeApiList('/api/meetings',                'meetings'),
   users:           makeApiList('/api/users',                   'users'),
   calendar:        makeApiList('/api/calendar',                'events'),
@@ -847,7 +848,7 @@ function showTab(tab) {
   if (tab === 'home')         renderHome();
   if (tab === 'reminders')    renderReminders();
   if (tab === 'calendar')     renderCalendar();
-  if (tab === 'contract')     initContractTab();
+  if (tab === 'contract')     { initContractTab(); if (typeof renderContracts === 'function') renderContracts(); }
   if (tab === 'disputes')     renderDisputes();
   if (tab === 'construction') renderProjects();
   if (tab === 'payment')      renderPayments();
@@ -876,7 +877,7 @@ function loadContractFromProperty(propId) {
   if (p.tenantEmail) $('cf_tenant_email').value   = p.tenantEmail;
   if (p.location)    $('cf_location').value       = p.location;
   if (p.type)        $('cf_property_type').value  = p.type === 'warehouse' ? 'Warehouse' : 'Office';
-  if (p.size)        $('cf_property_area').value  = (p.size / 10.764).toFixed(1);
+  if (p.size)        $('cf_property_area').value  = p.size;
   if (p.annualRent)  { $('cf_annual_rent').value  = p.annualRent; $('cf_contract_value').value = p.annualRent; }
   if (p.leaseStart)  $('cf_from').value           = p.leaseStart;
   if (p.leaseEnd)    $('cf_to').value             = p.leaseEnd;
@@ -891,7 +892,8 @@ function clearContractForm() {
    'cf_tenant_auth','cf_tenant_email','cf_tenant_phone','cf_cooccupants','cf_plot_no','cf_makani_no',
    'cf_building_name','cf_property_no','cf_property_type','cf_property_area','cf_location',
    'cf_dewa_no','cf_from','cf_to','cf_contract_value','cf_annual_rent','cf_security_deposit',
-   'cf_payment_mode','cf_term_1','cf_term_2','cf_term_3','cf_term_4','cf_term_5'
+   'cf_payment_mode','cf_term_1','cf_term_2','cf_term_3','cf_term_4','cf_term_5',
+   'cf_term_6','cf_term_7','cf_term_8','cf_term_9','cf_term_10'
   ].forEach(id => { if ($(id)) $(id).value = ''; });
   const usageInput = document.querySelector('input[name="cf_usage"][value="Commercial"]');
   if (usageInput) usageInput.checked = true;
@@ -937,6 +939,11 @@ function getContractData() {
     term3:           $('cf_term_3').value.trim(),
     term4:           $('cf_term_4').value.trim(),
     term5:           $('cf_term_5').value.trim(),
+    term6:           ($('cf_term_6')?.value || '').trim(),
+    term7:           ($('cf_term_7')?.value || '').trim(),
+    term8:           ($('cf_term_8')?.value || '').trim(),
+    term9:           ($('cf_term_9')?.value || '').trim(),
+    term10:          ($('cf_term_10')?.value || '').trim(),
   };
 }
 
@@ -949,6 +956,25 @@ function fmtContractDate(d) {
 
 function previewContract() {
   const d = getContractData();
+  // Persist a saved record so it shows up under "Saved Contracts"
+  const editId = $('contractEditId')?.value || '';
+  const propId = $('contractLoadProp')?.value || null;
+  const propName = (() => {
+    if (!propId) return d.buildingName || '';
+    const p = loadProps().find(x => x.id === propId);
+    return p?.name || d.buildingName || '';
+  })();
+  saveContractRecord({
+    id:        editId || ('ctr_' + uid()),
+    title:     'Tenancy Contract' + (d.tenantName ? ' — ' + d.tenantName : ''),
+    propId:    propId || null,
+    propName,
+    ...d,
+  });
+  if ($('contractEditId')) $('contractEditId').value = '';
+  if (typeof renderContracts === 'function') renderContracts();
+  showToast('Contract saved', 'success');
+
   const html = generateContractHTML(d);
   const win = window.open('', '_blank');
   if (!win) { showToast('Please allow pop-ups to download PDF', 'error'); return; }
@@ -990,7 +1016,8 @@ function generateContractHTML(d) {
     annualRent:      d.annualRent,
     deposit:         d.securityDeposit,
     paymentMode:     d.paymentMode,
-    add1: d.term1, add2: d.term2, add3: d.term3, add4: d.term4, add5: d.term5
+    add1: d.term1, add2: d.term2, add3: d.term3, add4: d.term4, add5: d.term5,
+    add6: d.term6, add7: d.term7, add8: d.term8, add9: d.term9, add10: d.term10
   };
   return buildAgentContractHTML(nd);
 }
@@ -6019,7 +6046,8 @@ function openAgentContractBuilder() {
         'acf_plot_no','acf_makani_no','acf_building_name','acf_property_no','acf_dewa_no',
         'acf_property_type','acf_property_area','acf_location',
         'acf_from','acf_to','acf_contract_value','acf_annual_rent','acf_deposit','acf_payment_mode',
-        'acf_add1','acf_add2','acf_add3','acf_add4','acf_add5');
+        'acf_add1','acf_add2','acf_add3','acf_add4','acf_add5',
+        'acf_add6','acf_add7','acf_add8','acf_add9','acf_add10');
   // Default usage: Commercial
   const commercial = $('acf_usage_commercial');
   if (commercial) commercial.checked = true;
@@ -6035,7 +6063,7 @@ function autofillAgentContract() {
   set('acf_location',      p.location);
   set('acf_building_name', p.name);
   set('acf_property_type', p.type ? p.type.charAt(0).toUpperCase()+p.type.slice(1) : '');
-  set('acf_property_area', p.size ? (p.size / 10.764).toFixed(1) : '');
+  set('acf_property_area', p.size || '');
   set('acf_annual_rent',   p.annualRent);
   set('acf_contract_value',p.annualRent);
   set('acf_deposit',       p.deposit);
@@ -6063,6 +6091,62 @@ function downloadAgentContract() {
   const v  = id => { const el=$(id); return el ? (el.value||'').trim() : ''; };
   const vn = id => Number(v(id)) || 0;
   const usageEl = document.querySelector('input[name="acf_usage"]:checked');
+
+  const propId = $('acf_prop')?.value || null;
+  const propName = (() => {
+    if (!propId) return v('building_name');
+    const p = loadProps().find(x => x.id === propId);
+    return p?.name || v('building_name');
+  })();
+  saveContractRecord({
+    id:           ($('acfEditId')?.value) || ('ctr_' + uid()),
+    title:        'Tenancy Contract' + (tenantName ? ' — ' + tenantName : ''),
+    propId:       propId || null,
+    propName,
+    date:         v('acf_date'),
+    ownerName:    v('acf_owner_name'),
+    lessorName:   v('acf_lessor_name'),
+    lessorEid:    v('acf_lessor_eid'),
+    lessorPhone:  v('acf_lessor_phone'),
+    lessorEmail:  v('acf_lessor_email'),
+    lessorLicense:v('acf_lessor_license'),
+    lessorAuth:   v('acf_lessor_authority'),
+    tenantName:   v('acf_tenant_name'),
+    tenantEid:    v('acf_tenant_eid'),
+    tenantPhone:  v('acf_tenant_phone'),
+    tenantEmail:  v('acf_tenant_email'),
+    tenantLicense:v('acf_tenant_license'),
+    tenantAuth:   v('acf_tenant_authority'),
+    propUsage:    usageEl ? usageEl.value : 'Commercial',
+    plotNo:       v('acf_plot_no'),
+    makaniNo:     v('acf_makani_no'),
+    buildingName: v('acf_building_name'),
+    propertyNo:   v('acf_property_no'),
+    propertyType: v('acf_property_type'),
+    propertyArea: v('acf_property_area'),
+    location:     v('acf_location'),
+    dewaNo:       v('acf_dewa_no'),
+    contractFrom: v('acf_from'),
+    contractTo:   v('acf_to'),
+    contractValue:v('acf_contract_value'),
+    annualRent:   vn('acf_annual_rent'),
+    securityDeposit: vn('acf_deposit'),
+    paymentMode:  v('acf_payment_mode'),
+    term1:        v('acf_add1'),
+    term2:        v('acf_add2'),
+    term3:        v('acf_add3'),
+    term4:        v('acf_add4'),
+    term5:        v('acf_add5'),
+    term6:        v('acf_add6'),
+    term7:        v('acf_add7'),
+    term8:        v('acf_add8'),
+    term9:        v('acf_add9'),
+    term10:       v('acf_add10'),
+  });
+  if ($('acfEditId')) $('acfEditId').value = '';
+  if (typeof renderContracts === 'function') renderContracts();
+  showToast('Contract saved', 'success');
+
   const html = buildAgentContractHTML({
     date:            v('date'),
     ownerName:       v('owner_name'),
@@ -6089,11 +6173,12 @@ function downloadAgentContract() {
     dewaNo:          v('dewa_no'),
     from:            v('from'),
     to:              v('to'),
-    contractValue:   vn('contract_value'),
+    contractValue:   v('contract_value'),
     annualRent:      vn('annual_rent'),
     deposit:         vn('deposit'),
     paymentMode:     v('payment_mode'),
-    add1: v('add1'), add2: v('add2'), add3: v('add3'), add4: v('add4'), add5: v('add5')
+    add1: v('add1'), add2: v('add2'), add3: v('add3'), add4: v('add4'), add5: v('add5'),
+    add6: v('add6'), add7: v('add7'), add8: v('add8'), add9: v('add9'), add10: v('add10')
   });
   const w = window.open('', '_blank');
   if (!w) { showToast('Pop-up blocked — allow pop-ups and try again', 'error'); return; }
@@ -6123,6 +6208,16 @@ function buildAgentContractHTML(d) {
     catch(e){ return s; }
   };
   const fmtAED = n => n ? 'AED ' + Number(n).toLocaleString() : '';
+  // Currency-or-text: format pure numbers with AED + commas; otherwise render
+  // user input as-is so they can write things like "AED 180,000 + 5% VAT".
+  const fmtAEDText = val => {
+    if (val === null || val === undefined) return '';
+    const s = String(val).trim();
+    if (!s) return '';
+    const cleaned = s.replace(/,/g, '');
+    if (/^\d+(\.\d+)?$/.test(cleaned)) return 'AED ' + Number(cleaned).toLocaleString();
+    return s;
+  };
 
   // ── field renderers ───────────────────────────────
   // Single full-width field row: EN label | value on line | AR label
@@ -6193,7 +6288,7 @@ function buildAgentContractHTML(d) {
     </tr>`).join('');
 
   // ── Signature block (official: 2 parties only) ────
-  const addTermsList = [d.add1,d.add2,d.add3,d.add4,d.add5];
+  const addTermsList = [d.add1,d.add2,d.add3,d.add4,d.add5,d.add6,d.add7,d.add8,d.add9,d.add10];
   const sigBlock = `
   <div class="sig-wrap">
     <div class="sh"><span class="sh-en">Signatures</span><span class="sh-ar">التوقيعات</span></div>
@@ -6286,7 +6381,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 /* ── Field table ── */
 .sec{border:1px solid #c5c5c5;margin-bottom:5px;}
 .ft{width:100%;border-collapse:collapse;}
-.f-row td{border-bottom:1px solid #e8e8e8;vertical-align:bottom;padding:5px 7px 3px;}
+.f-row td{border-bottom:1px solid #e8e8e8;vertical-align:bottom;padding:8px 7px 5px;line-height:1.55;}
 .f-row:last-child td{border-bottom:none;}
 .f-en{font-size:7.5pt;font-weight:700;color:#1c2b4a;white-space:nowrap;width:1%;padding-right:4px;}
 .f-sub{font-size:6pt;color:#999;font-weight:400;font-style:italic;}
@@ -6308,7 +6403,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 .cls-hdr span:last-child{font-weight:400;font-size:7.5pt;}
 .cls-tbl{width:100%;border-collapse:collapse;font-size:8pt;}
 .cls-tbl tr{page-break-inside:avoid;break-inside:avoid;}
-.cls-tbl td{vertical-align:top;padding:3px 5px;border:1px solid #ddd;line-height:1.4;}
+.cls-tbl td{vertical-align:top;padding:7px 6px;border:1px solid #ddd;line-height:1.75;}
 .cl-n{width:18px;font-weight:700;color:#1c2b4a;text-align:center;white-space:nowrap;background:#f0f3f8 !important;}
 .cl-e{width:52%;}
 .cl-a{direction:rtl;text-align:right;color:#333;}
@@ -6329,7 +6424,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 /* ── Additional Terms ── */
 .add-hdr{display:flex;justify-content:space-between;font-size:9pt;font-weight:700;margin-top:6px;margin-bottom:3px;}
 .add-hdr span:last-child{direction:rtl;color:#555;font-weight:400;}
-.add-item{display:flex;gap:6px;font-size:9pt;margin-bottom:4px;}
+.add-item{display:flex;gap:6px;font-size:9pt;margin-bottom:8px;line-height:1.6;}
 .add-n{font-weight:700;min-width:14px;}
 .add-line{flex:1;border-bottom:1px solid #aaa;min-height:14px;font-size:9pt;padding-bottom:1px;}
 .add-note{font-size:7.5pt;color:#666;margin-top:4px;display:flex;justify-content:space-between;}
@@ -6411,7 +6506,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
     <table class="ft">
       ${f2('Plot No.','رقم الأرض',d.plotNo,'','Makani No.','رقم مكاني',d.makaniNo,'')}
       ${f2('Building Name','اسم المبنى',d.buildingName,'','Property No.','رقم العقار',d.propertyNo,'')}
-      ${f2('Property Type','نوع الوحدة',d.propType,'','Property Area (s.m)','مساحة العقار (متر.مربع)',d.area?d.area+' m²':'','')}
+      ${f2('Property Type','نوع الوحدة',d.propType,'','Property Area (sq ft)','مساحة العقار (قدم مربع)',d.area?(Number(d.area)?Number(d.area).toLocaleString():d.area)+' sq ft':'','')}
       ${f2('Location','الموقع',d.location,'','Premises No. (DEWA)','رقم المبنى (ديوا)',d.dewaNo,'')}
     </table>
   </div>
@@ -6432,7 +6527,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
         </td>
         <td class="f-ar">فترة العقد</td>
       </tr>
-      ${f2('Annual Rent','الايجار السنوي',fmtAED(d.annualRent),'','Contract Value','قيمة العقد',fmtAED(d.contractValue||d.annualRent),'')}
+      ${f2('Annual Rent','الايجار السنوي',fmtAED(d.annualRent),'','Contract Value','قيمة العقد',fmtAEDText(d.contractValue||d.annualRent),'')}
       ${f2('Security Deposit Amount','مبلغ التأمين',fmtAED(d.deposit),'','Mode of Payment','طريقة الدفع',d.paymentMode,'')}
     </table>
   </div>
@@ -6508,7 +6603,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
   <div class="add-item">
     <span class="add-n">${i+1}.</span>
     <div class="add-line">${v(t)}</div>
-    <span style="font-size:7pt;color:#888;padding-left:8px;direction:rtl;">.${['١','٢','٣','٤','٥'][i]}</span>
+    <span style="font-size:7pt;color:#888;padding-left:8px;direction:rtl;">.${['١','٢','٣','٤','٥','٦','٧','٨','٩','١٠'][i]}</span>
   </div>`).join('')}
 
   <div class="add-note">
@@ -9003,6 +9098,7 @@ const _ENTITY_TABS = {
   propertyFiles: new Set(['warehouses','offices','residential','land']),
   appointments:  new Set(['calendar']),
   proposals:     new Set(['proposals']),
+  contracts:     new Set(['contract']),
   projects:      new Set(['construction']),
   disputes:      new Set(['disputes']),
   users:         new Set(['logins']),
@@ -9050,9 +9146,10 @@ function _rerenderActiveTabFast() {
     case 'construction': return typeof renderProjects  === 'function' && renderProjects();
     case 'payment':      return typeof renderPayments  === 'function' && renderPayments();
     case 'proposals':    return typeof renderProposals === 'function' && renderProposals();
+    case 'contract':     return typeof renderContracts === 'function' && renderContracts();
     case 'financials':   return typeof renderFinancials=== 'function' && renderFinancials();
     case 'logins':       return typeof renderLogins    === 'function' && renderLogins();
-    // contract / map: no live data — skip
+    // map: no live data — skip
   }
 }
 
@@ -9786,7 +9883,206 @@ if (_origShowAgentTab2) {
       }
       renderProposals();
     }
+    if (tab === 'contracts') {
+      const view = document.getElementById('agentTabContracts');
+      if (view && !document.getElementById('contractsList')) {
+        const list = document.createElement('div');
+        list.id = 'contractsList';
+        list.style.marginTop = '16px';
+        view.appendChild(list);
+      }
+      if (typeof renderContracts === 'function') renderContracts();
+    }
   };
+}
+
+// ═══════════════════════════════════════════════════════
+//  CONTRACTS — saved list, reprint, edit, delete
+// ═══════════════════════════════════════════════════════
+
+function loadContracts()    { return _api.contracts.load(); }
+function saveContractsArr(a) { _api.contracts.save(a); }
+
+function saveContractRecord(data) {
+  const items = loadContracts();
+  const sess  = getSession();
+  const author = sess?.type === 'agent'
+    ? { id: sess.agentId, name: sess.name, type: 'agent' }
+    : { id: '', name: 'Admin', type: 'admin' };
+  const idx = items.findIndex(p => p.id === data.id);
+  const record = {
+    ...data,
+    createdAt: idx > -1 ? items[idx].createdAt : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: idx > -1 ? items[idx].createdBy : author
+  };
+  if (idx > -1) items[idx] = record; else items.unshift(record);
+  saveContractsArr(items);
+}
+
+function renderContracts() {
+  const wrap = document.getElementById('contractsList');
+  if (!wrap) return;
+  const sess = getSession();
+  let items = loadContracts();
+  if (sess?.type === 'agent') items = items.filter(p => p.createdBy?.id === sess.agentId);
+  items = items.sort((a,b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+
+  if (!items.length) {
+    wrap.innerHTML = `
+      <div class="team-empty">
+        <div class="empty-icon">📝</div>
+        <p>No contracts yet. Fill the form above and click <strong>Download PDF</strong> — your contract will be saved here.</p>
+      </div>`;
+    return;
+  }
+
+  const fmtDate2 = iso => iso ? new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  wrap.innerHTML = `
+    <div class="proposals-table">
+      <div class="prop-row prop-head">
+        <span>Tenant</span>
+        <span>Property</span>
+        <span>Period</span>
+        <span>Value (AED)</span>
+        <span>Created</span>
+        <span>Actions</span>
+      </div>
+      ${items.map(c => {
+        const period = (c.contractFrom || c.contractTo)
+          ? `${fmtDate2(c.contractFrom)} → ${fmtDate2(c.contractTo)}`
+          : '—';
+        const total = Number(c.contractValue) || Number(c.annualRent) || 0;
+        return `
+          <div class="prop-row">
+            <span class="prop-title">${h(c.tenantName || 'Untitled')}</span>
+            <span>${h(c.propName || c.buildingName || '—')}${c.location ? `<span class="prop-sub">${h(c.location)}</span>` : ''}</span>
+            <span>${period}</span>
+            <span class="prop-total">${total ? 'AED ' + num(total) : '—'}</span>
+            <span>${fmtDate2(c.createdAt)}<span class="prop-sub">${h(c.createdBy?.name || 'Admin')}</span></span>
+            <span class="prop-actions">
+              <button class="btn-sm btn-primary" onclick="reprintContract('${c.id}')">🖨️ Print PDF</button>
+              <button class="btn-sm btn-ghost"   onclick="editContract('${c.id}')">✏️ Edit</button>
+              <button class="btn-sm btn-danger"  onclick="deleteContractRec('${c.id}')">🗑️</button>
+            </span>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function reprintContract(id) {
+  const c = loadContracts().find(x => String(x.id) === String(id));
+  if (!c) return;
+  const html = generateContractHTML(c);
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Pop-up blocked — allow pop-ups and try again', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.addEventListener('load', () => {
+    const imgs = w.document.images;
+    let loaded = 0;
+    const total = imgs.length;
+    if (total === 0) { setTimeout(() => w.print(), 300); return; }
+    const tryPrint = () => { if (++loaded >= total) setTimeout(() => w.print(), 200); };
+    Array.from(imgs).forEach(img => {
+      if (img.complete) tryPrint();
+      else { img.onload = tryPrint; img.onerror = tryPrint; }
+    });
+  });
+}
+
+function editContract(id) {
+  const c = loadContracts().find(x => String(x.id) === String(id));
+  if (!c) return;
+  const sess = getSession();
+  // Agent → open agent builder; admin → open admin form
+  if (sess?.type === 'agent') {
+    if (typeof openAgentContractBuilder === 'function') openAgentContractBuilder();
+    setTimeout(() => _hydrateAgentContractForm(c), 80);
+  } else {
+    showTab('contract');
+    setTimeout(() => _hydrateContractForm(c), 80);
+  }
+}
+
+function deleteContractRec(id) {
+  if (!confirm('Delete this contract? This cannot be undone.')) return;
+  saveContractsArr(loadContracts().filter(c => String(c.id) !== String(id)));
+  renderContracts();
+  showToast('Contract deleted', 'success');
+}
+
+function _hydrateContractForm(c) {
+  // Stash id so the next save updates instead of inserting
+  let edit = document.getElementById('contractEditId');
+  if (!edit) {
+    edit = document.createElement('input');
+    edit.type = 'hidden';
+    edit.id = 'contractEditId';
+    document.getElementById('contractView')?.appendChild(edit);
+  }
+  edit.value = c.id;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  set('cf_date', c.date);
+  set('cf_owner_name', c.ownerName);
+  set('cf_lessor_name', c.lessorName);     set('cf_lessor_eid', c.lessorEid);
+  set('cf_lessor_license', c.lessorLicense); set('cf_lessor_auth', c.lessorAuth);
+  set('cf_lessor_phone', c.lessorPhone);   set('cf_lessor_email', c.lessorEmail);
+  set('cf_tenant_name', c.tenantName);     set('cf_tenant_eid', c.tenantEid);
+  set('cf_tenant_license', c.tenantLicense); set('cf_tenant_auth', c.tenantAuth);
+  set('cf_tenant_email', c.tenantEmail);   set('cf_tenant_phone', c.tenantPhone);
+  set('cf_cooccupants', c.coOccupants);
+  set('cf_plot_no', c.plotNo);             set('cf_makani_no', c.makaniNo);
+  set('cf_building_name', c.buildingName); set('cf_property_no', c.propertyNo);
+  set('cf_property_type', c.propertyType); set('cf_property_area', c.propertyArea);
+  set('cf_location', c.location);          set('cf_dewa_no', c.dewaNo);
+  set('cf_from', c.contractFrom);          set('cf_to', c.contractTo);
+  set('cf_contract_value', c.contractValue); set('cf_annual_rent', c.annualRent);
+  set('cf_security_deposit', c.securityDeposit); set('cf_payment_mode', c.paymentMode);
+  set('cf_term_1', c.term1); set('cf_term_2', c.term2); set('cf_term_3', c.term3);
+  set('cf_term_4', c.term4); set('cf_term_5', c.term5);
+  set('cf_term_6', c.term6); set('cf_term_7', c.term7); set('cf_term_8', c.term8);
+  set('cf_term_9', c.term9); set('cf_term_10', c.term10);
+  const usage = c.propUsage || 'Commercial';
+  const r = document.querySelector(`input[name="cf_usage"][value="${usage}"]`);
+  if (r) r.checked = true;
+}
+
+function _hydrateAgentContractForm(c) {
+  let edit = document.getElementById('acfEditId');
+  if (!edit) {
+    edit = document.createElement('input');
+    edit.type = 'hidden';
+    edit.id = 'acfEditId';
+    document.getElementById('agentContractOverlay')?.appendChild(edit);
+  }
+  edit.value = c.id;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  set('acf_date', c.date);
+  set('acf_owner_name', c.ownerName);
+  set('acf_lessor_name', c.lessorName);   set('acf_lessor_eid', c.lessorEid);
+  set('acf_lessor_phone', c.lessorPhone); set('acf_lessor_email', c.lessorEmail);
+  set('acf_lessor_license', c.lessorLicense); set('acf_lessor_authority', c.lessorAuth);
+  set('acf_tenant_name', c.tenantName);   set('acf_tenant_eid', c.tenantEid);
+  set('acf_tenant_phone', c.tenantPhone); set('acf_tenant_email', c.tenantEmail);
+  set('acf_tenant_license', c.tenantLicense); set('acf_tenant_authority', c.tenantAuth);
+  set('acf_plot_no', c.plotNo);           set('acf_makani_no', c.makaniNo);
+  set('acf_building_name', c.buildingName); set('acf_property_no', c.propertyNo);
+  set('acf_dewa_no', c.dewaNo);
+  set('acf_property_type', c.propertyType); set('acf_property_area', c.propertyArea);
+  set('acf_location', c.location);
+  set('acf_from', c.contractFrom); set('acf_to', c.contractTo);
+  set('acf_contract_value', c.contractValue); set('acf_annual_rent', c.annualRent);
+  set('acf_deposit', c.securityDeposit); set('acf_payment_mode', c.paymentMode);
+  set('acf_add1', c.term1); set('acf_add2', c.term2); set('acf_add3', c.term3);
+  set('acf_add4', c.term4); set('acf_add5', c.term5);
+  set('acf_add6', c.term6); set('acf_add7', c.term7); set('acf_add8', c.term8);
+  set('acf_add9', c.term9); set('acf_add10', c.term10);
+  const usage = (c.propUsage || 'Commercial').toLowerCase();
+  const r = document.getElementById('acf_usage_' + (usage.includes('resid') ? 'residential' : usage.includes('indus') ? 'industrial' : 'commercial'));
+  if (r) r.checked = true;
 }
 
 // ═══════════════════════════════════════════════════════
