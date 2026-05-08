@@ -6405,7 +6405,7 @@ body{font-family:Arial,sans-serif;font-size:9.5pt;color:#111;background:#fff;}
 .cls-hdr span:last-child{font-weight:400;font-size:7.5pt;}
 .cls-tbl{width:100%;border-collapse:collapse;font-size:8pt;}
 .cls-tbl tr{page-break-inside:avoid;break-inside:avoid;}
-.cls-tbl td{vertical-align:top;padding:7px 6px;border:1px solid #ddd;line-height:1.75;}
+.cls-tbl td{vertical-align:top;padding:4px 5px;border:1px solid #ddd;line-height:1.5;}
 .cl-n{width:18px;font-weight:700;color:#1c2b4a;text-align:center;white-space:nowrap;background:#f0f3f8 !important;}
 .cl-e{width:52%;}
 .cl-a{direction:rtl;text-align:right;color:#333;}
