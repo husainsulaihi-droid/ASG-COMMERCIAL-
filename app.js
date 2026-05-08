@@ -10101,10 +10101,13 @@ function _hydrateAgentContractForm(c) {
 // Two slots only, each with its own contenteditable area and Print button.
 // Nothing persists; closing the tab discards the document.
 
+// Vendored locally under /lib/ so we don't depend on a CDN. Cross-origin
+// fetches were getting silently rewritten to /index.html by the old service
+// worker; serving from our own origin sidesteps that whole class of bugs.
 const _DOC_CDN = {
-  mammoth: 'https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js',
-  pdfjs:   'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
-  pdfjsWorker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
+  mammoth:     '/lib/mammoth.browser.min.js',
+  pdfjs:       '/lib/pdf.min.js',
+  pdfjsWorker: '/lib/pdf.worker.min.js',
 };
 let _docMammothPromise = null;
 let _docPdfjsPromise   = null;
@@ -10180,6 +10183,7 @@ function initDocumentsTab(containerId) {
       .doc-file-name { font-size:12px; color:#6b7280; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .doc-status-row { display:flex; min-height:14px; }
       .doc-status { font-size:11px; color:#6b7280; }
+      .doc-error { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; padding:8px 10px; border-radius:6px; font-size:12px; line-height:1.5; word-break:break-word; }
       .doc-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding:6px; background:#f7f9fc; border:1px solid #e3e7ee; border-radius:6px; }
       .doc-tb-btn { background:#fff; border:1px solid #d4dae3; border-radius:4px; padding:4px 9px; font-size:12px; cursor:pointer; min-width:30px; }
       .doc-tb-btn:hover { background:#eef2f7; }
@@ -10308,6 +10312,7 @@ function _docSlotHTML(slot) {
       <div class="doc-status-row">
         <span class="doc-status" id="docStatus_${slot}"></span>
       </div>
+      <div class="doc-error" id="docError_${slot}" style="display:none;"></div>
       <div class="doc-actions">
         <label class="doc-upload-label">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -10378,29 +10383,51 @@ function _wireDocSlot(slot) {
     nameInp.addEventListener('input', () => _docScheduleSave(slot));
   }
 
+  const errorBox = document.getElementById('docError_'+slot);
+  const showError = msg => {
+    if (!errorBox) return;
+    errorBox.textContent = msg;
+    errorBox.style.display = '';
+  };
+  const clearError = () => {
+    if (!errorBox) return;
+    errorBox.textContent = '';
+    errorBox.style.display = 'none';
+  };
+
   file.addEventListener('change', async () => {
+    clearError();
     const f = file.files && file.files[0];
     if (!f) return;
     const name = f.name;
     const lower = name.toLowerCase();
+    const sizeKb = Math.round(f.size / 1024);
+    console.log(`[docs slot ${slot}] file selected: ${name} (${sizeKb} KB, type="${f.type}")`);
     busy.style.display = '';
     fileLbl.textContent = name;
     fileLbl.dataset.filename = name;
     try {
       if (lower.endsWith('.docx')) {
+        console.log(`[docs slot ${slot}] reading .docx as ArrayBuffer`);
         const buf = await f.arrayBuffer();
+        console.log(`[docs slot ${slot}] loading mammoth.js`);
         const mammoth = await _loadMammoth();
+        console.log(`[docs slot ${slot}] converting docx → html`);
         const result = await mammoth.convertToHtml({ arrayBuffer: buf });
         editor.innerHTML = result.value || '<p>(empty document)</p>';
+        console.log(`[docs slot ${slot}] .docx ok`);
       } else if (lower.endsWith('.pdf')) {
+        console.log(`[docs slot ${slot}] reading .pdf as ArrayBuffer`);
         const buf = await f.arrayBuffer();
+        console.log(`[docs slot ${slot}] loading pdf.js (${_DOC_CDN.pdfjs})`);
         let pdfjsLib;
         try {
           pdfjsLib = await _loadPdfjs();
         } catch (err) {
           console.error('[docs] pdf.js library failed to load', err);
-          throw new Error('Could not load the PDF reader (pdf.js). Check your network/firewall — the page tries to fetch it from cdn.jsdelivr.net.');
+          throw new Error('Could not load the PDF reader. Tried: ' + _DOC_CDN.pdfjs + '. ' + (err && err.message || err));
         }
+        console.log(`[docs slot ${slot}] pdf.js loaded, version=${pdfjsLib.version}, opening document`);
         let pdf;
         try {
           pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -10411,6 +10438,7 @@ function _wireDocSlot(slot) {
           }
           throw new Error('Could not parse this PDF: ' + (err && err.message || err));
         }
+        console.log(`[docs slot ${slot}] pdf opened, ${pdf.numPages} pages, extracting text`);
         const parts = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
@@ -10435,14 +10463,15 @@ function _wireDocSlot(slot) {
           parts.push(pageHtml + (i < pdf.numPages ? '<p style="page-break-after:always;"></p>' : ''));
         }
         editor.innerHTML = parts.join('');
+        console.log(`[docs slot ${slot}] .pdf ok, ${parts.length} pages rendered`);
         showToast('PDF text extracted — original formatting is lost', 'info');
       } else if (lower.endsWith('.doc')) {
-        showToast('Old .doc format isn\'t supported. Save it as .docx and try again.', 'error');
+        showError('Old .doc format isn\'t supported. Save it as .docx and try again.');
         fileLbl.textContent = 'No file loaded';
         delete fileLbl.dataset.filename;
         return;
       } else {
-        showToast('Unsupported file type. Upload .docx or .pdf.', 'error');
+        showError('Unsupported file type "' + (f.type || lower) + '". Upload .docx or .pdf.');
         fileLbl.textContent = 'No file loaded';
         delete fileLbl.dataset.filename;
         return;
@@ -10450,8 +10479,9 @@ function _wireDocSlot(slot) {
       updateEmpty();
       _docSaveSlot(slot);   // Save immediately after a successful upload
     } catch (err) {
-      console.error('[docs] upload failed for', name, err);
-      showToast(err.message || ('Failed to read file: ' + err), 'error');
+      console.error(`[docs slot ${slot}] upload failed for`, name, err);
+      showError((err && err.message) ? err.message : 'Failed to read file: ' + err);
+      showToast('Upload failed — see the red box in the slot for details', 'error');
       fileLbl.textContent = 'No file loaded';
       delete fileLbl.dataset.filename;
     } finally {

@@ -23,7 +23,11 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+          // Force a check for an updated SW on every page load so users
+          // pick up SW changes without having to wipe the install.
+          if (reg && typeof reg.update === 'function') reg.update();
+        }).catch(() => {});
       });
     }
   </script>
@@ -3502,6 +3506,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260508F"></script>
+  <script src="app.js?v=20260508G"></script>
 </body>
 </html>
