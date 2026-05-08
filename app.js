@@ -10164,8 +10164,8 @@ function initDocumentsTab(containerId) {
 
   cont.innerHTML = `
     <div class="doc-tab-info" style="background:#f5f7fa;border:1px solid #dfe5ee;border-radius:10px;padding:12px 14px;font-size:13px;color:#4a5568;margin-bottom:18px;line-height:1.5;">
-      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF, edit the text, then print. Both slots are <strong>shared with everyone</strong> on the team — your edits are saved automatically and the next person to open this tab sees them.
-      <div style="margin-top:6px;font-size:12px;color:#888;">PDFs are converted to plain text on upload — original formatting (tables, columns, fonts) is lost. .docx files keep most of their formatting.</div>
+      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF — the original file is stored permanently. Use <strong>Open original</strong> to print the pristine document, or edit the text version below and use <strong>Print edited</strong> to print your modified copy. Both slots are shared with everyone on the team.
+      <div style="margin-top:6px;font-size:12px;color:#888;">The text version of a PDF loses formatting (tables, columns, fonts). The original PDF is always available via "Open original" for perfect print fidelity. .docx keeps most formatting in the editable copy too.</div>
     </div>
     <div class="doc-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
       ${_docSlotHTML(1)}
@@ -10238,25 +10238,46 @@ function _docPopulate(slot, doc) {
   const fileLbl  = document.getElementById('docFileName_'+slot);
   const nameInp  = document.getElementById('docName_'+slot);
   const status   = document.getElementById('docStatus_'+slot);
+  const openBtn  = document.getElementById('docOpenOriginal_'+slot);
   if (!editor) return;
   if (doc) {
     editor.innerHTML = doc.html || '';
     if (nameInp) nameInp.value = doc.name || '';
-    if (fileLbl) fileLbl.textContent = doc.filename || (doc.html ? 'Saved' : 'No file loaded');
+    if (fileLbl) {
+      fileLbl.textContent = doc.filename || (doc.html ? 'Saved' : 'No file loaded');
+      if (doc.filename) fileLbl.dataset.filename = doc.filename;
+    }
     if (status) {
       const who = doc.updatedByName ? ' by ' + doc.updatedByName : '';
       status.textContent = doc.updatedAt ? 'Last edited' + who + ' · ' + _docFmtTime(doc.updatedAt) : '';
     }
+    if (openBtn) openBtn.style.display = doc.hasFile ? '' : 'none';
   } else {
     editor.innerHTML = '';
     if (nameInp) nameInp.value = '';
     if (fileLbl) fileLbl.textContent = 'No file loaded';
     if (status)  status.textContent  = '';
+    if (openBtn) openBtn.style.display = 'none';
   }
   editor.dataset.empty = editor.textContent.trim() ? '0' : '1';
 }
 
-async function _docSaveSlot(slot) {
+// Read a File as a base64 string (without the data: prefix). Used to ship
+// the original binary up to the server alongside the parsed HTML.
+function _docFileToBase64(f) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => {
+      const s = String(reader.result || '');
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
+    reader.readAsDataURL(f);
+  });
+}
+
+async function _docSaveSlot(slot, extra) {
   const st = _docState[slot];
   if (!st || !st.loaded) return;          // Don't save before initial load completes
   const editor  = document.getElementById('docEditor_'+slot);
@@ -10270,6 +10291,13 @@ async function _docSaveSlot(slot) {
     filename: fileLbl && fileLbl.dataset.filename ? fileLbl.dataset.filename : '',
     html:     editor.innerHTML,
   };
+  // Only attach fileData when explicitly passed (i.e., right after an
+  // upload). Routine HTML edits omit it, so the server keeps the
+  // existing binary untouched.
+  if (extra && typeof extra === 'object') {
+    if ('fileData' in extra) payload.fileData = extra.fileData;
+    if ('mime' in extra)     payload.mime     = extra.mime;
+  }
   if (status) status.textContent = 'Saving…';
   st.savingPromise = (async () => {
     try {
@@ -10319,9 +10347,13 @@ function _docSlotHTML(slot) {
           Upload .docx / .pdf
           <input type="file" id="docFile_${slot}" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
         </label>
+        <button class="btn-ghost" id="docOpenOriginal_${slot}" type="button" style="display:none;" title="Open the original uploaded file (perfect formatting)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open original
+        </button>
         <button class="btn-primary" id="docPrint_${slot}" type="button">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-          Print
+          Print edited
         </button>
         <button class="btn-ghost" id="docClear_${slot}" type="button">Clear</button>
         <span class="doc-busy" id="docBusy_${slot}" style="display:none;">Loading…</span>
@@ -10464,7 +10496,7 @@ function _wireDocSlot(slot) {
         }
         editor.innerHTML = parts.join('');
         console.log(`[docs slot ${slot}] .pdf ok, ${parts.length} pages rendered`);
-        showToast('PDF text extracted — original formatting is lost', 'info');
+        showToast('PDF saved. Use "Open original" to print the pristine PDF, or edit the text below to print a modified version.', 'info');
       } else if (lower.endsWith('.doc')) {
         showError('Old .doc format isn\'t supported. Save it as .docx and try again.');
         fileLbl.textContent = 'No file loaded';
@@ -10477,7 +10509,20 @@ function _wireDocSlot(slot) {
         return;
       }
       updateEmpty();
-      _docSaveSlot(slot);   // Save immediately after a successful upload
+      // Save the parsed HTML AND the original binary so future visitors
+      // can re-print the pristine PDF/docx. base64 encoding is async so
+      // it doesn't block the UI on large files.
+      console.log(`[docs slot ${slot}] encoding original file as base64 for storage`);
+      let b64 = null;
+      try {
+        b64 = await _docFileToBase64(f);
+      } catch (e) {
+        console.warn('[docs] base64 encoding failed; storing HTML only', e);
+      }
+      _docSaveSlot(slot, { fileData: b64, mime: f.type || null });
+      // Show the "Open original" button now that we have a file
+      const openBtn = document.getElementById('docOpenOriginal_'+slot);
+      if (openBtn) openBtn.style.display = '';
     } catch (err) {
       console.error(`[docs slot ${slot}] upload failed for`, name, err);
       showError((err && err.message) ? err.message : 'Failed to read file: ' + err);
@@ -10530,11 +10575,13 @@ function _wireDocSlot(slot) {
   });
 
   clearBt.addEventListener('click', async () => {
-    if (editor.textContent.trim() && !confirm('Clear this document? It will also be removed from the server.')) return;
+    if (editor.textContent.trim() && !confirm('Clear this document? Both the editable copy and the original file will be removed from the server.')) return;
     editor.innerHTML = '';
     fileLbl.textContent = 'No file loaded';
     delete fileLbl.dataset.filename;
     if (nameInp) nameInp.value = '';
+    const openBtn = document.getElementById('docOpenOriginal_'+slot);
+    if (openBtn) openBtn.style.display = 'none';
     updateEmpty();
     try {
       await fetch(`/api/documents/${slot}`, { method: 'DELETE', credentials: 'same-origin' });
@@ -10542,6 +10589,18 @@ function _wireDocSlot(slot) {
       if (status) status.textContent = '';
     } catch (e) { console.warn('[docs] delete failed', e); }
   });
+
+  // "Open original" — open the stored PDF/docx in a new tab (browsers
+  // render PDFs natively; .docx triggers download).
+  const openBtn = document.getElementById('docOpenOriginal_'+slot);
+  if (openBtn) {
+    openBtn.addEventListener('click', () => {
+      // Cache-bust so a freshly-uploaded replacement doesn't show the
+      // browser's stale view.
+      const url = `/api/documents/${slot}/file?t=${Date.now()}`;
+      window.open(url, '_blank');
+    });
+  }
 
   updateEmpty();
 }

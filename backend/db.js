@@ -193,6 +193,8 @@ function initDb() {
     ['contracts',  'term8',           'TEXT'],
     ['contracts',  'term9',           'TEXT'],
     ['contracts',  'term10',          'TEXT'],
+    ['documents',  'file_data',       'BLOB'],
+    ['documents',  'mime',            'TEXT'],
   ]) {
     try { db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${type}`); }
     catch (e) { if (!/duplicate column/i.test(e.message)) console.warn('[db] add-col failed:', e.message); }
