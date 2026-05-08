@@ -10146,15 +10146,22 @@ function _loadPdfjs() {
   return _docPdfjsPromise;
 }
 
+// Per-slot UI state (debounce timers, last-saved timestamps, etc.)
+const _docState = { 1: null, 2: null };
+
 function initDocumentsTab(containerId) {
   const cont = document.getElementById(containerId);
   if (!cont) return;
-  if (cont.dataset.ready === '1') return;
+  if (cont.dataset.ready === '1') {
+    // Tab already rendered — refresh from server in case another session edited
+    _docFetchAll();
+    return;
+  }
   cont.dataset.ready = '1';
 
   cont.innerHTML = `
     <div class="doc-tab-info" style="background:#f5f7fa;border:1px solid #dfe5ee;border-radius:10px;padding:12px 14px;font-size:13px;color:#4a5568;margin-bottom:18px;line-height:1.5;">
-      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF, edit the text below, then print to PDF. Nothing is saved — close the tab and the document is gone.
+      <strong style="color:#1c2b4a;">How it works:</strong> upload a Word doc (.docx) or PDF, edit the text, then print. Both slots are saved to your account automatically — you don't need to re-upload next time.
       <div style="margin-top:6px;font-size:12px;color:#888;">PDFs are converted to plain text on upload — original formatting (tables, columns, fonts) is lost. .docx files keep most of their formatting.</div>
     </div>
     <div class="doc-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
@@ -10167,8 +10174,12 @@ function initDocumentsTab(containerId) {
       }
       .doc-card { background:#fff; border:1px solid #e3e7ee; border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:10px; }
       .doc-card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-      .doc-card-title { font-size:14px; font-weight:700; color:#1c2b4a; }
-      .doc-file-name { font-size:12px; color:#6b7280; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .doc-name-input { flex:1; min-width:0; font-size:14px; font-weight:700; color:#1c2b4a; border:none; border-bottom:1px dashed transparent; background:transparent; padding:2px 0; outline:none; }
+      .doc-name-input:focus { border-bottom-color:#1c2b4a; }
+      .doc-name-input::placeholder { color:#9ca3af; font-weight:600; }
+      .doc-file-name { font-size:12px; color:#6b7280; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .doc-status-row { display:flex; min-height:14px; }
+      .doc-status { font-size:11px; color:#6b7280; }
       .doc-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding:6px; background:#f7f9fc; border:1px solid #e3e7ee; border-radius:6px; }
       .doc-tb-btn { background:#fff; border:1px solid #d4dae3; border-radius:4px; padding:4px 9px; font-size:12px; cursor:pointer; min-width:30px; }
       .doc-tb-btn:hover { background:#eef2f7; }
@@ -10189,16 +10200,110 @@ function initDocumentsTab(containerId) {
     </style>
   `;
 
-  // Wire each slot
-  for (const slot of [1, 2]) _wireDocSlot(slot);
+  // Wire each slot, then load saved content from server
+  for (const slot of [1, 2]) {
+    _docState[slot] = { loaded: false, savingPromise: null, debounce: null };
+    _wireDocSlot(slot);
+  }
+  _docFetchAll();
+}
+
+// Load both slots from the server
+async function _docFetchAll() {
+  try {
+    const r = await fetch('/api/documents', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const docs = data.documents || [];
+    for (const slot of [1, 2]) {
+      const doc = docs.find(d => d.slot === slot);
+      _docPopulate(slot, doc);
+      const st = _docState[slot]; if (st) st.loaded = true;
+    }
+  } catch (e) {
+    console.warn('[docs] fetch failed', e);
+    // Mark loaded anyway so user can still type/save into a fresh slot
+    for (const slot of [1, 2]) {
+      const st = _docState[slot]; if (st) st.loaded = true;
+    }
+  }
+}
+
+function _docPopulate(slot, doc) {
+  const editor   = document.getElementById('docEditor_'+slot);
+  const fileLbl  = document.getElementById('docFileName_'+slot);
+  const nameInp  = document.getElementById('docName_'+slot);
+  const status   = document.getElementById('docStatus_'+slot);
+  if (!editor) return;
+  if (doc) {
+    editor.innerHTML = doc.html || '';
+    if (nameInp) nameInp.value = doc.name || '';
+    if (fileLbl) fileLbl.textContent = doc.filename || (doc.html ? 'Saved' : 'No file loaded');
+    if (status)  status.textContent  = doc.updatedAt ? 'Saved · ' + _docFmtTime(doc.updatedAt) : '';
+  } else {
+    editor.innerHTML = '';
+    if (nameInp) nameInp.value = '';
+    if (fileLbl) fileLbl.textContent = 'No file loaded';
+    if (status)  status.textContent  = '';
+  }
+  editor.dataset.empty = editor.textContent.trim() ? '0' : '1';
+}
+
+async function _docSaveSlot(slot) {
+  const st = _docState[slot];
+  if (!st || !st.loaded) return;          // Don't save before initial load completes
+  const editor  = document.getElementById('docEditor_'+slot);
+  const fileLbl = document.getElementById('docFileName_'+slot);
+  const nameInp = document.getElementById('docName_'+slot);
+  const status  = document.getElementById('docStatus_'+slot);
+  if (!editor) return;
+
+  const payload = {
+    name:     nameInp ? nameInp.value.trim() : '',
+    filename: fileLbl && fileLbl.dataset.filename ? fileLbl.dataset.filename : '',
+    html:     editor.innerHTML,
+  };
+  if (status) status.textContent = 'Saving…';
+  st.savingPromise = (async () => {
+    try {
+      const r = await fetch(`/api/documents/${slot}`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (status) status.textContent = 'Saved · just now';
+    } catch (e) {
+      console.warn('[docs] save failed', e);
+      if (status) status.textContent = 'Save failed — retrying on next edit';
+    } finally {
+      st.savingPromise = null;
+    }
+  })();
+}
+
+function _docScheduleSave(slot) {
+  const st = _docState[slot];
+  if (!st) return;
+  clearTimeout(st.debounce);
+  st.debounce = setTimeout(() => _docSaveSlot(slot), 800);
+}
+
+function _docFmtTime(iso) {
+  try { return new Date(iso).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); }
+  catch (_) { return ''; }
 }
 
 function _docSlotHTML(slot) {
   return `
     <div class="doc-card" data-slot="${slot}">
       <div class="doc-card-head">
-        <span class="doc-card-title">Document ${slot}</span>
+        <input type="text" id="docName_${slot}" class="doc-name-input" placeholder="Document ${slot} — name (optional)">
         <span class="doc-file-name" id="docFileName_${slot}">No file loaded</span>
+      </div>
+      <div class="doc-status-row">
+        <span class="doc-status" id="docStatus_${slot}"></span>
       </div>
       <div class="doc-actions">
         <label class="doc-upload-label">
@@ -10254,12 +10359,21 @@ function _wireDocSlot(slot) {
     catch (_) {}
   });
 
-  // Empty-state placeholder toggle
+  // Empty-state placeholder toggle + auto-save trigger
   const updateEmpty = () => {
     editor.dataset.empty = editor.textContent.trim() ? '0' : '1';
   };
-  editor.addEventListener('input', updateEmpty);
+  editor.addEventListener('input', () => {
+    updateEmpty();
+    _docScheduleSave(slot);
+  });
   editor.addEventListener('blur',  updateEmpty);
+
+  // Slot rename → save
+  const nameInp = document.getElementById('docName_'+slot);
+  if (nameInp) {
+    nameInp.addEventListener('input', () => _docScheduleSave(slot));
+  }
 
   file.addEventListener('change', async () => {
     const f = file.files && file.files[0];
@@ -10268,6 +10382,7 @@ function _wireDocSlot(slot) {
     const lower = name.toLowerCase();
     busy.style.display = '';
     fileLbl.textContent = name;
+    fileLbl.dataset.filename = name;
     try {
       if (lower.endsWith('.docx')) {
         const buf = await f.arrayBuffer();
@@ -10276,13 +10391,28 @@ function _wireDocSlot(slot) {
         editor.innerHTML = result.value || '<p>(empty document)</p>';
       } else if (lower.endsWith('.pdf')) {
         const buf = await f.arrayBuffer();
-        const pdfjsLib = await _loadPdfjs();
-        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        let pdfjsLib;
+        try {
+          pdfjsLib = await _loadPdfjs();
+        } catch (err) {
+          console.error('[docs] pdf.js library failed to load', err);
+          throw new Error('Could not load the PDF reader (pdf.js). Check your network/firewall — the page tries to fetch it from cdn.jsdelivr.net.');
+        }
+        let pdf;
+        try {
+          pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        } catch (err) {
+          console.error('[docs] pdf parse failed', err);
+          if (err && err.name === 'PasswordException') {
+            throw new Error('This PDF is password-protected. Remove the password and try again.');
+          }
+          throw new Error('Could not parse this PDF: ' + (err && err.message || err));
+        }
         const parts = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const txt = await page.getTextContent();
-          // Group by Y so we get something close to lines.
+          // Group by Y coordinate so we get something close to lines.
           const lines = [];
           let curY = null;
           let curLine = [];
@@ -10306,16 +10436,21 @@ function _wireDocSlot(slot) {
       } else if (lower.endsWith('.doc')) {
         showToast('Old .doc format isn\'t supported. Save it as .docx and try again.', 'error');
         fileLbl.textContent = 'No file loaded';
+        delete fileLbl.dataset.filename;
         return;
       } else {
         showToast('Unsupported file type. Upload .docx or .pdf.', 'error');
         fileLbl.textContent = 'No file loaded';
+        delete fileLbl.dataset.filename;
         return;
       }
       updateEmpty();
+      _docSaveSlot(slot);   // Save immediately after a successful upload
     } catch (err) {
-      console.error('[docs] load failed', err);
-      showToast('Failed to read file: ' + (err.message || err), 'error');
+      console.error('[docs] upload failed for', name, err);
+      showToast(err.message || ('Failed to read file: ' + err), 'error');
+      fileLbl.textContent = 'No file loaded';
+      delete fileLbl.dataset.filename;
     } finally {
       busy.style.display = 'none';
       // Reset input so re-uploading the same file fires `change` again
@@ -10329,9 +10464,11 @@ function _wireDocSlot(slot) {
       showToast('Nothing to print', 'error');
       return;
     }
-    const title = (fileLbl.textContent && fileLbl.textContent !== 'No file loaded')
-      ? fileLbl.textContent.replace(/\.[^.]+$/, '')
-      : 'Document ' + slot;
+    const customName = nameInp && nameInp.value.trim();
+    const fname = fileLbl.dataset.filename;
+    const title = customName
+      ? customName
+      : (fname ? fname.replace(/\.[^.]+$/, '') : 'Document ' + slot);
     const w = window.open('', '_blank');
     if (!w) { showToast('Pop-up blocked — allow pop-ups and try again', 'error'); return; }
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${_docEscape(title)}</title>
@@ -10359,11 +10496,18 @@ function _wireDocSlot(slot) {
     });
   });
 
-  clearBt.addEventListener('click', () => {
-    if (editor.textContent.trim() && !confirm('Clear this document?')) return;
+  clearBt.addEventListener('click', async () => {
+    if (editor.textContent.trim() && !confirm('Clear this document? It will also be removed from the server.')) return;
     editor.innerHTML = '';
     fileLbl.textContent = 'No file loaded';
+    delete fileLbl.dataset.filename;
+    if (nameInp) nameInp.value = '';
     updateEmpty();
+    try {
+      await fetch(`/api/documents/${slot}`, { method: 'DELETE', credentials: 'same-origin' });
+      const status = document.getElementById('docStatus_'+slot);
+      if (status) status.textContent = '';
+    } catch (e) { console.warn('[docs] delete failed', e); }
   });
 
   updateEmpty();

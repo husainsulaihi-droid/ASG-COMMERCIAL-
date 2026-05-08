@@ -17,6 +17,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+  // Don't intercept cross-origin requests — let the browser fetch CDN
+  // scripts (pdf.js, mammoth.js, etc.) directly. The previous fallback
+  // would feed them /index.html on any miss, which silently broke them.
+  if (url.origin !== self.location.origin) return;
   // Never cache API or auth — always live
   if (url.pathname.startsWith('/api/') || e.request.method !== 'GET') return;
   e.respondWith(

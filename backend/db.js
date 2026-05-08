@@ -132,6 +132,23 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_contracts_prop       ON contracts(prop_id);
   `);
 
+  // Per-user persistent documents — two editable slots per user, used by the
+  // Documents tab. Each slot stores HTML (rich text) plus a display name.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS documents (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id    INTEGER NOT NULL,
+      slot        INTEGER NOT NULL,
+      name        TEXT,
+      filename    TEXT,
+      html        TEXT,
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(owner_id, slot)
+    );
+    CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(owner_id);
+  `);
+
   // Idempotent column adds. SQLite has no "ADD COLUMN IF NOT EXISTS",
   // so we try and swallow the duplicate-column error.
   for (const [tbl, col, type] of [
