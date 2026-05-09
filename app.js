@@ -11930,6 +11930,16 @@ async function saveCompound() {
       const e = await r.json().catch(() => ({}));
       throw new Error(e.error || 'HTTP ' + r.status);
     }
+    // Verify the managed flag actually persisted — older backend deployments
+    // silently drop unknown fields, so save can "succeed" without writing it.
+    const respData = await r.json().catch(() => ({}));
+    const savedManaged = respData?.compound?.isManaged;
+    if (savedManaged === undefined) {
+      throw new Error('Backend is out of date — please deploy & restart asg-backend on the VPS, then try again. (Server response is missing the "isManaged" field.)');
+    }
+    if ((savedManaged ? 1 : 0) !== payload.isManaged) {
+      throw new Error('"Managed" flag did not persist. Backend likely needs to be redeployed and restarted: git pull && sudo systemctl restart asg-backend');
+    }
     showToast(id ? 'Compound updated' : 'Compound created', 'success');
     closeCompoundModal();
     await fetchCompounds(true);
