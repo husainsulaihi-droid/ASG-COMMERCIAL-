@@ -5417,6 +5417,10 @@ body, button, input, select, textarea {
 .wh-section-charges-managed {
   background: #eff6ff; border-color: #93c5fd; color: #1e3a8a;
 }
+.wh-section-yield {
+  background: #ecfdf5; border-color: #6ee7b7; color: #065f46;
+  margin-left: 8px;
+}
 .wh-managed-badge {
   display: inline-block; padding: 2px 8px; margin-left: 8px;
   background: #dbeafe; color: #1e3a8a;

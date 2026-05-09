@@ -1554,6 +1554,20 @@ function _whSectionHTML({ kind, id, title, subtitle, charges, list }) {
   const total = (Number(charges?.landCharges)||0) + (Number(charges?.serviceCharges)||0)
               + (Number(charges?.licenseFees)||0) + (Number(charges?.civilDefenseCharges)||0);
   const isManagedCompound = !!(charges && charges.isManaged);
+  const compoundPrice = Number(charges?.purchasePrice) || 0;
+  const compoundRent  = list.reduce((s, p) => s + (Number(p.annualRent) || 0), 0);
+  const compoundYield = (compoundPrice > 0 && compoundRent > 0)
+    ? ((compoundRent / compoundPrice) * 100).toFixed(2) + '%'
+    : null;
+  const yieldHtml = (kind === 'compound' && compoundPrice) ? `
+    <div class="wh-section-charges wh-section-yield">
+      Total purchase price: <strong>${aed(compoundPrice)}</strong>
+      · Total annual rent: <strong>${aed(compoundRent)}</strong>
+      ${compoundYield ? `· Compound yield: <strong>${compoundYield}</strong>` : ''}
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px;font-weight:400;">
+        Per-unit yield is split across warehouses by area (sq ft).
+      </div>
+    </div>` : '';
   const chargesHtml = (kind === 'compound' && isManagedCompound) ? `
     <div class="wh-section-charges wh-section-charges-managed">
       📋 Managed for outside owner — compound charges paid by owner, not deducted from ASG financials.
@@ -1594,6 +1608,7 @@ function _whSectionHTML({ kind, id, title, subtitle, charges, list }) {
             ${vacant ? ` · ${vacant} vacant` : ''}
           </div>
           ${chargesHtml}
+          ${yieldHtml}
         </div>
         <div class="wh-section-actions">${selectBtn}</div>
       </div>
@@ -1905,8 +1920,8 @@ function cardHTML(p) {
             <span class="kpi-value">${p.size ? num(p.size)+' sq ft' : '—'}</span>
           </div>
           <div class="kpi">
-            <span class="kpi-label">Purchase Price</span>
-            <span class="kpi-value">${p.purchasePrice ? 'AED '+num(p.purchasePrice) : '—'}</span>
+            <span class="kpi-label">${effectivePurchasePrice(p) && p.compoundId && (_compoundsCache||[]).find(c=>String(c.id)===String(p.compoundId))?.purchasePrice ? 'Price Share' : 'Purchase Price'}</span>
+            <span class="kpi-value">${effectivePurchasePrice(p) ? 'AED '+num(Math.round(effectivePurchasePrice(p))) : '—'}</span>
           </div>
           <div class="kpi">
             <span class="kpi-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span>
@@ -1914,7 +1929,7 @@ function cardHTML(p) {
           </div>
           <div class="kpi">
             <span class="kpi-label">Yield</span>
-            <span class="kpi-value">${yieldPct(p.annualRent, p.purchasePrice)}</span>
+            <span class="kpi-value">${yieldPct(p.annualRent, effectivePurchasePrice(p))}</span>
           </div>
         </div>
         <div class="card-chips">
@@ -2816,7 +2831,15 @@ async function openDetailModal(id) {
             ${p.ownership === 'management' && p.mgmtMaintenance ? `<div class="detail-row"><span class="dr-label">Maintenance Fees</span><span class="dr-value">AED ${num(p.mgmtMaintenance)} / year</span></div>` : ''}
             ${p.ownership === 'management' && p.mgmtAdminFee    ? `<div class="detail-row"><span class="dr-label">Admin Fees</span><span class="dr-value">AED ${num(p.mgmtAdminFee)} / year</span></div>` : ''}
             ${p.ownership === 'management' && p.mgmtDate        ? `<div class="detail-row"><span class="dr-label">Agreement Date</span><span class="dr-value">${fmtDate(p.mgmtDate)}</span></div>` : ''}
-            ${p.purchasePrice ? `<div class="detail-row"><span class="dr-label">Purchase Price</span><span class="dr-value big">AED ${num(p.purchasePrice)}</span></div>` : ''}
+            ${(() => {
+              const eff = effectivePurchasePrice(p);
+              if (!eff) return '';
+              const c = p.compoundId ? (_compoundsCache||[]).find(x => String(x.id) === String(p.compoundId)) : null;
+              const usingShare = !!(c && Number(c.purchasePrice) > 0);
+              return usingShare
+                ? `<div class="detail-row"><span class="dr-label">Purchase Price (share of compound)</span><span class="dr-value big">AED ${num(Math.round(eff))}<div style="font-size:11px;color:var(--text-3);font-weight:400;">area-weighted from compound's AED ${num(Math.round(c.purchasePrice))}</div></span></div>`
+                : `<div class="detail-row"><span class="dr-label">Purchase Price</span><span class="dr-value big">AED ${num(eff)}</span></div>`;
+            })()}
             ${p.purchaseDate  ? `<div class="detail-row"><span class="dr-label">Purchase Date</span><span class="dr-value">${fmtDate(p.purchaseDate)}</span></div>` : ''}
             ${p.marketValue   ? `<div class="detail-row"><span class="dr-label">Market Value</span><span class="dr-value">AED ${num(p.marketValue)}</span></div>` : ''}
             ${p.annualRent    ? `<div class="detail-row"><span class="dr-label">${p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent'}</span><span class="dr-value big">AED ${num(p.annualRent)}</span></div>` : ''}
@@ -2836,7 +2859,7 @@ async function openDetailModal(id) {
             ${p.securityDeposit      ? `<div class="detail-row"><span class="dr-label">Security Deposit</span><span class="dr-value">AED ${num(p.securityDeposit)}</span></div>` : ''}
             ${p.cashAmount           ? `<div class="detail-row"><span class="dr-label">Cash Received</span><span class="dr-value green">💵 AED ${num(p.cashAmount)}</span></div>` : ''}
             ${p.brokerageAmount      ? `<div class="detail-row"><span class="dr-label">Brokerage</span><span class="dr-value green">+ AED ${num(p.brokerageAmount)}</span></div>` : ''}
-            ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, p.purchasePrice)}</span></div>` : ''}
+            ${p.annualRent           ? `<div class="detail-row"><span class="dr-label">Rental Yield</span><span class="dr-value green">${yieldPct(p.annualRent, effectivePurchasePrice(p))}</span></div>` : ''}
           </div>
         </div>
       </div>
@@ -3370,6 +3393,23 @@ function fmtDate(d) {
 function yieldPct(rent, price) {
   if (!rent || !price) return '—';
   return ((Number(rent) / Number(price)) * 100).toFixed(2) + '%';
+}
+// For a property in a compound that has a total purchase price set, returns
+// the area-weighted share of that price. Falls back to per-property
+// purchasePrice when there's no compound, no compound price, or no area data.
+function effectivePurchasePrice(p) {
+  const ownPrice = Number(p?.purchasePrice) || 0;
+  if (!p?.compoundId) return ownPrice;
+  const c = (typeof _compoundsCache !== 'undefined' ? _compoundsCache : []).find(x => String(x.id) === String(p.compoundId));
+  const compoundPrice = Number(c?.purchasePrice) || 0;
+  if (!compoundPrice) return ownPrice;
+  const all = (typeof loadProps === 'function' ? loadProps() : []) || [];
+  const units = all.filter(x => String(x.compoundId) === String(p.compoundId));
+  const totalArea = units.reduce((s, u) => s + (Number(u.area) || 0), 0);
+  if (totalArea > 0 && Number(p.area) > 0) {
+    return compoundPrice * (Number(p.area) / totalArea);
+  }
+  return units.length ? compoundPrice / units.length : compoundPrice;
 }
 function daysRemaining(leaseEnd) {
   const days = Math.ceil((new Date(leaseEnd) - new Date()) / 86400000);
@@ -11747,15 +11787,27 @@ async function renderCompounds() {
   const sumProps   = _compoundsCache.reduce((s, c) => s + (c.propertyCount || 0), 0);
   const grand      = sumLand + sumService + sumLicense + sumCD;
 
+  // For yield-per-compound, sum the annual rent of properties linked to each compound.
+  const allProps = (typeof loadProps === 'function' ? loadProps() : []) || [];
+  const rentByCompound = allProps.reduce((m, p) => {
+    if (!p.compoundId) return m;
+    const k = String(p.compoundId);
+    m[k] = (m[k] || 0) + (Number(p.annualRent) || 0);
+    return m;
+  }, {});
+
   const rowsHtml = _compoundsCache.map(c => {
     const total = (c.landCharges || 0) + (c.serviceCharges || 0) + (c.licenseFees || 0) + (c.civilDefenseCharges || 0);
     const linked = c.propertyCount || 0;
+    const price = Number(c.purchasePrice) || 0;
+    const rent = rentByCompound[String(c.id)] || 0;
+    const yld = (price > 0 && rent > 0) ? ((rent / price) * 100).toFixed(2) + '%' : '—';
     const managedTag = c.isManaged
       ? `<span class="wh-managed-badge" style="margin-left:6px;">📋 Managed</span>`
       : '';
     const totalLabel = c.isManaged ? 'paid by owner' : 'total / yr';
     return `
-      <div class="login-row" style="grid-template-columns: 2fr 1.5fr 1fr 1fr auto;">
+      <div class="login-row" style="grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr auto;">
         <div>
           <div class="login-name">${h(c.name || '')}${managedTag}</div>
           ${c.location ? `<div style="font-size:12px;color:var(--text-3);">${h(c.location)}</div>` : ''}
@@ -11765,6 +11817,11 @@ async function renderCompounds() {
           License ${aed(c.licenseFees)} · CD ${aed(c.civilDefenseCharges)}
         </div>
         <div><strong>${aed(total)}</strong><div style="font-size:11px;color:var(--text-3);">${totalLabel}</div></div>
+        <div>
+          <strong>${price ? aed(price) : '—'}</strong>
+          <div style="font-size:11px;color:var(--text-3);">purchase price</div>
+          <div style="font-size:12px;color:var(--text-2);margin-top:2px;">Yield: <strong>${yld}</strong></div>
+        </div>
         <div>${linked} ${linked === 1 ? 'property' : 'properties'}</div>
         <div class="login-actions">
           <button class="btn-sm btn-ghost" onclick="openCompoundModal('${c.id}')">✏️ Edit</button>
@@ -11812,6 +11869,7 @@ async function openCompoundModal(id) {
   document.getElementById('compoundServiceCharges').value = c ? (c.serviceCharges || '') : '';
   document.getElementById('compoundLicenseFees').value    = c ? (c.licenseFees || '') : '';
   document.getElementById('compoundCivilDefense').value   = c ? (c.civilDefenseCharges || '') : '';
+  document.getElementById('compoundPurchasePrice').value  = c ? (c.purchasePrice || '') : '';
   document.getElementById('compoundNotes').value          = c ? (c.notes || '') : '';
   document.getElementById('compoundIsManaged').checked    = c ? !!c.isManaged : false;
   document.getElementById('compoundDeleteBtn').style.display = c ? '' : 'none';
@@ -11914,6 +11972,7 @@ async function saveCompound() {
     civilDefenseCharges: Number(document.getElementById('compoundCivilDefense').value) || 0,
     notes:               document.getElementById('compoundNotes').value.trim(),
     isManaged:           document.getElementById('compoundIsManaged').checked ? 1 : 0,
+    purchasePrice:       Number(document.getElementById('compoundPurchasePrice').value) || 0,
     propertyIds:         [..._compoundSelectedIds].map(s => parseInt(s, 10)).filter(Number.isFinite),
   };
   if (!payload.name) { showToast('Compound name is required', 'error'); return; }
@@ -11939,6 +11998,10 @@ async function saveCompound() {
     }
     if ((savedManaged ? 1 : 0) !== payload.isManaged) {
       throw new Error('"Managed" flag did not persist. Backend likely needs to be redeployed and restarted: git pull && sudo systemctl restart asg-backend');
+    }
+    const savedPrice = Number(respData?.compound?.purchasePrice) || 0;
+    if (savedPrice !== payload.purchasePrice) {
+      throw new Error('Purchase price did not persist. Backend likely needs to be redeployed and restarted: git pull && sudo systemctl restart asg-backend');
     }
     showToast(id ? 'Compound updated' : 'Compound created', 'success');
     closeCompoundModal();

@@ -199,6 +199,9 @@ function initDb() {
     // license/civil-defense charges are paid by that owner and must NOT
     // appear in ASG's financial deductions. 0 = ASG owns the compound (default).
     ['compounds',  'is_managed',      'INTEGER DEFAULT 0'],
+    // Total compound purchase price (AED). Used to compute per-unit rental
+    // yield by splitting this total across linked warehouses by area.
+    ['compounds',  'purchase_price',  'REAL DEFAULT 0'],
   ]) {
     try { db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${type}`); }
     catch (e) { if (!/duplicate column/i.test(e.message)) console.warn('[db] add-col failed:', e.message); }
