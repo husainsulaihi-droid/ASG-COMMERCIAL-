@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260509A">
+  <link rel="stylesheet" href="styles.css?v=20260509B">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1949,6 +1949,17 @@
           <label>Location</label>
           <input type="text" id="compoundLocation" placeholder="e.g. Al Quoz, Dubai">
         </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;">
+            <input type="checkbox" id="compoundIsManaged" style="width:16px;height:16px;cursor:pointer;">
+            <span>Managed for an outside owner</span>
+          </label>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px;padding-left:24px;">
+            Tick this if ASG only manages this compound and the actual owner pays
+            the land/service/license/civil-defense bills. When ticked, these charges
+            will <strong>not</strong> be deducted from ASG's financials.
+          </div>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Land Main Lease (AED / year)</label>
@@ -3506,6 +3517,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260509A"></script>
+  <script src="app.js?v=20260509B"></script>
 </body>
 </html>

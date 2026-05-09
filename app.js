@@ -1553,12 +1553,19 @@ function _whSectionHTML({ kind, id, title, subtitle, charges, list }) {
   const vacant = list.filter(p => p.status === 'vacant').length;
   const total = (Number(charges?.landCharges)||0) + (Number(charges?.serviceCharges)||0)
               + (Number(charges?.licenseFees)||0) + (Number(charges?.civilDefenseCharges)||0);
-  const chargesHtml = (kind === 'compound' && total) ? `
+  const isManagedCompound = !!(charges && charges.isManaged);
+  const chargesHtml = (kind === 'compound' && isManagedCompound) ? `
+    <div class="wh-section-charges wh-section-charges-managed">
+      📋 Managed for outside owner — compound charges paid by owner, not deducted from ASG financials.
+    </div>` : (kind === 'compound' && total) ? `
     <div class="wh-section-charges">
       Compound charges: Land ${aed(charges.landCharges)} · Service ${aed(charges.serviceCharges)}
       · License ${aed(charges.licenseFees)} · CD ${aed(charges.civilDefenseCharges)}
       · <strong>${aed(total)} / yr total</strong>
     </div>` : '';
+  const managedBadge = isManagedCompound
+    ? ' <span class="wh-managed-badge">📋 Managed</span>'
+    : '';
 
   const sectionKey = kind === 'standalone' ? 'standalone' : id;
   const inSelectMode = _whSelectMode === sectionKey;
@@ -1578,7 +1585,7 @@ function _whSectionHTML({ kind, id, title, subtitle, charges, list }) {
       <div class="wh-section-head">
         <div class="wh-section-titles">
           <div class="wh-section-title" ${titleClick} style="${kind==='compound'?'cursor:pointer;':''}">
-            ${icon} ${h(title)}
+            ${icon} ${h(title)}${managedBadge}
           </div>
           ${subtitle ? `<div class="wh-section-sub">📍 ${h(subtitle)}</div>` : ''}
           <div class="wh-section-counts">
@@ -8121,9 +8128,12 @@ function _finRenderBody(props) {
     .sort((a,b) => b.ourIncome - a.ourIncome);
 
   // ── Compound deductions: one row per compound that has ≥1 property in pool ──
+  // Compounds flagged as "managed for an outside owner" are skipped — the
+  // owner pays those land/service/license/CD bills, not ASG.
   const usedCompoundIds = new Set(pool.map(p => p.compoundId).filter(Boolean).map(String));
   const compoundDedRows = (_compoundsCache || [])
     .filter(c => usedCompoundIds.has(String(c.id)))
+    .filter(c => !c.isManaged)
     .map(c => {
       const linked = pool.filter(p => String(p.compoundId) === String(c.id)).length;
       const land    = Number(c.landCharges)         || 0;
@@ -11725,7 +11735,11 @@ async function renderCompounds() {
     return;
   }
   const aed = v => 'AED ' + Math.round(Number(v) || 0).toLocaleString();
-  const sum = (k) => _compoundsCache.reduce((s, c) => s + (Number(c[k]) || 0), 0);
+  // Totals reflect only ASG-borne compounds. Managed-for-outside-owner ones
+  // are excluded so the "Total deductions / yr" matches what actually hits
+  // the financials roll-up.
+  const dedCompounds = _compoundsCache.filter(c => !c.isManaged);
+  const sum = (k) => dedCompounds.reduce((s, c) => s + (Number(c[k]) || 0), 0);
   const sumLand    = sum('landCharges');
   const sumService = sum('serviceCharges');
   const sumLicense = sum('licenseFees');
@@ -11736,17 +11750,21 @@ async function renderCompounds() {
   const rowsHtml = _compoundsCache.map(c => {
     const total = (c.landCharges || 0) + (c.serviceCharges || 0) + (c.licenseFees || 0) + (c.civilDefenseCharges || 0);
     const linked = c.propertyCount || 0;
+    const managedTag = c.isManaged
+      ? `<span class="wh-managed-badge" style="margin-left:6px;">📋 Managed</span>`
+      : '';
+    const totalLabel = c.isManaged ? 'paid by owner' : 'total / yr';
     return `
       <div class="login-row" style="grid-template-columns: 2fr 1.5fr 1fr 1fr auto;">
         <div>
-          <div class="login-name">${h(c.name || '')}</div>
+          <div class="login-name">${h(c.name || '')}${managedTag}</div>
           ${c.location ? `<div style="font-size:12px;color:var(--text-3);">${h(c.location)}</div>` : ''}
         </div>
         <div style="font-size:12px;color:var(--text-2);">
           Land ${aed(c.landCharges)} · Service ${aed(c.serviceCharges)}<br>
           License ${aed(c.licenseFees)} · CD ${aed(c.civilDefenseCharges)}
         </div>
-        <div><strong>${aed(total)}</strong><div style="font-size:11px;color:var(--text-3);">total / yr</div></div>
+        <div><strong>${aed(total)}</strong><div style="font-size:11px;color:var(--text-3);">${totalLabel}</div></div>
         <div>${linked} ${linked === 1 ? 'property' : 'properties'}</div>
         <div class="login-actions">
           <button class="btn-sm btn-ghost" onclick="openCompoundModal('${c.id}')">✏️ Edit</button>
@@ -11757,7 +11775,7 @@ async function renderCompounds() {
   const totalsHtml = `
     <div style="margin-top:18px;padding:14px 16px;border-top:2px solid var(--border-2);background:var(--bg-2);border-radius:8px;">
       <div style="font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:10px;">
-        Totals across all compounds
+        Totals across ASG-borne compounds${dedCompounds.length !== _compoundsCache.length ? ` <span style="font-size:11px;color:var(--text-3);font-weight:400;">(${_compoundsCache.length - dedCompounds.length} managed compound${_compoundsCache.length - dedCompounds.length === 1 ? '' : 's'} excluded)</span>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:12px;color:var(--text-2);">
         <div><div style="color:var(--text-3);">Land</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumLand)}</strong></div>
@@ -11795,6 +11813,7 @@ async function openCompoundModal(id) {
   document.getElementById('compoundLicenseFees').value    = c ? (c.licenseFees || '') : '';
   document.getElementById('compoundCivilDefense').value   = c ? (c.civilDefenseCharges || '') : '';
   document.getElementById('compoundNotes').value          = c ? (c.notes || '') : '';
+  document.getElementById('compoundIsManaged').checked    = c ? !!c.isManaged : false;
   document.getElementById('compoundDeleteBtn').style.display = c ? '' : 'none';
   document.getElementById('compoundPropsFilter').value = '';
 
@@ -11894,6 +11913,7 @@ async function saveCompound() {
     licenseFees:         Number(document.getElementById('compoundLicenseFees').value) || 0,
     civilDefenseCharges: Number(document.getElementById('compoundCivilDefense').value) || 0,
     notes:               document.getElementById('compoundNotes').value.trim(),
+    isManaged:           document.getElementById('compoundIsManaged').checked ? 1 : 0,
     propertyIds:         [..._compoundSelectedIds].map(s => parseInt(s, 10)).filter(Number.isFinite),
   };
   if (!payload.name) { showToast('Compound name is required', 'error'); return; }

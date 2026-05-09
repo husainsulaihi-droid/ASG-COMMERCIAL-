@@ -195,6 +195,10 @@ function initDb() {
     ['contracts',  'term10',          'TEXT'],
     ['documents',  'file_data',       'BLOB'],
     ['documents',  'mime',            'TEXT'],
+    // Compound flagged as managed-for-an-outside-owner — its land/service/
+    // license/civil-defense charges are paid by that owner and must NOT
+    // appear in ASG's financial deductions. 0 = ASG owns the compound (default).
+    ['compounds',  'is_managed',      'INTEGER DEFAULT 0'],
   ]) {
     try { db.exec(`ALTER TABLE ${tbl} ADD COLUMN ${col} ${type}`); }
     catch (e) { if (!/duplicate column/i.test(e.message)) console.warn('[db] add-col failed:', e.message); }

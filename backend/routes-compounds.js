@@ -22,6 +22,7 @@ const router = express.Router();
 const COMPOUND_FIELDS = [
   'name', 'location', 'notes',
   'land_charges', 'service_charges', 'license_fees', 'civil_defense_charges',
+  'is_managed',
 ];
 
 router.get('/', requireAuth, (req, res) => {

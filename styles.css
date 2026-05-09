@@ -5414,6 +5414,15 @@ body, button, input, select, textarea {
   border: 1px solid var(--gold); border-radius: 8px;
   display: inline-block;
 }
+.wh-section-charges-managed {
+  background: #eff6ff; border-color: #93c5fd; color: #1e3a8a;
+}
+.wh-managed-badge {
+  display: inline-block; padding: 2px 8px; margin-left: 8px;
+  background: #dbeafe; color: #1e3a8a;
+  border: 1px solid #93c5fd; border-radius: 999px;
+  font-size: 11px; font-weight: 600; vertical-align: middle;
+}
 .wh-section-actions { flex-shrink: 0; }
 .wh-section-grid { padding: 0 32px 0 !important; }
 
