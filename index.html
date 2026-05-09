@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260509D">
+  <link rel="stylesheet" href="styles.css?v=20260509E">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -260,10 +260,6 @@
         <button class="nav-item" id="tabFinancials" onclick="showTab('financials')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
           Financials
-        </button>
-        <button class="nav-item" id="tabCompounds" onclick="showTab('compounds')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-          Compounds
         </button>
         <button class="nav-item" id="tabLogins" onclick="showTab('logins')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
@@ -1904,25 +1900,6 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
-  <!-- COMPOUNDS TAB (admin)                  -->
-  <!-- ═══════════════════════════════════════ -->
-  <div id="compoundsView" style="display:none;">
-    <div class="tab-page">
-      <div class="tab-page-header">
-        <div>
-          <h1 class="tab-page-title">🏭 Compounds</h1>
-          <p class="tab-page-sub">Group warehouses that share land / service / license / civil-defense charges</p>
-        </div>
-        <button class="btn-primary" onclick="openCompoundModal()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Compound
-        </button>
-      </div>
-      <div id="compoundsList"></div>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════════ -->
   <!-- COMPOUND MODAL (add / edit)            -->
   <!-- ═══════════════════════════════════════ -->
   <div class="modal-overlay" id="compoundModalOverlay">
@@ -3526,6 +3503,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260509D"></script>
+  <script src="app.js?v=20260509E"></script>
 </body>
 </html>

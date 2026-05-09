@@ -5375,6 +5375,11 @@ body, button, input, select, textarea {
 }
 
 /* ─── Grouped Warehouses View ───────────────────── */
+.wh-toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 32px 14px; gap: 12px;
+}
+.wh-toolbar .wh-view-toggle { padding: 0; }
 .wh-view-toggle {
   display: flex; gap: 4px; padding: 6px 32px 14px;
   align-items: center;

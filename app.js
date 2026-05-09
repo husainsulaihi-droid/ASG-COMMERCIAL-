@@ -843,9 +843,8 @@ function showTab(tab) {
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
   const loginsEl = $('loginsView');     if (loginsEl) loginsEl.style.display = tab === 'logins' ? '' : 'none';
-  const compEl = $('compoundsView');    if (compEl) compEl.style.display = tab === 'compounds' ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins','Compounds'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -867,7 +866,6 @@ function showTab(tab) {
   if (tab === 'map')          initMapTab();
   if (tab === 'financials')   renderFinancials();
   if (tab === 'logins')       renderLogins();
-  if (tab === 'compounds')    renderCompounds();
 }
 
 // ─── Contract Builder ─────────────────────────────
@@ -1513,13 +1511,16 @@ function renderGroupedWarehouses(props, grid) {
   const knownIds = new Set(known.map(c => String(c.id)));
   const orphanCids = [...byCompound.keys()].filter(cid => !knownIds.has(cid));
 
-  // View toggle — Cards (default) vs Rows (compact). Sits above all sections.
+  // Toolbar — Add Compound + view toggle (Cards default vs Rows compact).
   const cardsActive = _whViewMode === 'cards' ? ' active' : '';
   const rowsActive  = _whViewMode === 'rows'  ? ' active' : '';
   let html = `
-    <div class="wh-view-toggle">
-      <button class="wh-view-btn${cardsActive}" onclick="_whSetViewMode('cards')">▦ Cards</button>
-      <button class="wh-view-btn${rowsActive}"  onclick="_whSetViewMode('rows')">≡ Rows</button>
+    <div class="wh-toolbar">
+      <button class="btn-primary btn-sm" onclick="openCompoundModal()">+ Add Compound</button>
+      <div class="wh-view-toggle">
+        <button class="wh-view-btn${cardsActive}" onclick="_whSetViewMode('cards')">▦ Cards</button>
+        <button class="wh-view-btn${rowsActive}"  onclick="_whSetViewMode('rows')">≡ Rows</button>
+      </div>
     </div>`;
   for (const c of known) {
     html += _whSectionHTML({
@@ -11766,93 +11767,6 @@ async function fetchCompounds(force) {
   return _compoundsCache;
 }
 
-async function renderCompounds() {
-  await fetchCompounds(true);
-  const el = document.getElementById('compoundsList');
-  if (!el) return;
-  if (!_compoundsCache.length) {
-    el.innerHTML = `<div class="audit-empty">No compounds yet. Click <strong>Add Compound</strong> above to group warehouses that share charges.</div>`;
-    return;
-  }
-  const aed = v => 'AED ' + Math.round(Number(v) || 0).toLocaleString();
-  // Totals reflect only ASG-borne compounds. Managed-for-outside-owner ones
-  // are excluded so the "Total deductions / yr" matches what actually hits
-  // the financials roll-up.
-  const dedCompounds = _compoundsCache.filter(c => !c.isManaged);
-  const sum = (k) => dedCompounds.reduce((s, c) => s + (Number(c[k]) || 0), 0);
-  const sumLand    = sum('landCharges');
-  const sumService = sum('serviceCharges');
-  const sumLicense = sum('licenseFees');
-  const sumCD      = sum('civilDefenseCharges');
-  const sumProps   = _compoundsCache.reduce((s, c) => s + (c.propertyCount || 0), 0);
-  const grand      = sumLand + sumService + sumLicense + sumCD;
-
-  // For yield-per-compound, sum the annual rent of properties linked to each compound.
-  const allProps = (typeof loadProps === 'function' ? loadProps() : []) || [];
-  const rentByCompound = allProps.reduce((m, p) => {
-    if (!p.compoundId) return m;
-    const k = String(p.compoundId);
-    m[k] = (m[k] || 0) + (Number(p.annualRent) || 0);
-    return m;
-  }, {});
-
-  const rowsHtml = _compoundsCache.map(c => {
-    const total = (c.landCharges || 0) + (c.serviceCharges || 0) + (c.licenseFees || 0) + (c.civilDefenseCharges || 0);
-    const linked = c.propertyCount || 0;
-    const price = Number(c.purchasePrice) || 0;
-    const rent = rentByCompound[String(c.id)] || 0;
-    const yld = (price > 0 && rent > 0) ? ((rent / price) * 100).toFixed(2) + '%' : '—';
-    const managedTag = c.isManaged
-      ? `<span class="wh-managed-badge" style="margin-left:6px;">📋 Managed</span>`
-      : '';
-    const totalLabel = c.isManaged ? 'paid by owner' : 'total / yr';
-    return `
-      <div class="login-row" style="grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr auto;">
-        <div>
-          <div class="login-name">${h(c.name || '')}${managedTag}</div>
-          ${c.location ? `<div style="font-size:12px;color:var(--text-3);">${h(c.location)}</div>` : ''}
-        </div>
-        <div style="font-size:12px;color:var(--text-2);">
-          Land ${aed(c.landCharges)} · Service ${aed(c.serviceCharges)}<br>
-          License ${aed(c.licenseFees)} · CD ${aed(c.civilDefenseCharges)}
-        </div>
-        <div><strong>${aed(total)}</strong><div style="font-size:11px;color:var(--text-3);">${totalLabel}</div></div>
-        <div>
-          <strong>${price ? aed(price) : '—'}</strong>
-          <div style="font-size:11px;color:var(--text-3);">purchase price</div>
-          <div style="font-size:12px;color:var(--text-2);margin-top:2px;">Yield: <strong>${yld}</strong></div>
-        </div>
-        <div>${linked} ${linked === 1 ? 'property' : 'properties'}</div>
-        <div class="login-actions">
-          <button class="btn-sm btn-ghost" onclick="openCompoundModal('${c.id}')">✏️ Edit</button>
-        </div>
-      </div>`;
-  }).join('');
-
-  const totalsHtml = `
-    <div style="margin-top:18px;padding:14px 16px;border-top:2px solid var(--border-2);background:var(--bg-2);border-radius:8px;">
-      <div style="font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:10px;">
-        Totals across ASG-borne compounds${dedCompounds.length !== _compoundsCache.length ? ` <span style="font-size:11px;color:var(--text-3);font-weight:400;">(${_compoundsCache.length - dedCompounds.length} managed compound${_compoundsCache.length - dedCompounds.length === 1 ? '' : 's'} excluded)</span>` : ''}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:12px;color:var(--text-2);">
-        <div><div style="color:var(--text-3);">Land</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumLand)}</strong></div>
-        <div><div style="color:var(--text-3);">Service</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumService)}</strong></div>
-        <div><div style="color:var(--text-3);">License</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumLicense)}</strong></div>
-        <div><div style="color:var(--text-3);">Civil Defense</div><strong style="color:var(--text-1);font-size:14px;">${aed(sumCD)}</strong></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--border-2);">
-        <div style="font-size:12px;color:var(--text-3);">
-          ${_compoundsCache.length} ${_compoundsCache.length === 1 ? 'compound' : 'compounds'} · ${sumProps} ${sumProps === 1 ? 'property linked' : 'properties linked'}
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:11px;color:var(--text-3);">Total deductions / yr</div>
-          <div style="font-size:18px;font-weight:700;color:var(--text-1);">${aed(grand)}</div>
-        </div>
-      </div>
-    </div>`;
-
-  el.innerHTML = rowsHtml + totalsHtml;
-}
 
 // Track the in-modal selection state separately so unsaved changes are not
 // committed until the user clicks Save.
@@ -12011,9 +11925,6 @@ async function saveCompound() {
     if (typeof fetchProperties === 'function') {
       try { await fetchProperties(); } catch (_) {}
     }
-    renderCompounds();
-    // The Warehouses tab groups by compound; rebuild it so newly-linked rows
-    // move out of "Standalone" into their new compound section.
     if (typeof refresh === 'function') refresh();
   } catch (e) {
     showToast('Save failed: ' + e.message, 'error');
@@ -12042,7 +11953,7 @@ async function deleteCompound() {
     if (typeof fetchProperties === 'function') {
       try { await fetchProperties(); } catch (_) {}
     }
-    renderCompounds();
+    if (typeof refresh === 'function') refresh();
   } catch (e) {
     showToast('Delete failed: ' + e.message, 'error');
   }
