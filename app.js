@@ -817,6 +817,15 @@ function $(id) { return document.getElementById(id); }
 
 // ─── Tab Switching ────────────────────────────────
 function showTab(tab) {
+  // Leaving warehouses (or switching sections within it) drops any in-progress
+  // multi-select. The floating bar is rebuilt on the next render if needed.
+  if (tab !== 'warehouses' && (typeof _whSelectMode !== 'undefined') && _whSelectMode) {
+    _whSelectMode = null;
+    _whSelected.clear();
+    const bar = document.getElementById('whActionBar');
+    if (bar) bar.remove();
+  }
+
   activeTab = tab;
   const propTabs = ['warehouses', 'offices', 'residential', 'land'];
   const isPropTab = propTabs.includes(tab);
@@ -1418,11 +1427,31 @@ function dismissAlertBanner() {
   if (b) b.style.display = 'none';
 }
 
+// ─── Warehouse multi-select state (used by the grouped Warehouses view) ────
+// _whSelectMode: null | 'standalone' | <compoundIdAsString> — only one section
+// can be in select mode at a time, so the floating action bar is unambiguous.
+let _whSelectMode = null;
+let _whSelected   = new Set();   // string ids of selected property rows
+// Cards (visual) | Rows (compact table). Persisted across reloads.
+let _whViewMode = (() => {
+  try { return localStorage.getItem('asg_wh_view') === 'rows' ? 'rows' : 'cards'; }
+  catch (_) { return 'cards'; }
+})();
+function _whSetViewMode(mode) {
+  _whViewMode = (mode === 'rows') ? 'rows' : 'cards';
+  try { localStorage.setItem('asg_wh_view', _whViewMode); } catch (_) {}
+  refresh();
+}
+
 function renderGrid(props) {
   const grid  = $('propertiesGrid');
   const empty = $('emptyState');
   if (!props.length) {
     grid.innerHTML = '';
+    grid.style.display = '';        // reset (grouped path may have set 'block')
+    grid.style.padding = '';
+    const bar = document.getElementById('whActionBar');
+    if (bar) bar.remove();
     const icons  = { warehouse: '🏭', office: '🏢', residential: '🏠' };
     const labels = { warehouse: 'Warehouses', office: 'Offices', residential: 'Residential Properties' };
     const icon   = icons[activeTypeFilter]  || '🏗️';
@@ -1437,8 +1466,351 @@ function renderGrid(props) {
     return;
   }
   empty.style.display = 'none';
+
+  // On the Warehouses tab, partition by compound and render one section per
+  // compound + a "Standalone" section for unlinked. Other tabs keep the flat
+  // grid — compounds are warehouse-only.
+  if (activeTypeFilter === 'warehouse') {
+    renderGroupedWarehouses(props, grid);
+    return;
+  }
+
+  // Flat grid path — reset any block layout the grouped path may have set.
+  grid.style.display = '';
+  grid.style.padding = '';
+  const bar = document.getElementById('whActionBar');
+  if (bar) bar.remove();
   grid.innerHTML = props.map(cardHTML).join('');
   props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+}
+
+// ─── Grouped Warehouses View ──────────────────────
+function renderGroupedWarehouses(props, grid) {
+  // Lazy-fetch compounds the first time we land on this tab. We re-call
+  // refresh() once the cache lands so section headers can show real names.
+  if (typeof fetchCompounds === 'function' && !_compoundsFetched) {
+    fetchCompounds().then(() => { if (activeTypeFilter === 'warehouse') refresh(); }).catch(() => {});
+  }
+
+  const byCompound = new Map();
+  const standalone = [];
+  for (const p of props) {
+    const cid = p.compoundId == null ? null : String(p.compoundId);
+    if (cid) {
+      if (!byCompound.has(cid)) byCompound.set(cid, []);
+      byCompound.get(cid).push(p);
+    } else {
+      standalone.push(p);
+    }
+  }
+
+  // Compounds with at least one warehouse in the current filter result, sorted
+  // alphabetically. Anything referencing a compound id we don't have cached
+  // (rare race) gets rendered as an "unknown" section so the cards don't vanish.
+  const known = (_compoundsCache || [])
+    .filter(c => byCompound.has(String(c.id)))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const knownIds = new Set(known.map(c => String(c.id)));
+  const orphanCids = [...byCompound.keys()].filter(cid => !knownIds.has(cid));
+
+  // View toggle — Cards (default) vs Rows (compact). Sits above all sections.
+  const cardsActive = _whViewMode === 'cards' ? ' active' : '';
+  const rowsActive  = _whViewMode === 'rows'  ? ' active' : '';
+  let html = `
+    <div class="wh-view-toggle">
+      <button class="wh-view-btn${cardsActive}" onclick="_whSetViewMode('cards')">▦ Cards</button>
+      <button class="wh-view-btn${rowsActive}"  onclick="_whSetViewMode('rows')">≡ Rows</button>
+    </div>`;
+  for (const c of known) {
+    html += _whSectionHTML({
+      kind: 'compound', id: String(c.id), title: c.name || '(unnamed)',
+      subtitle: c.location || '', charges: c, list: byCompound.get(String(c.id)),
+    });
+  }
+  for (const cid of orphanCids) {
+    html += _whSectionHTML({
+      kind: 'compound', id: cid, title: 'Compound #' + cid,
+      subtitle: '', charges: null, list: byCompound.get(cid),
+    });
+  }
+  if (standalone.length) {
+    html += _whSectionHTML({
+      kind: 'standalone', id: 'standalone', title: 'Standalone — not in a compound',
+      subtitle: '', charges: null, list: standalone,
+    });
+  }
+
+  grid.style.display = 'block';
+  grid.style.padding = '0';
+  grid.innerHTML = html;
+  props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+  _renderWhActionBar();
+}
+
+function _whSectionHTML({ kind, id, title, subtitle, charges, list }) {
+  const aed = v => 'AED ' + Math.round(Number(v) || 0).toLocaleString();
+  const rented = list.filter(p => p.status === 'rented').length;
+  const vacant = list.filter(p => p.status === 'vacant').length;
+  const total = (Number(charges?.landCharges)||0) + (Number(charges?.serviceCharges)||0)
+              + (Number(charges?.licenseFees)||0) + (Number(charges?.civilDefenseCharges)||0);
+  const chargesHtml = (kind === 'compound' && total) ? `
+    <div class="wh-section-charges">
+      Compound charges: Land ${aed(charges.landCharges)} · Service ${aed(charges.serviceCharges)}
+      · License ${aed(charges.licenseFees)} · CD ${aed(charges.civilDefenseCharges)}
+      · <strong>${aed(total)} / yr total</strong>
+    </div>` : '';
+
+  const sectionKey = kind === 'standalone' ? 'standalone' : id;
+  const inSelectMode = _whSelectMode === sectionKey;
+  const titleClick = (kind === 'compound')
+    ? `onclick="event.stopPropagation();openCompoundModal('${id}')"`
+    : '';
+  const selectLabel = inSelectMode ? 'Cancel' : '☑️ Select';
+  const selectBtn = `<button class="btn-sm btn-ghost" onclick="_whToggleSelectMode('${sectionKey}')">${selectLabel}</button>`;
+
+  const icon = kind === 'compound' ? '🏭' : '📦';
+  const bodyHtml = (_whViewMode === 'rows')
+    ? _whSectionRowsHTML(list, sectionKey, inSelectMode)
+    : `<div class="properties-grid wh-section-grid">${list.map(p => _wrapCardForSelect(p, sectionKey, inSelectMode)).join('')}</div>`;
+
+  return `
+    <div class="wh-section" data-section="${sectionKey}">
+      <div class="wh-section-head">
+        <div class="wh-section-titles">
+          <div class="wh-section-title" ${titleClick} style="${kind==='compound'?'cursor:pointer;':''}">
+            ${icon} ${h(title)}
+          </div>
+          ${subtitle ? `<div class="wh-section-sub">📍 ${h(subtitle)}</div>` : ''}
+          <div class="wh-section-counts">
+            ${list.length} ${list.length === 1 ? 'warehouse' : 'warehouses'}
+            ${rented ? ` · ${rented} rented` : ''}
+            ${vacant ? ` · ${vacant} vacant` : ''}
+          </div>
+          ${chargesHtml}
+        </div>
+        <div class="wh-section-actions">${selectBtn}</div>
+      </div>
+      ${bodyHtml}
+    </div>`;
+}
+
+// Rows view: compact table-style listing. Click a row to open detail modal,
+// or — in select mode — toggle the row's checkbox.
+function _whSectionRowsHTML(list, sectionKey, inSelectMode) {
+  const num = n => n ? Number(n).toLocaleString() : '—';
+  const headerCheckbox = inSelectMode
+    ? `<th class="wh-row-cb-col"></th>`
+    : '';
+  const rows = list.map(p => {
+    const k = String(p.id);
+    const checked = inSelectMode && _whSelected.has(k);
+    const cb = inSelectMode
+      ? `<td class="wh-row-cb-col"><div class="wh-row-checkbox${checked?' on':''}" onclick="event.stopPropagation();_whToggleSelect('${k}','${sectionKey}')">${checked?'✓':''}</div></td>`
+      : '';
+    const status = p.status === 'rented'
+      ? '<span class="wh-row-pill wh-row-pill-on">rented</span>'
+      : p.status === 'vacant'
+        ? '<span class="wh-row-pill wh-row-pill-warn">vacant</span>'
+        : `<span class="wh-row-pill">${h(p.status||'—')}</span>`;
+    const tenant = p.status === 'rented' && p.tenantName ? h(p.tenantName) : '—';
+    const rent   = p.annualRent ? 'AED ' + num(p.annualRent) : '—';
+    const lease  = p.leaseEnd ? fmtDate(p.leaseEnd) : '—';
+    const onClick = inSelectMode ? '' : `onclick="openDetailModal('${k}')"`;
+    return `
+      <tr class="wh-row${checked?' wh-row-selected':''}" data-id="${k}" ${onClick}>
+        ${cb}
+        <td>
+          <div class="wh-row-name">${h(p.name||'')}</div>
+          ${p.location ? `<div class="wh-row-loc">📍 ${h(p.location)}</div>` : ''}
+        </td>
+        <td>${num(p.size)}${p.size?' sqft':''}</td>
+        <td>${status}</td>
+        <td>${tenant}</td>
+        <td class="wh-row-rent">${rent}</td>
+        <td>${lease}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="wh-rows-wrap">
+      <table class="wh-rows">
+        <thead>
+          <tr>
+            ${headerCheckbox}
+            <th>Name</th>
+            <th>Size</th>
+            <th>Status</th>
+            <th>Tenant</th>
+            <th>Annual Rent</th>
+            <th>Lease End</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// Wrap a card with a click-capturing overlay when its section is in select
+// mode, so clicks toggle selection instead of opening the detail modal.
+function _wrapCardForSelect(p, sectionKey, inSelectMode) {
+  if (!inSelectMode) return cardHTML(p);
+  const k = String(p.id);
+  const checked = _whSelected.has(k);
+  return `
+    <div class="wh-card-wrap${checked ? ' wh-card-selected' : ''}" data-id="${k}">
+      ${cardHTML(p)}
+      <div class="wh-card-overlay" onclick="event.stopPropagation();_whToggleSelect('${k}','${sectionKey}')">
+        <div class="wh-card-checkbox">${checked ? '✓' : ''}</div>
+      </div>
+    </div>`;
+}
+
+function _whToggleSelectMode(sectionKey) {
+  if (_whSelectMode === sectionKey) {
+    _whSelectMode = null;
+    _whSelected.clear();
+  } else {
+    _whSelectMode = sectionKey;
+    _whSelected.clear();
+  }
+  refresh();
+}
+
+function _whCancelSelectMode() {
+  _whSelectMode = null;
+  _whSelected.clear();
+  refresh();
+}
+
+function _whToggleSelect(id, sectionKey) {
+  if (_whSelectMode !== sectionKey) return;   // defensive
+  const k = String(id);
+  if (_whSelected.has(k)) _whSelected.delete(k); else _whSelected.add(k);
+  const on = _whSelected.has(k);
+  // Cheap in-place update — avoid re-rendering the whole grid for one click.
+  const wrap = document.querySelector(`.wh-card-wrap[data-id="${k}"]`);
+  if (wrap) {
+    wrap.classList.toggle('wh-card-selected', on);
+    const cb = wrap.querySelector('.wh-card-checkbox');
+    if (cb) cb.textContent = on ? '✓' : '';
+  }
+  const row = document.querySelector(`.wh-row[data-id="${k}"]`);
+  if (row) {
+    row.classList.toggle('wh-row-selected', on);
+    const rcb = row.querySelector('.wh-row-checkbox');
+    if (rcb) {
+      rcb.classList.toggle('on', on);
+      rcb.textContent = on ? '✓' : '';
+    }
+  }
+  _renderWhActionBar();
+}
+
+function _renderWhActionBar() {
+  let bar = document.getElementById('whActionBar');
+  if (!_whSelectMode || _whSelected.size === 0) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'whActionBar';
+    bar.className = 'wh-action-bar';
+    document.body.appendChild(bar);
+  }
+  const n = _whSelected.size;
+  if (_whSelectMode === 'standalone') {
+    const compoundOpts = (_compoundsCache || [])
+      .map(c => `<option value="${c.id}">${h(c.name || '(unnamed)')}</option>`).join('');
+    bar.innerHTML = `
+      <div class="wh-bar-left"><span class="wh-bar-count">${n} selected</span></div>
+      <div class="wh-bar-actions">
+        <button class="btn-primary btn-sm" onclick="_whGroupIntoNewCompound()">🏭 Group into new compound</button>
+        ${compoundOpts ? `<select class="wh-bar-select" onchange="if(this.value){_whAddToExistingCompound(this.value);this.value='';}">
+          <option value="">+ Add to existing compound…</option>${compoundOpts}
+        </select>` : ''}
+        <button class="btn-sm btn-ghost" onclick="_whCancelSelectMode()">Cancel</button>
+      </div>`;
+  } else {
+    bar.innerHTML = `
+      <div class="wh-bar-left"><span class="wh-bar-count">${n} selected</span></div>
+      <div class="wh-bar-actions">
+        <button class="btn-sm btn-danger" onclick="_whRemoveFromCompound()">✕ Remove from compound</button>
+        <button class="btn-sm btn-ghost" onclick="_whCancelSelectMode()">Cancel</button>
+      </div>`;
+  }
+}
+
+async function _whGroupIntoNewCompound() {
+  if (_whSelectMode !== 'standalone' || _whSelected.size === 0) return;
+  const ids = [..._whSelected];
+  // Open the existing Compound modal in add mode, then pre-load the picker
+  // with our selection. The user fills in name/charges and clicks Save —
+  // saveCompound() handles the POST + linking + cache refresh.
+  await openCompoundModal();
+  _compoundSelectedIds = new Set(ids);
+  if (typeof _renderCompoundPropPicker === 'function') _renderCompoundPropPicker();
+  // Drop our local select state — the modal now owns the operation.
+  _whSelected.clear();
+  _whSelectMode = null;
+  const bar = document.getElementById('whActionBar');
+  if (bar) bar.remove();
+}
+
+async function _whAddToExistingCompound(compoundId) {
+  if (_whSelectMode !== 'standalone' || !_whSelected.size) return;
+  const idNum = parseInt(compoundId, 10);
+  if (!Number.isFinite(idNum)) return;
+  const props = loadProps();
+  const current = props.filter(p => String(p.compoundId) === String(idNum)).map(p => parseInt(p.id, 10)).filter(Number.isFinite);
+  const adding  = [..._whSelected].map(s => parseInt(s, 10)).filter(Number.isFinite);
+  const merged  = [...new Set([...current, ...adding])];
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const r = await fetch(`/api/compounds/${idNum}`, {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ propertyIds: merged }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast(`Added ${adding.length} to compound`, 'success');
+    _whSelectMode = null; _whSelected.clear();
+    await fetchCompounds(true);
+    if (typeof fetchProperties === 'function') { try { await fetchProperties(); } catch (_) {} }
+    refresh();
+  } catch (e) {
+    showToast('Add failed: ' + e.message, 'error');
+  }
+}
+
+async function _whRemoveFromCompound() {
+  if (!_whSelectMode || _whSelectMode === 'standalone' || !_whSelected.size) return;
+  const idNum = parseInt(_whSelectMode, 10);
+  if (!Number.isFinite(idNum)) return;
+  const n = _whSelected.size;
+  if (!confirm(`Remove ${n} ${n===1?'warehouse':'warehouses'} from this compound?\n\nThe compound itself stays — only the link is broken. Per-property land/service/license/civil-defense fields become editable again.`)) return;
+  const props = loadProps();
+  const current = props.filter(p => String(p.compoundId) === String(idNum)).map(p => parseInt(p.id, 10)).filter(Number.isFinite);
+  const removeSet = new Set([..._whSelected].map(s => parseInt(s, 10)));
+  const remaining = current.filter(id => !removeSet.has(id));
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const r = await fetch(`/api/compounds/${idNum}`, {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ propertyIds: remaining }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast(`Removed ${n} from compound`, 'success');
+    _whSelectMode = null; _whSelected.clear();
+    await fetchCompounds(true);
+    if (typeof fetchProperties === 'function') { try { await fetchProperties(); } catch (_) {} }
+    refresh();
+  } catch (e) {
+    showToast('Remove failed: ' + e.message, 'error');
+  }
 }
 
 // ─── Property Card ────────────────────────────────
@@ -11547,6 +11919,9 @@ async function saveCompound() {
       try { await fetchProperties(); } catch (_) {}
     }
     renderCompounds();
+    // The Warehouses tab groups by compound; rebuild it so newly-linked rows
+    // move out of "Standalone" into their new compound section.
+    if (typeof refresh === 'function') refresh();
   } catch (e) {
     showToast('Save failed: ' + e.message, 'error');
   }
