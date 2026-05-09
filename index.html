@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260509E">
+  <link rel="stylesheet" href="styles.css?v=20260509G">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -264,6 +264,10 @@
         <button class="nav-item" id="tabLogins" onclick="showTab('logins')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
           Logins
+        </button>
+        <button class="nav-item" id="tabPartners" onclick="showTab('partners')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Partners
         </button>
       </div>
     </nav>
@@ -1048,6 +1052,18 @@
                 <label>Annual Rent (AED) <span id="rentLabel" class="optional-label"></span></label>
                 <input type="number" id="propRent" placeholder="e.g. 180,000" min="0" oninput="recalcVat()">
               </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Partner-facing Rent (AED) <span class="optional-label">shown to linked partner accounts</span></label>
+                <input type="number" id="propPartnerRent" placeholder="e.g. 150,000" min="0">
+                <div style="font-size:11px;color:var(--text-3);margin-top:4px;">
+                  The rent value visible to partners linked to this property
+                  on the Partners tab. Independent of the Annual Rent above.
+                  Leave 0 to show no rent.
+                </div>
+              </div>
+              <div class="form-group"></div>
             </div>
             <div class="form-row">
               <div class="form-group">
@@ -2019,6 +2035,95 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
+  <!-- PARTNERS VIEW (admin)                  -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="partnersView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">🤝 Partners</h1>
+          <p class="tab-page-sub">Outside co-owners who can log in and see only the properties they have a stake in (with a partner-facing rent and no financials).</p>
+        </div>
+        <button class="btn-primary" onclick="openPartnerModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Partner
+        </button>
+      </div>
+
+      <div class="logins-section">
+        <div class="logins-section-title">Partner Accounts</div>
+        <div id="partnersList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PARTNER MODAL (add / edit + properties) -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="partnerModalOverlay">
+    <div class="modal" style="max-width:680px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">🤝</div>
+          <div>
+            <h2 id="partnerModalTitle">Add Partner</h2>
+            <p class="modal-subtitle">Account + the properties they have a stake in</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closePartnerModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="partnerId">
+        <div class="form-group">
+          <label>Full Name <span class="req">*</span></label>
+          <input type="text" id="partnerName" placeholder="e.g. Ahmed Al-Mansoori">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Username <span class="req">*</span></label>
+            <input type="text" id="partnerUsername" placeholder="lowercase, no spaces" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label>Password <span id="partnerPasswordReq" class="req">*</span></label>
+            <input type="text" id="partnerPassword" placeholder="min 6 characters" autocomplete="new-password">
+            <div class="form-hint" id="partnerPasswordHint" style="display:none;font-size:11px;color:var(--text-3);margin-top:4px;">Leave blank to keep the current password.</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="partnerEmail" placeholder="optional">
+          </div>
+          <div class="form-group">
+            <label>Phone</label>
+            <input type="tel" id="partnerPhone" placeholder="optional">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:18px;">
+          <label style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Properties &amp; Share %</span>
+            <button type="button" class="btn-ghost btn-sm" onclick="addPartnerLinkRow()">+ Add Property</button>
+          </label>
+          <div style="font-size:11px;color:var(--text-3);margin:4px 0 8px;">
+            Pick properties this partner is part of. Their share % is informational
+            (shown to them as <em>Your share</em>). The rent number they see is
+            <strong>Partner-facing Rent</strong> on each property — set on the property edit modal.
+          </div>
+          <div id="partnerLinks"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="partnerDeleteBtn" onclick="deletePartner()" style="display:none;margin-right:auto;color:#b91c1c;">Delete</button>
+        <button class="btn-secondary" onclick="closePartnerModal()">Cancel</button>
+        <button class="btn-primary" onclick="savePartner()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
   <!-- LOGIN MODAL (add / edit account)       -->
   <!-- ═══════════════════════════════════════ -->
   <div class="modal-overlay" id="loginModalOverlay">
@@ -2131,6 +2236,38 @@
       </button>
     </div>
   </header>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PARTNER HEADER (shown for partner login) -->
+  <!-- ═══════════════════════════════════════ -->
+  <header class="header agent-header" id="partnerHeader" style="display:none;">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-mark">ASG</div>
+        <div>
+          <span class="logo-title">Commercial Properties</span>
+          <span class="logo-sub" id="partnerHeaderName">Partner Portal</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn-logout" onclick="doLogout()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- PARTNER DASHBOARD (read-only property list) -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="partnerDashboard" style="display:none; padding:24px; max-width:1200px; margin:0 auto;">
+    <div style="margin-bottom:18px;">
+      <h1 style="margin:0 0 4px;font-size:24px;">Your Properties</h1>
+      <p style="margin:0;color:var(--text-3);font-size:13px;" id="partnerDashboardSub">Properties you have a stake in.</p>
+    </div>
+    <div id="partnerPropertiesList"></div>
+  </div>
 
   <!-- ═══════════════════════════════════════ -->
   <!-- AGENT DASHBOARD (sidebar + tabs)      -->
@@ -3503,6 +3640,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260509E"></script>
+  <script src="app.js?v=20260509G"></script>
 </body>
 </html>

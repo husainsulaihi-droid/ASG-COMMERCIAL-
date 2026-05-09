@@ -58,6 +58,71 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_login_audit_user    ON login_audit(user_id);
   `);
 
+  // Property ↔ partner-user link table. Each row says "partner-user U has
+  // a stake of share_pct in property P". Created lazily on every boot so
+  // the table exists for the new partner role even on long-lived databases.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS property_partners (
+      property_id  INTEGER NOT NULL,
+      user_id      INTEGER NOT NULL,
+      share_pct    REAL DEFAULT 0,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (property_id, user_id),
+      FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id)     REFERENCES users(id)      ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_property_partners_user ON property_partners(user_id);
+    CREATE INDEX IF NOT EXISTS idx_property_partners_prop ON property_partners(property_id);
+  `);
+
+  // One-time migration: the original users table has CHECK(role IN ('admin','agent'))
+  // which blocks role='partner'. SQLite can't ALTER a CHECK, so we rebuild the
+  // table when we detect the old shape. Runs once per database.
+  try {
+    const sqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+    if (sqlRow && /CHECK\s*\(\s*role\s+IN\s*\(\s*'admin'\s*,\s*'agent'\s*\)\s*\)/i.test(sqlRow.sql)) {
+      console.log('[db] Migrating users table to allow role=partner...');
+      db.exec(`
+        BEGIN;
+        CREATE TABLE users_new (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          username         TEXT    UNIQUE NOT NULL,
+          password_hash    TEXT    NOT NULL,
+          role             TEXT    NOT NULL CHECK(role IN ('admin', 'agent', 'partner')),
+          name             TEXT    NOT NULL,
+          email            TEXT,
+          phone            TEXT,
+          agent_role       TEXT,
+          permissions      TEXT,
+          availability     TEXT    DEFAULT 'available',
+          is_team_leader   INTEGER DEFAULT 0,
+          team_leader_id   INTEGER,
+          active           INTEGER DEFAULT 1,
+          created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (team_leader_id) REFERENCES users(id)
+        );
+        INSERT INTO users_new (id, username, password_hash, role, name, email, phone,
+                               agent_role, permissions, availability,
+                               is_team_leader, team_leader_id, active,
+                               created_at, updated_at)
+          SELECT id, username, password_hash, role, name, email, phone,
+                 agent_role, permissions, availability,
+                 is_team_leader, team_leader_id, active,
+                 created_at, updated_at FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_new RENAME TO users;
+        CREATE INDEX IF NOT EXISTS idx_users_username    ON users(username);
+        CREATE INDEX IF NOT EXISTS idx_users_role        ON users(role);
+        CREATE INDEX IF NOT EXISTS idx_users_team_leader ON users(team_leader_id);
+        COMMIT;
+      `);
+      console.log('[db] users role migration complete.');
+    }
+  } catch (e) {
+    console.warn('[db] users role migration check failed:', e.message);
+  }
+
   // Compounds: groups of warehouses sharing one set of land/service/license/civil-defense charges.
   db.exec(`
     CREATE TABLE IF NOT EXISTS compounds (
@@ -188,6 +253,10 @@ function initDb() {
   for (const [tbl, col, type] of [
     ['properties', 'management_fees', 'REAL'],
     ['properties', 'compound_id',     'INTEGER'],
+    // Rent figure shown to linked partner users. Independent of annual_rent
+    // (which stays admin-private). All partners on the property see the same
+    // value; their individual share % is on property_partners.share_pct.
+    ['properties', 'partner_rent',    'REAL DEFAULT 0'],
     ['contracts',  'term6',           'TEXT'],
     ['contracts',  'term7',           'TEXT'],
     ['contracts',  'term8',           'TEXT'],

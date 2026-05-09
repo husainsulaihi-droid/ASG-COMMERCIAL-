@@ -23,6 +23,10 @@ const folderExport = require('./property-folder-export');
 
 const UPLOAD_ROOT = process.env.ASG_UPLOAD_ROOT || '/var/asg/uploads';
 const ALLOWED_CATS = new Set(['ijari', 'ijari2', 'tenancy', 'affection', 'drec', 'license', 'tenantlicense', 'addendum', 'photo', 'other']);
+// Categories partners are NEVER allowed to see or download. The tenancy
+// contract and its addenda contain rent/term details we don't want partners
+// reading even though they can see the property metadata.
+const PARTNER_HIDDEN_CATS = new Set(['tenancy', 'addendum']);
 const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
 
 // Allow admin OR external_manager who owns the property the file is attached to.
@@ -47,6 +51,18 @@ function blockNonOwnerExternalManager(req, res, next) {
     if (!prop) return res.status(404).json({ error: 'property not found' });
     if (prop.added_by_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
   }
+  next();
+}
+
+// Partners may only access files attached to properties they're linked to via
+// property_partners. Returns 403 otherwise. Other roles pass through.
+function gatePartnerFile(req, res, next) {
+  if (!req.user || req.user.role !== 'partner') return next();
+  const propId = parseInt(req.params.id, 10);
+  const linked = getDb().prepare(
+    'SELECT 1 FROM property_partners WHERE property_id = ? AND user_id = ?'
+  ).get(propId, req.user.id);
+  if (!linked) return res.status(403).json({ error: 'Forbidden' });
   next();
 }
 
@@ -78,22 +94,30 @@ const upload = multer({ storage, limits: { fileSize: MAX_SIZE } });
 const router = express.Router({ mergeParams: true });
 
 // ─── List files for a property ────────────────────────────────────
-router.get('/', requireAuth, blockNonOwnerExternalManager, (req, res) => {
+router.get('/', requireAuth, blockNonOwnerExternalManager, gatePartnerFile, (req, res) => {
   const propId = parseInt(req.params.id, 10);
-  const rows = getDb().prepare(
+  let rows = getDb().prepare(
     'SELECT * FROM property_files WHERE property_id = ? ORDER BY uploaded_at DESC'
   ).all(propId);
+  if (req.user.role === 'partner') {
+    rows = rows.filter(r => !PARTNER_HIDDEN_CATS.has((r.category || '').toLowerCase()));
+  }
   res.json({ files: rows.map(rowToApi) });
 });
 
 // ─── Download a file (streams from disk) ──────────────────────────
-router.get('/:fileId/download', requireAuth, blockNonOwnerExternalManager, (req, res) => {
+router.get('/:fileId/download', requireAuth, blockNonOwnerExternalManager, gatePartnerFile, (req, res) => {
   const propId = parseInt(req.params.id, 10);
   const fileId = parseInt(req.params.fileId, 10);
   const row = getDb().prepare(
     'SELECT * FROM property_files WHERE id = ? AND property_id = ?'
   ).get(fileId, propId);
   if (!row || !row.local_path) return res.status(404).json({ error: 'file not found' });
+  // Belt + suspenders: even a linked partner can't pull a hidden-cat file
+  // by guessing its file id.
+  if (req.user.role === 'partner' && PARTNER_HIDDEN_CATS.has((row.category || '').toLowerCase())) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   let actualPath = row.local_path;
   // Fallback: if stored path is stale (e.g. property folder was renamed

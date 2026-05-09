@@ -13,13 +13,17 @@ function getCredentials() {
 
 function getSession()  { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; } }
 function isLoggedIn()  { return getSession() !== null; }
-function isAdmin()     { const s = getSession(); return s && s.type === 'admin'; }
-function isAgentUser() { const s = getSession(); return s && s.type === 'agent'; }
+function isAdmin()       { const s = getSession(); return s && s.type === 'admin'; }
+function isAgentUser()   { const s = getSession(); return s && s.type === 'agent'; }
+function isPartnerUser() { const s = getSession(); return s && s.type === 'partner'; }
 
 // Maps a backend user record into the shape the rest of the app expects in sessionStorage.
 function _sessionFromApiUser(u) {
   if (u.role === 'admin') {
     return { type: 'admin', userId: u.id, name: u.name };
+  }
+  if (u.role === 'partner') {
+    return { type: 'partner', userId: u.id, name: u.name };
   }
   return {
     type: 'agent',
@@ -730,8 +734,21 @@ async function boot() {
   if (!session) { location.reload(); return; }
 
   // Tag the body so CSS can scope mobile-specific rules per user type
-  document.body.classList.toggle('user-admin', session.type === 'admin');
-  document.body.classList.toggle('user-agent', session.type === 'agent');
+  document.body.classList.toggle('user-admin',   session.type === 'admin');
+  document.body.classList.toggle('user-agent',   session.type === 'agent');
+  document.body.classList.toggle('user-partner', session.type === 'partner');
+
+  if (session.type === 'partner') {
+    document.getElementById('adminHeader').style.display    = 'none';
+    document.getElementById('appBody').style.display        = 'none';
+    document.getElementById('agentHeader').style.display    = 'none';
+    document.getElementById('agentDashboard').style.display = 'none';
+    document.getElementById('partnerHeader').style.display    = '';
+    document.getElementById('partnerDashboard').style.display = '';
+    document.getElementById('partnerHeaderName').textContent = `Welcome, ${session.name || 'Partner'}`;
+    await renderPartnerDashboard();
+    return;
+  }
 
   if (session.type === 'admin') {
     document.getElementById('adminHeader').style.display    = '';
@@ -843,8 +860,9 @@ function showTab(tab) {
   $('mapView').style.display          = tab === 'map'          ? '' : 'none';
   $('financialsView').style.display   = tab === 'financials'   ? '' : 'none';
   const loginsEl = $('loginsView');     if (loginsEl) loginsEl.style.display = tab === 'logins' ? '' : 'none';
+  const partnersEl = $('partnersView'); if (partnersEl) partnersEl.style.display = tab === 'partners' ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins','Partners'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -866,6 +884,7 @@ function showTab(tab) {
   if (tab === 'map')          initMapTab();
   if (tab === 'financials')   renderFinancials();
   if (tab === 'logins')       renderLogins();
+  if (tab === 'partners')     renderPartners();
 }
 
 // ─── Contract Builder ─────────────────────────────
@@ -2095,6 +2114,7 @@ async function openEditModal(id) {
   $('propNumPartners').value = partnersArr.length || '';
   renderPartnerFields(partnersArr);
   $('propRent').value          = p.annualRent    || '';
+  if ($('propPartnerRent')) $('propPartnerRent').value = p.partnerRent || '';
   $('propServiceCharges').value = p.serviceCharges || '';
   $('propMaintenanceFees').value = p.maintenanceFees || '';
   $('propManagementFees').value  = p.managementFees  || '';
@@ -2574,6 +2594,7 @@ async function handleSave() {
     })(),
     status:        getRadio('propStatus')               || null,
     annualRent:    Number($('propRent').value)          || null,
+    partnerRent:   Number($('propPartnerRent')?.value)   || 0,
     serviceCharges:  Number($('propServiceCharges').value)  || null,
     maintenanceFees: Number($('propMaintenanceFees').value) || null,
     managementFees:  Number($('propManagementFees').value)  || null,
@@ -4743,7 +4764,7 @@ const AGENT_ROLES = {
 };
 function agentRoleMeta(role) { return AGENT_ROLES[role] || AGENT_ROLES.general; }
 
-function loadAgents()  { return _api.users.load().filter(u => u.role !== 'admin'); }
+function loadAgents()  { return _api.users.load().filter(u => u.role !== 'admin' && u.role !== 'partner'); }
 
 // Custom saveAgents: the generic factory would diff against the FULL users
 // cache (which includes admin) and try to DELETE admin every time we mutate
@@ -9574,6 +9595,7 @@ function _rerenderActiveTabFast() {
     case 'contract':     return typeof renderContracts === 'function' && renderContracts();
     case 'financials':   return typeof renderFinancials=== 'function' && renderFinancials();
     case 'logins':       return typeof renderLogins    === 'function' && renderLogins();
+    case 'partners':     return typeof renderPartners  === 'function' && renderPartners();
     // map: no live data — skip
   }
 }
@@ -11543,10 +11565,15 @@ async function renderLogins() {
 function renderLoginsAccounts() {
   const el = document.getElementById('loginsAccountsList');
   if (!el) return;
-  const users = (_api.users.load() || []).slice().sort((a, b) => {
-    if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
-    return (a.name || '').localeCompare(b.name || '');
-  });
+  // Partners live on their own tab — exclude them here so the Logins tab
+  // only shows admin + agent accounts.
+  const users = (_api.users.load() || [])
+    .filter(u => u.role !== 'partner')
+    .slice()
+    .sort((a, b) => {
+      if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
   if (!users.length) {
     el.innerHTML = `<div class="audit-empty">No accounts yet. Click <strong>Add Login</strong> above.</div>`;
     return;
@@ -11954,6 +11981,328 @@ async function deleteCompound() {
       try { await fetchProperties(); } catch (_) {}
     }
     if (typeof refresh === 'function') refresh();
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+// ─── PARTNERS (admin tab) ─────────────────────────────────────
+// Outside co-owners get a `partner` user account. They can log in and see
+// only the properties they're linked to (via property_partners), with the
+// admin-side annual_rent replaced by partner_rent and all other financials
+// stripped. Partner accounts are listed/managed from the Partners tab.
+
+let _partnersCache = [];
+
+async function fetchPartners() {
+  try {
+    const r = await fetch('/api/partners', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _partnersCache = data.partners || [];
+  } catch (e) {
+    console.warn('[partners] fetch failed', e);
+    _partnersCache = [];
+  }
+  return _partnersCache;
+}
+
+async function renderPartners() {
+  const el = document.getElementById('partnersList');
+  if (!el) return;
+  el.innerHTML = `<div class="audit-empty">Loading…</div>`;
+  await fetchPartners();
+  if (!_partnersCache.length) {
+    el.innerHTML = `<div class="audit-empty">No partner accounts yet. Click <strong>Add Partner</strong> above.</div>`;
+    return;
+  }
+  el.innerHTML = _partnersCache.map(p => {
+    const props = (p.properties || []);
+    const propLine = props.length
+      ? props.map(x => {
+          const share = x.sharePct ? ` · ${Number(x.sharePct).toFixed(2)}%` : '';
+          return `<span style="display:inline-block;background:var(--bg-2);border:1px solid var(--border-2);padding:2px 8px;border-radius:12px;margin:2px 4px 2px 0;font-size:12px;">${h(x.propertyName)}${share}</span>`;
+        }).join('')
+      : `<span style="color:var(--text-3);font-size:12px;">No properties linked</span>`;
+    return `
+      <div class="login-row" style="grid-template-columns: 1fr auto; gap:10px;">
+        <div>
+          <div class="login-name">${h(p.name || '')} <span style="color:var(--text-3);font-weight:400;font-size:12px;">@${h(p.username || '')}</span></div>
+          <div style="margin-top:6px;">${propLine}</div>
+        </div>
+        <div class="login-actions">
+          <button class="btn-sm btn-ghost" onclick="openPartnerModal('${p.id}')">✏️ Edit</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// In-modal state. Each row is { propertyId, sharePct }. Rows are rebuilt
+// from this array every time, so add/remove/reorder is straightforward.
+let _partnerEditingId = null;
+let _partnerLinks = [];
+
+function openPartnerModal(id) {
+  const p = id ? _partnersCache.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('partnerModalTitle').textContent = p ? 'Edit Partner' : 'Add Partner';
+  document.getElementById('partnerId').value       = p ? p.id : '';
+  document.getElementById('partnerName').value     = p ? (p.name || '') : '';
+  document.getElementById('partnerUsername').value = p ? (p.username || '') : '';
+  document.getElementById('partnerEmail').value    = p ? (p.email || '') : '';
+  document.getElementById('partnerPhone').value    = p ? (p.phone || '') : '';
+  document.getElementById('partnerPassword').value = '';
+  // Editing → password is optional. Adding → required.
+  const req     = document.getElementById('partnerPasswordReq');
+  const hint    = document.getElementById('partnerPasswordHint');
+  if (req)  req.style.display  = p ? 'none' : '';
+  if (hint) hint.style.display = p ? '' : 'none';
+  document.getElementById('partnerDeleteBtn').style.display = p ? '' : 'none';
+
+  _partnerEditingId = p ? p.id : null;
+  _partnerLinks = p
+    ? (p.properties || []).map(x => ({ propertyId: x.propertyId, sharePct: x.sharePct || 0 }))
+    : [];
+  _renderPartnerLinkRows();
+  document.getElementById('partnerModalOverlay').classList.add('active');
+}
+
+function closePartnerModal() {
+  document.getElementById('partnerModalOverlay').classList.remove('active');
+}
+
+function addPartnerLinkRow() {
+  _partnerLinks.push({ propertyId: '', sharePct: 0 });
+  _renderPartnerLinkRows();
+}
+
+function _removePartnerLinkRow(idx) {
+  _partnerLinks.splice(idx, 1);
+  _renderPartnerLinkRows();
+}
+
+// Capture the currently-typed values from the DOM before we re-render, so
+// edits-in-progress aren't lost when adding/removing a row.
+function _readPartnerLinkRowsFromDom() {
+  const rows = document.querySelectorAll('#partnerLinks .partner-link-row');
+  rows.forEach((row, i) => {
+    if (!_partnerLinks[i]) return;
+    const sel = row.querySelector('select.partner-link-prop');
+    const pct = row.querySelector('input.partner-link-share');
+    if (sel) _partnerLinks[i].propertyId = sel.value ? parseInt(sel.value, 10) : '';
+    if (pct) _partnerLinks[i].sharePct   = Number(pct.value) || 0;
+  });
+}
+
+function _renderPartnerLinkRows() {
+  const wrap = document.getElementById('partnerLinks');
+  if (!wrap) return;
+  const props = (typeof loadProps === 'function' ? loadProps() : []) || [];
+  const propsSorted = props.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  if (!_partnerLinks.length) {
+    wrap.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0;">No properties linked yet.</div>`;
+    return;
+  }
+  wrap.innerHTML = _partnerLinks.map((l, i) => {
+    const opts = ['<option value="">— Pick property —</option>']
+      .concat(propsSorted.map(p => {
+        const sel = String(p.id) === String(l.propertyId) ? ' selected' : '';
+        return `<option value="${p.id}"${sel}>${h(p.name || '')}${p.location ? ' · ' + h(p.location) : ''}</option>`;
+      })).join('');
+    return `
+      <div class="partner-link-row" style="display:grid;grid-template-columns:1fr 110px 32px;gap:8px;align-items:center;margin-bottom:6px;">
+        <select class="partner-link-prop" onchange="_readPartnerLinkRowsFromDom()">${opts}</select>
+        <input type="number" class="partner-link-share" min="0" max="100" step="0.01" placeholder="Share %" value="${l.sharePct || ''}">
+        <button type="button" class="btn-ghost btn-sm" onclick="_removePartnerLinkRow(${i})" title="Remove" style="padding:4px 8px;">✕</button>
+      </div>`;
+  }).join('');
+}
+
+async function savePartner() {
+  _readPartnerLinkRowsFromDom();
+  const id       = document.getElementById('partnerId').value;
+  const name     = document.getElementById('partnerName').value.trim();
+  const username = document.getElementById('partnerUsername').value.trim();
+  const password = document.getElementById('partnerPassword').value;
+  const email    = document.getElementById('partnerEmail').value.trim();
+  const phone    = document.getElementById('partnerPhone').value.trim();
+
+  if (!name)     { showToast('Full name is required', 'error'); return; }
+  if (!username) { showToast('Username is required', 'error'); return; }
+  if (!id && password.length < 6) {
+    showToast('Password must be at least 6 characters', 'error'); return;
+  }
+  if (id && password && password.length < 6) {
+    showToast('Password must be at least 6 characters (or leave blank to keep current)', 'error'); return;
+  }
+
+  // Drop empty rows (user picked '+ Add Property' but didn't pick a property).
+  const properties = _partnerLinks
+    .filter(l => l.propertyId)
+    .map(l => ({ propertyId: parseInt(l.propertyId, 10), sharePct: Number(l.sharePct) || 0 }));
+
+  const payload = { name, username, email: email || null, phone: phone || null, properties };
+  if (password) payload.password = password;
+
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const url    = id ? `/api/partners/${id}` : '/api/partners';
+    const method = id ? 'PATCH' : 'POST';
+    const r = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast(id ? 'Partner updated' : 'Partner created', 'success');
+    closePartnerModal();
+    await renderPartners();
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+// ─── PARTNER DASHBOARD (read-only view for partner-role logins) ───
+// Pulls the partner's properties from /api/partners/me/properties — that
+// endpoint already strips financial/tenant fields and swaps annualRent for
+// the partner-facing rent. We render a simple card list.
+async function renderPartnerDashboard() {
+  const list = document.getElementById('partnerPropertiesList');
+  const sub  = document.getElementById('partnerDashboardSub');
+  if (!list) return;
+  list.innerHTML = `<div style="color:var(--text-3);padding:24px;text-align:center;">Loading…</div>`;
+  let props = [];
+  try {
+    const r = await fetch('/api/partners/me/properties', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    props = data.properties || [];
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--danger);padding:24px;text-align:center;">Failed to load properties: ${h(e.message)}</div>`;
+    return;
+  }
+  if (sub) sub.textContent = `${props.length} ${props.length === 1 ? 'property' : 'properties'} you have a stake in.`;
+  if (!props.length) {
+    list.innerHTML = `<div style="color:var(--text-3);padding:48px;text-align:center;border:1px dashed var(--border-2);border-radius:8px;">No properties linked to your account yet. Please contact ASG.</div>`;
+    return;
+  }
+  const fmtAed = v => (Number(v) > 0)
+    ? `AED ${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+    : '—';
+  list.innerHTML = props.map(p => {
+    const status = p.status === 'rented'
+      ? `<span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:12px;font-size:12px;">Rented</span>`
+      : p.status === 'vacant'
+        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:12px;font-size:12px;">Vacant</span>`
+        : '';
+    const rentLine = (Number(p.annualRent) > 0)
+      ? `<div style="font-weight:600;">${fmtAed(p.annualRent)} <span style="font-weight:400;color:var(--text-3);font-size:12px;">/ year</span></div>`
+      : `<div style="color:var(--text-3);font-size:13px;">Rent not disclosed</div>`;
+    const shareLine = (Number(p.yourSharePct) > 0)
+      ? `<div style="font-size:12px;color:var(--text-3);margin-top:4px;">Your share: <strong>${Number(p.yourSharePct).toFixed(2)}%</strong></div>`
+      : '';
+    const areaLine = p.area
+      ? `<span style="color:var(--text-3);font-size:12px;">${Number(p.area).toLocaleString()} sq ft</span>`
+      : '';
+    return `
+      <div style="border:1px solid var(--border-2);border-radius:10px;padding:18px;margin-bottom:12px;background:var(--bg-1);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <div style="font-size:17px;font-weight:600;margin-bottom:4px;">${h(p.name || '')}</div>
+            <div style="color:var(--text-3);font-size:13px;">${h(p.location || '—')}</div>
+            <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              ${status}
+              ${areaLine}
+            </div>
+          </div>
+          <div style="text-align:right;min-width:160px;">
+            ${rentLine}
+            ${shareLine}
+          </div>
+        </div>
+        <div style="margin-top:14px;border-top:1px solid var(--border-2);padding-top:12px;">
+          <button class="btn-ghost btn-sm" onclick="_partnerToggleDocs(${p.id}, this)" style="font-size:12px;">
+            📁 Documents <span class="caret">▸</span>
+          </button>
+          <div id="partnerDocs-${p.id}" style="display:none;margin-top:10px;"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Map of partner-visible file categories → human labels. The backend already
+// excludes 'tenancy' and 'addendum' for partners — we don't even list them
+// here so they never render even if the server response has a stray row.
+const _PARTNER_CAT_LABELS = {
+  drec:          '🏷️ DREC / Title Deed',
+  ijari:         '📄 Owner Ijari',
+  ijari2:        '📄 Tenancy Ijari',
+  affection:     '🗺️ Affection Plan',
+  license:       '🪪 Trade License',
+  tenantlicense: '🪪 Tenant Trade License',
+  photo:         '📷 Photo',
+  other:         '📎 Other',
+};
+
+async function _partnerToggleDocs(propId, btn) {
+  const wrap = document.getElementById('partnerDocs-' + propId);
+  if (!wrap) return;
+  const open = wrap.style.display !== 'none';
+  if (open) {
+    wrap.style.display = 'none';
+    const c = btn.querySelector('.caret'); if (c) c.textContent = '▸';
+    return;
+  }
+  // Open + lazy-load on first click. Cache the fetched HTML on the wrapper.
+  const c = btn.querySelector('.caret'); if (c) c.textContent = '▾';
+  wrap.style.display = '';
+  if (wrap.dataset.loaded === '1') return;
+  wrap.innerHTML = `<div style="color:var(--text-3);font-size:12px;">Loading…</div>`;
+  try {
+    const r = await fetch(`/api/properties/${propId}/files`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const files = data.files || [];
+    if (!files.length) {
+      wrap.innerHTML = `<div style="color:var(--text-3);font-size:12px;">No documents available.</div>`;
+    } else {
+      wrap.innerHTML = files.map(f => {
+        const label = _PARTNER_CAT_LABELS[(f.category || '').toLowerCase()] || (f.category || 'Other');
+        const date  = f.uploadedAt ? new Date(f.uploadedAt + (f.uploadedAt.includes('T') ? '' : 'Z')).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '';
+        const size  = (Number(f.size) > 0) ? (Number(f.size) > 1048576 ? (Number(f.size)/1048576).toFixed(1) + ' MB' : Math.round(Number(f.size)/1024) + ' KB') : '';
+        const meta  = [date, size].filter(Boolean).join(' · ');
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid var(--border-2);border-radius:6px;margin-bottom:6px;font-size:13px;background:var(--bg-2);">
+            <div style="min-width:0;">
+              <div style="font-weight:500;">${label}</div>
+              <div style="color:var(--text-3);font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${h(f.filename || '')}${meta ? ' · ' + meta : ''}</div>
+            </div>
+            <a href="/api/properties/${propId}/files/${f.id}/download" target="_blank" rel="noopener" class="btn-ghost btn-sm" style="text-decoration:none;font-size:12px;flex-shrink:0;">Open</a>
+          </div>`;
+      }).join('');
+    }
+    wrap.dataset.loaded = '1';
+  } catch (e) {
+    wrap.innerHTML = `<div style="color:var(--danger);font-size:12px;">Failed to load: ${h(e.message)}</div>`;
+  }
+}
+
+async function deletePartner() {
+  const id = document.getElementById('partnerId').value;
+  if (!id) return;
+  if (!confirm('Delete this partner?\n\nTheir login will be disabled and all their property links removed. Properties themselves are unaffected.')) return;
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const r = await fetch(`/api/partners/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast('Partner deleted', 'success');
+    closePartnerModal();
+    await renderPartners();
   } catch (e) {
     showToast('Delete failed: ' + e.message, 'error');
   }

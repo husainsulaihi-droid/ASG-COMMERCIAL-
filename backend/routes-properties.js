@@ -49,7 +49,8 @@ const PROP_FIELDS = [
   'tenant_name', 'tenant_phone', 'tenant_email', 'reminder_days',
   'lease_start', 'lease_end', 'num_cheques', 'notes', 'coords',
   'holding_company', 'plot_no', 'ejari_number', 'deposit',
-  'compound_id'
+  'compound_id',
+  'partner_rent',
 ];
 
 const FINANCIAL_FIELDS = [
@@ -65,8 +66,20 @@ const TENANT_FIELDS = [
   'tenantName', 'tenantPhone', 'tenantEmail', 'leaseStart', 'leaseEnd', 'numCheques'
 ];
 
+// Cached per-request: which property IDs is this partner-user linked to?
+function partnerPropIds(userId) {
+  return new Set(
+    getDb().prepare('SELECT property_id FROM property_partners WHERE user_id = ?')
+      .all(userId).map(r => r.property_id)
+  );
+}
+
 function visibleByRole(rows, user) {
   if (user.role === 'admin') return rows;
+  if (user.role === 'partner') {
+    const ids = partnerPropIds(user.id);
+    return rows.filter(p => ids.has(p.id));
+  }
   const r = user.agentRole || 'general';
   if (r === 'external_manager')           return rows.filter(p => p.added_by_id === user.id);
   if (r === 'sales' || r === 'general')   return rows.filter(p => p.status === 'vacant');
@@ -83,9 +96,35 @@ function canSeeTenantInfo(user) {
       || user.agentRole === 'external_manager';
 }
 
-function shapeForViewer(row, user) {
+// Lightweight per-call cache of {property_id → share_pct} for the current
+// partner. Lets shapeForViewer attach "your share" without re-querying for
+// each property in a list response.
+function partnerSharesFor(userId) {
+  const rows = getDb().prepare(
+    'SELECT property_id, share_pct FROM property_partners WHERE user_id = ?'
+  ).all(userId);
+  const m = new Map();
+  for (const r of rows) m.set(r.property_id, r.share_pct);
+  return m;
+}
+
+function shapeForViewer(row, user, ctx = {}) {
   let api = rowToApi(row);
   if (user.role === 'admin') return api;
+  if (user.role === 'partner') {
+    // Strip everything financial AND tenant. Replace annualRent with the
+    // partner-facing rent (so existing UI bindings to annualRent show the
+    // right number). Drop partnerRent from output to avoid leaking the
+    // "real" partner-rent column name to the partner view.
+    const partnerRent = Number(api.partnerRent) || 0;
+    for (const f of FINANCIAL_FIELDS) delete api[f];
+    for (const f of TENANT_FIELDS)    delete api[f];
+    delete api.partnerRent;
+    api.annualRent = partnerRent;
+    const shares = ctx.partnerShares || partnerSharesFor(user.id);
+    if (shares.has(row.id)) api.yourSharePct = shares.get(row.id);
+    return api;
+  }
   // External managers manage their own portfolio — show full detail for rows
   // they added (visibleByRole already restricts them to those rows).
   if (user.agentRole === 'external_manager' && row.added_by_id === user.id) return api;
@@ -114,7 +153,8 @@ function canWrite(req, res, next) {
 router.get('/', requireAuth, (req, res) => {
   const all = getDb().prepare('SELECT * FROM properties ORDER BY created_at DESC').all();
   const visible = visibleByRole(all, req.user);
-  res.json({ properties: visible.map(p => shapeForViewer(p, req.user)) });
+  const ctx = req.user.role === 'partner' ? { partnerShares: partnerSharesFor(req.user.id) } : {};
+  res.json({ properties: visible.map(p => shapeForViewer(p, req.user, ctx)) });
 });
 
 router.get('/:id', requireAuth, (req, res) => {

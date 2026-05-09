@@ -68,7 +68,7 @@ router.post('/', requireAdmin, async (req, res) => {
   const username = String(b.username || '').trim();
   const password = String(b.password || '');
   const name     = String(b.name || '').trim();
-  const role     = b.role === 'admin' ? 'admin' : 'agent';
+  const role     = (b.role === 'admin' || b.role === 'partner') ? b.role : 'agent';
 
   if (!username) return res.status(400).json({ error: 'username required' });
   if (!name)     return res.status(400).json({ error: 'name required' });
@@ -132,7 +132,7 @@ router.patch('/:id', requireAdminOrSelf, async (req, res) => {
       updates.push('username = ?');
       values.push(String(b.username).trim());
     }
-    if (b.role != null)         { updates.push('role = ?');         values.push(b.role === 'admin' ? 'admin' : 'agent'); }
+    if (b.role != null)         { updates.push('role = ?');         values.push((b.role === 'admin' || b.role === 'partner') ? b.role : 'agent'); }
     if (b.agentRole != null)    { updates.push('agent_role = ?');   values.push(b.agentRole || null); }
     if (b.permissions != null)  { updates.push('permissions = ?');  values.push(JSON.stringify(b.permissions)); }
     if (b.isTeamLeader != null) { updates.push('is_team_leader = ?'); values.push(b.isTeamLeader ? 1 : 0); }
