@@ -78,46 +78,63 @@ function initDb() {
   // One-time migration: the original users table has CHECK(role IN ('admin','agent'))
   // which blocks role='partner'. SQLite can't ALTER a CHECK, so we rebuild the
   // table when we detect the old shape. Runs once per database.
+  //
+  // FK note: per https://www.sqlite.org/lang_altertable.html, schema-rebuild
+  // migrations must run with foreign_keys=OFF — otherwise DROP TABLE users
+  // fails because sessions / properties / etc. still reference users(id) via
+  // the old rowids. We turn FKs off only for the migration window, then run
+  // foreign_key_check before committing to make sure no row was orphaned.
   try {
     const sqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
     if (sqlRow && /CHECK\s*\(\s*role\s+IN\s*\(\s*'admin'\s*,\s*'agent'\s*\)\s*\)/i.test(sqlRow.sql)) {
       console.log('[db] Migrating users table to allow role=partner...');
-      db.exec(`
-        BEGIN;
-        CREATE TABLE users_new (
-          id               INTEGER PRIMARY KEY AUTOINCREMENT,
-          username         TEXT    UNIQUE NOT NULL,
-          password_hash    TEXT    NOT NULL,
-          role             TEXT    NOT NULL CHECK(role IN ('admin', 'agent', 'partner')),
-          name             TEXT    NOT NULL,
-          email            TEXT,
-          phone            TEXT,
-          agent_role       TEXT,
-          permissions      TEXT,
-          availability     TEXT    DEFAULT 'available',
-          is_team_leader   INTEGER DEFAULT 0,
-          team_leader_id   INTEGER,
-          active           INTEGER DEFAULT 1,
-          created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (team_leader_id) REFERENCES users(id)
-        );
-        INSERT INTO users_new (id, username, password_hash, role, name, email, phone,
-                               agent_role, permissions, availability,
-                               is_team_leader, team_leader_id, active,
-                               created_at, updated_at)
-          SELECT id, username, password_hash, role, name, email, phone,
-                 agent_role, permissions, availability,
-                 is_team_leader, team_leader_id, active,
-                 created_at, updated_at FROM users;
-        DROP TABLE users;
-        ALTER TABLE users_new RENAME TO users;
-        CREATE INDEX IF NOT EXISTS idx_users_username    ON users(username);
-        CREATE INDEX IF NOT EXISTS idx_users_role        ON users(role);
-        CREATE INDEX IF NOT EXISTS idx_users_team_leader ON users(team_leader_id);
-        COMMIT;
-      `);
-      console.log('[db] users role migration complete.');
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec(`
+          BEGIN;
+          CREATE TABLE users_new (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            username         TEXT    UNIQUE NOT NULL,
+            password_hash    TEXT    NOT NULL,
+            role             TEXT    NOT NULL CHECK(role IN ('admin', 'agent', 'partner')),
+            name             TEXT    NOT NULL,
+            email            TEXT,
+            phone            TEXT,
+            agent_role       TEXT,
+            permissions      TEXT,
+            availability     TEXT    DEFAULT 'available',
+            is_team_leader   INTEGER DEFAULT 0,
+            team_leader_id   INTEGER,
+            active           INTEGER DEFAULT 1,
+            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (team_leader_id) REFERENCES users(id)
+          );
+          INSERT INTO users_new (id, username, password_hash, role, name, email, phone,
+                                 agent_role, permissions, availability,
+                                 is_team_leader, team_leader_id, active,
+                                 created_at, updated_at)
+            SELECT id, username, password_hash, role, name, email, phone,
+                   agent_role, permissions, availability,
+                   is_team_leader, team_leader_id, active,
+                   created_at, updated_at FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+          CREATE INDEX IF NOT EXISTS idx_users_username    ON users(username);
+          CREATE INDEX IF NOT EXISTS idx_users_role        ON users(role);
+          CREATE INDEX IF NOT EXISTS idx_users_team_leader ON users(team_leader_id);
+          COMMIT;
+        `);
+        // Sanity check: every row that references users(id) must still resolve.
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length) {
+          console.warn('[db] users migration: FK violations after rebuild, rolling back:', violations);
+          throw new Error('foreign_key_check found ' + violations.length + ' violations');
+        }
+        console.log('[db] users role migration complete.');
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
     }
   } catch (e) {
     console.warn('[db] users role migration check failed:', e.message);

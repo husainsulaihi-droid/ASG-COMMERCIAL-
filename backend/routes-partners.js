@@ -95,67 +95,77 @@ router.get('/:id', requireAdmin, (req, res) => {
 });
 
 router.post('/', requireAdmin, async (req, res) => {
-  const b = req.body || {};
-  const username = String(b.username || '').trim();
-  const password = String(b.password || '');
-  const name     = String(b.name || '').trim();
+  try {
+    const b = req.body || {};
+    const username = String(b.username || '').trim();
+    const password = String(b.password || '');
+    const name     = String(b.name || '').trim();
 
-  if (!username) return res.status(400).json({ error: 'username required' });
-  if (!name)     return res.status(400).json({ error: 'name required' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  if (usernameTaken(username)) return res.status(409).json({ error: 'Username taken' });
+    if (!username) return res.status(400).json({ error: 'username required' });
+    if (!name)     return res.status(400).json({ error: 'name required' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (usernameTaken(username)) return res.status(409).json({ error: 'Username taken' });
 
-  const password_hash = await hashPassword(password);
-  const result = getDb().prepare(`
-    INSERT INTO users (username, password_hash, role, name, email, phone, active)
-    VALUES (?, ?, 'partner', ?, ?, ?, 1)
-  `).run(username, password_hash, name, b.email || null, b.phone || null);
+    const password_hash = await hashPassword(password);
+    const result = getDb().prepare(`
+      INSERT INTO users (username, password_hash, role, name, email, phone, active)
+      VALUES (?, ?, 'partner', ?, ?, ?, 1)
+    `).run(username, password_hash, name, b.email || null, b.phone || null);
 
-  if (Array.isArray(b.properties)) {
-    syncLinks(result.lastInsertRowid, b.properties);
+    if (Array.isArray(b.properties)) {
+      syncLinks(result.lastInsertRowid, b.properties);
+    }
+
+    const created = findUser(result.lastInsertRowid);
+    res.status(201).json({
+      partner: { ...sanitizeUser(created), properties: linksForPartner(created.id) },
+    });
+  } catch (e) {
+    console.error('[partners POST] failed:', e.message, e.stack);
+    res.status(500).json({ error: e.message || 'Internal error creating partner' });
   }
-
-  const created = findUser(result.lastInsertRowid);
-  res.status(201).json({
-    partner: { ...sanitizeUser(created), properties: linksForPartner(created.id) },
-  });
 });
 
 router.patch('/:id', requireAdmin, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const u = findUser(id);
-  if (!u || u.role !== 'partner') return res.status(404).json({ error: 'Partner not found' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    const u = findUser(id);
+    if (!u || u.role !== 'partner') return res.status(404).json({ error: 'Partner not found' });
 
-  const b = req.body || {};
-  const updates = [];
-  const values = [];
+    const b = req.body || {};
+    const updates = [];
+    const values = [];
 
-  if (b.name != null)     { updates.push('name = ?');     values.push(String(b.name).trim()); }
-  if (b.email != null)    { updates.push('email = ?');    values.push(b.email || null); }
-  if (b.phone != null)    { updates.push('phone = ?');    values.push(b.phone || null); }
-  if (b.username != null) {
-    const un = String(b.username).trim();
-    if (!un) return res.status(400).json({ error: 'username required' });
-    if (usernameTaken(un, id)) return res.status(409).json({ error: 'Username taken' });
-    updates.push('username = ?'); values.push(un);
+    if (b.name != null)     { updates.push('name = ?');     values.push(String(b.name).trim()); }
+    if (b.email != null)    { updates.push('email = ?');    values.push(b.email || null); }
+    if (b.phone != null)    { updates.push('phone = ?');    values.push(b.phone || null); }
+    if (b.username != null) {
+      const un = String(b.username).trim();
+      if (!un) return res.status(400).json({ error: 'username required' });
+      if (usernameTaken(un, id)) return res.status(409).json({ error: 'Username taken' });
+      updates.push('username = ?'); values.push(un);
+    }
+    if (b.password) {
+      if (String(b.password).length < 6)
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      updates.push('password_hash = ?');
+      values.push(await hashPassword(b.password));
+    }
+
+    if (updates.length) {
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+      getDb().prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    }
+
+    if (Array.isArray(b.properties)) syncLinks(id, b.properties);
+
+    const fresh = findUser(id);
+    res.json({ partner: { ...sanitizeUser(fresh), properties: linksForPartner(id) } });
+  } catch (e) {
+    console.error('[partners PATCH] failed:', e.message, e.stack);
+    res.status(500).json({ error: e.message || 'Internal error updating partner' });
   }
-  if (b.password) {
-    if (String(b.password).length < 6)
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    updates.push('password_hash = ?');
-    values.push(await hashPassword(b.password));
-  }
-
-  if (updates.length) {
-    updates.push('updated_at = CURRENT_TIMESTAMP');
-    values.push(id);
-    getDb().prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-  }
-
-  if (Array.isArray(b.properties)) syncLinks(id, b.properties);
-
-  const fresh = findUser(id);
-  res.json({ partner: { ...sanitizeUser(fresh), properties: linksForPartner(id) } });
 });
 
 router.delete('/:id', requireAdmin, (req, res) => {

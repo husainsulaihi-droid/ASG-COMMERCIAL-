@@ -185,3 +185,13 @@ function shutdown(signal) {
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// Don't let an unhandled async rejection take the whole server down — log it
+// loudly so we can fix the offending route, but keep serving other requests.
+// (Default Node behavior since v15 is to exit on unhandled rejections.)
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[server] UNHANDLED REJECTION:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[server] UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
+});
