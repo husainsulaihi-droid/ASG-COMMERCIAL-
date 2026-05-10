@@ -852,6 +852,13 @@ function showTab(tab) {
     if (bar) bar.remove();
   }
 
+  // Auto-lock Financials whenever the user navigates away — the PIN must be
+  // re-entered next time they come back. Skip the renderFinancials side
+  // effect of _finLock() since we're leaving anyway.
+  if (activeTab === 'financials' && tab !== 'financials') {
+    try { sessionStorage.removeItem(_FIN_UNLOCK_KEY); } catch (_) {}
+  }
+
   activeTab = tab;
   const propTabs = ['warehouses', 'offices', 'residential', 'land'];
   const isPropTab = propTabs.includes(tab);
