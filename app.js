@@ -714,7 +714,7 @@ function persistProps(arr) {
 function uid()             { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ─── State ────────────────────────────────────────
-let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null };
+let pendingFiles      = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null, floorplan: null };
 let pendingMedia      = [];           // new File objects to add
 let existingMediaMeta = [];           // { id, name, mime } already saved
 let removedMediaIds   = [];           // IDB ids to delete on save
@@ -2018,7 +2018,7 @@ function openAddModal() {
   $('modalTitle').textContent = 'Add New Property';
   $('saveBtnText').textContent = 'Save Property';
   $('propertyForm').reset();
-  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null, floorplan: null };
   pendingMedia = []; existingMediaMeta = []; removedMediaIds = [];
   resetFileZones();
   renderMediaPreviews();
@@ -2063,7 +2063,7 @@ async function openEditModal(id) {
   $('editPropertyId').value = id;
   $('modalTitle').textContent = 'Edit Property';
   $('saveBtnText').textContent = 'Save Changes';
-  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null };
+  pendingFiles = { drec: null, ijari: null, ijari2: null, affection: null, tenancy: null, license: null, tenantlicense: null, addendum: null, floorplan: null };
   pendingMedia = [];
   existingMediaMeta = p.media ? [...p.media] : [];
   removedMediaIds   = [];
@@ -2189,6 +2189,7 @@ async function openEditModal(id) {
   showExisting('license',       p.files?.license);
   showExisting('tenantlicense', p.files?.tenantlicense);
   showExisting('addendum',      p.files?.addendum);
+  showExisting('floorplan',     p.files?.floorplan);
 
   await renderMediaPreviews();
   $('propertyModalOverlay').classList.add('active');
@@ -2395,8 +2396,8 @@ function showExisting(key, info) {
 }
 
 function resetFileZones() {
-  const labels = { drec: 'Upload DREC / Title Deed', ijari: 'Upload Owner Ijari', ijari2: 'Upload Tenancy Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract' };
-  ['drec', 'ijari', 'ijari2', 'affection', 'tenancy'].forEach(key => {
+  const labels = { drec: 'Upload DREC / Title Deed', ijari: 'Upload Owner Ijari', ijari2: 'Upload Tenancy Ijari', affection: 'Upload Plan', tenancy: 'Upload Contract', floorplan: 'Upload Floor Plan' };
+  ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'floorplan'].forEach(key => {
     // Reset every <input type=file> tied to this key (e.g. fileIjari and fileIjari2)
     document.querySelectorAll(`.file-zone[data-doc-key="${key}"] input[type="file"]`).forEach(inp => { inp.value = ''; });
     document.querySelectorAll(`.file-zone[data-doc-key="${key}"]`).forEach(zone => {
@@ -2680,7 +2681,7 @@ async function handleSave() {
   // Previously each of these was sequential, which made saves with 10+
   // photos take 1-4 minutes. With Promise.all the total is bounded by
   // the slowest single upload, not the sum.
-  const docTasks = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license', 'tenantlicense', 'addendum']
+  const docTasks = ['drec', 'ijari', 'ijari2', 'affection', 'tenancy', 'license', 'tenantlicense', 'addendum', 'floorplan']
     .filter(k => pendingFiles[k])
     .map(k => apiUploadPropertyFile(savedId, k, pendingFiles[k])
       .catch(e => { console.warn(`upload ${k} failed:`, e); showToast(`Upload of ${k} failed`, 'error'); })
@@ -2793,6 +2794,7 @@ async function openDetailModal(id) {
           license:       byCat.license,
           tenantlicense: byCat.tenantlicense,
           addendum:      byCat.addendum,
+          floorplan:     byCat.floorplan,
         };
         p.media = byCat.photos || [];
       }
@@ -2964,6 +2966,7 @@ async function openDetailModal(id) {
           ${docTile('Trade License', p.files?.license)}
           ${docTile('Tenant License', p.files?.tenantlicense)}
           ${docTile('Addendum', p.files?.addendum)}
+          ${docTile('Floor Plan', p.files?.floorplan)}
         </div>
       </div>
 

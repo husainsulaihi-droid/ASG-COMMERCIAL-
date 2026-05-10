@@ -1236,7 +1236,16 @@
                 </div>
                 <div class="existing-file-tag" data-existing-key="addendum"></div>
               </div>
-              <div class="form-group"></div>
+              <div class="form-group">
+                <label>Floor Plan</label>
+                <div class="file-zone" data-doc-key="floorplan" onclick="document.getElementById('fileFloorplan').click()">
+                  <input type="file" id="fileFloorplan" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onchange="handleFile(event,'floorplan')">
+                  <div class="file-zone-icon">📐</div>
+                  <div class="file-zone-text">Upload Floor Plan</div>
+                  <div class="file-zone-sub">PDF, DOC, Image</div>
+                </div>
+                <div class="existing-file-tag" data-existing-key="floorplan"></div>
+              </div>
             </div>
             <div class="form-row">
               <div class="form-group full-width">
@@ -3639,6 +3648,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260510H"></script>
+  <script src="app.js?v=20260510I"></script>
 </body>
 </html>

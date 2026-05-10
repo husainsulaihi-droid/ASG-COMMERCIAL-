@@ -22,7 +22,7 @@ const driveUploader = require('./drive-uploader');
 const folderExport = require('./property-folder-export');
 
 const UPLOAD_ROOT = process.env.ASG_UPLOAD_ROOT || '/var/asg/uploads';
-const ALLOWED_CATS = new Set(['ijari', 'ijari2', 'tenancy', 'affection', 'drec', 'license', 'tenantlicense', 'addendum', 'photo', 'other']);
+const ALLOWED_CATS = new Set(['ijari', 'ijari2', 'tenancy', 'affection', 'floorplan', 'drec', 'license', 'tenantlicense', 'addendum', 'photo', 'other']);
 // Categories partners are NEVER allowed to see or download. The tenancy
 // contract and its addenda contain rent/term details we don't want partners
 // reading even though they can see the property metadata.
