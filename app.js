@@ -9361,6 +9361,28 @@ const _origBoot = boot;
 boot = async function() {
   const session = getSession();
   if (!session) { location.reload(); return; }
+
+  // Tag the body so CSS can scope per user type.
+  document.body.classList.toggle('user-admin',   session.type === 'admin');
+  document.body.classList.toggle('user-agent',   session.type === 'agent');
+  document.body.classList.toggle('user-partner', session.type === 'partner');
+
+  if (session.type === 'partner') {
+    document.getElementById('adminHeader').style.display      = 'none';
+    document.getElementById('appBody').style.display          = 'none';
+    document.getElementById('agentHeader').style.display      = 'none';
+    document.getElementById('agentDashboard').style.display   = 'none';
+    document.getElementById('partnerHeader').style.display    = '';
+    document.getElementById('partnerDashboard').style.display = '';
+    const nameEl = document.getElementById('partnerHeaderName');
+    if (nameEl) nameEl.textContent = `Welcome, ${session.name || 'Partner'}`;
+    if (typeof renderPartnerDashboard === 'function') {
+      try { await renderPartnerDashboard(); }
+      catch (e) { console.error('[boot] renderPartnerDashboard failed', e); }
+    }
+    return;
+  }
+
   if (session.type === 'admin') {
     document.getElementById('adminHeader').style.display    = '';
     document.getElementById('appBody').style.display        = '';
