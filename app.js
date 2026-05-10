@@ -7751,11 +7751,12 @@ function renderHome() {
   }).length;
 
   let agentCount = 0, disputeCount = 0, constructionCount = 0;
-  let proposalCount = 0;
+  let proposalCount = 0, partnerCount = 0;
   try { agentCount         = (loadAgents()                || []).length; } catch {}
   try { disputeCount       = (loadDisputes()              || []).filter(d => d.status !== 'closed').length; } catch {}
   try { constructionCount  = (loadConstructionProjects()  || []).filter(p => p.status !== 'completed').length; } catch {}
   try { proposalCount      = (loadProposals()             || []).length; } catch {}
+  try { partnerCount       = (typeof _partnersCache !== 'undefined' && Array.isArray(_partnersCache)) ? _partnersCache.length : 0; } catch {}
 
   // Tile definitions: tab id, label, group, badge count, accent colour, SVG path content
   const tiles = [
@@ -7774,7 +7775,7 @@ function renderHome() {
       svg:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>' },
     { tab:'contract',    label:'Contracts',        group:'Operations',                     color:'#7c3aed',
       svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
-    { tab:'payment',     label:'Rentals',          group:'Operations',                     color:'#059669',
+    { tab:'payment',     label:'Cheques',          group:'Operations',                     color:'#059669',
       svg:'<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
     { tab:'proposals',   label:'Proposals',        group:'Operations',  count:proposalCount,color:'#0891b2',
       svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
@@ -7788,6 +7789,10 @@ function renderHome() {
 
     { tab:'team',        label:'Team',             group:'Management',  count:agentCount,  color:'#0891b2',
       svg:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>' },
+    { tab:'partners',    label:'Partners',         group:'Management',  count:partnerCount,color:'#a855f7',
+      svg:'<circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/>' },
+    { tab:'documents',   label:'Documents',        group:'Management',                     color:'#475569',
+      svg:'<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>' },
     { tab:'financials',  label:'Financials',       group:'Management',                     color:'#c9a84c',
       svg:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>' },
   ];
@@ -9399,7 +9404,7 @@ boot = async function() {
     await openIDB();
     // Run all entity fetches in parallel so the slowest one no longer
     // blocks the rest. fetchProperties hydrates cheques internally.
-    await Promise.all([fetchProperties(), fetchAllEntities()]);
+    await Promise.all([fetchProperties(), fetchAllEntities(), fetchPartners().catch(() => null)]);
     autoImportPropertiesFromExcel();   // one-time cleanup of legacy import
     xlsyncBoot();                      // resume Excel auto-sync if previously connected
     showTab(activeTab || 'home');      // single re-render with fresh data
