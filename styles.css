@@ -5535,3 +5535,176 @@ body, button, input, select, textarea {
   .wh-action-bar { left: 16px; right: 16px; transform: none; bottom: 12px; }
 }
 
+/* ──────────────────────────────────────────────────────────
+ * MINIMALIST TRIAL — clean & airy override block
+ *   Append-only. To revert: delete from this banner to EOF,
+ *   OR `git checkout main` (this lives on branch minimalist-trial).
+ * ────────────────────────────────────────────────────────── */
+:root {
+  --bg:        #fafafa;
+  --border:    #ececec;
+  --text-2:    #6b6b6b;
+  --text-3:    #a8a8a8;
+  --shadow:    none;
+  --shadow-md: none;
+}
+
+body { font-size: 14.5px; }
+
+/* Header: flatter */
+.header { box-shadow: none !important; }
+.logo-mark { box-shadow: none !important; }
+
+/* Sidebar: barely-there border */
+.sidebar { border-right-color: rgba(255,255,255,.04) !important; }
+.nav-item { font-weight: 500 !important; }
+
+/* ── Home hero: replace dark gradient with airy white card ── */
+.home-hero {
+  background: #fff !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  color: var(--text) !important;
+  padding: 48px 44px !important;
+  margin-bottom: 28px !important;
+}
+.home-hero::before { display: none !important; }
+.home-greet {
+  color: var(--text-3) !important;
+  font-weight: 500 !important;
+  letter-spacing: 1.2px !important;
+  margin-bottom: 10px !important;
+}
+.home-welcome {
+  font-weight: 600 !important;
+  color: var(--text) !important;
+  font-size: 28px !important;
+}
+.home-welcome span {
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
+.home-tagline { color: var(--text-2) !important; }
+
+.home-hero-stats {
+  grid-template-columns: repeat(3, minmax(110px, 1fr)) !important;
+  gap: 12px !important;
+}
+.home-stat {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  padding: 16px 18px !important;
+}
+.home-stat-value {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+  font-size: 22px !important;
+}
+.home-stat-success { color: #059669 !important; }
+.home-stat-warn    { color: #d97706 !important; }
+.home-stat-label {
+  color: var(--text-3) !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.6px !important;
+  margin-top: 6px !important;
+}
+
+/* ── Tiles: flat monochrome with whitespace ── */
+.home-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)) !important;
+  gap: 12px !important;
+}
+.home-tile {
+  border-radius: 10px !important;
+  padding: 22px 22px !important;
+  border: 1px solid var(--border) !important;
+  background: #fff !important;
+  transition: border-color .15s ease, background .15s ease !important;
+}
+.home-tile::before { display: none !important; }
+.home-tile:hover {
+  box-shadow: none !important;
+  transform: none !important;
+  border-color: var(--gold) !important;
+  background: #fff !important;
+}
+.home-tile-icon {
+  background: var(--bg) !important;
+  color: var(--text-2) !important;
+  box-shadow: none !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 10px !important;
+}
+.home-tile-icon svg {
+  width: 22px !important;
+  height: 22px !important;
+}
+.home-tile-badge {
+  background: var(--text) !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+  box-shadow: none !important;
+  font-weight: 600 !important;
+}
+.home-tile-label {
+  font-weight: 500 !important;
+  font-size: 15px !important;
+  letter-spacing: 0 !important;
+}
+.home-tile-arrow { color: var(--text-3) !important; }
+.home-tile:hover .home-tile-arrow {
+  color: var(--text-2) !important;
+  transform: translateX(2px) !important;
+}
+
+/* ── Buttons: lighter ── */
+.btn-primary {
+  box-shadow: none !important;
+  font-weight: 500 !important;
+}
+.btn-primary:hover {
+  box-shadow: none !important;
+  transform: none !important;
+}
+.btn-ghost { font-weight: 500 !important; }
+.btn-delete { font-weight: 500 !important; }
+
+/* ── Modals: softer ── */
+.modal {
+  box-shadow: 0 10px 40px rgba(0,0,0,.10) !important;
+  border: 1px solid var(--border) !important;
+}
+.modal-overlay { background: rgba(17,17,17,.4) !important; }
+
+/* ── Property cards & stat cards: flat ── */
+.property-card {
+  box-shadow: none !important;
+  border: 1px solid var(--border) !important;
+}
+.property-card:hover {
+  box-shadow: none !important;
+  transform: none !important;
+  border-color: var(--gold) !important;
+}
+.stat-card { box-shadow: none !important; }
+.card-action-btn:hover { background: var(--bg) !important; color: var(--text) !important; }
+
+/* ── Form controls: flat ── */
+input, select, textarea { box-shadow: none !important; }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--text-2) !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.04) !important;
+}
+
+/* ── Headings: lighter weights ── */
+h1 { font-weight: 600 !important; }
+h2 { font-weight: 600 !important; }
+h3 { font-weight: 600 !important; }
+
+/* ── Section headers ── */
+.section-header { box-shadow: none !important; }
+/* ── End minimalist trial overrides ───────────────────────── */
+

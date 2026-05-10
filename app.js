@@ -7836,10 +7836,6 @@ function renderHome() {
             <div class="home-stat-value home-stat-warn">${vacant}</div>
             <div class="home-stat-label">Vacant</div>
           </div>
-          <div class="home-stat home-stat-wide">
-            <div class="home-stat-value home-stat-gold">AED ${totalRent.toLocaleString()}</div>
-            <div class="home-stat-label">Annual Rental Income</div>
-          </div>
         </div>
       </div>
 
@@ -7849,11 +7845,11 @@ function renderHome() {
           <div class="home-tiles">
             ${grp.items.map(t => `
               <button class="home-tile" onclick="showTab('${t.tab}')">
-                <div class="home-tile-icon" style="background:linear-gradient(135deg, ${t.color}, ${_lightenHex(t.color, 18)});">
+                <div class="home-tile-icon">
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     ${t.svg}
                   </svg>
-                  ${t.count != null && t.count > 0 ? `<span class="home-tile-badge" style="background:${t.color};">${t.count}</span>` : ''}
+                  ${t.count != null && t.count > 0 ? `<span class="home-tile-badge">${t.count}</span>` : ''}
                 </div>
                 <div class="home-tile-label">${t.label}</div>
                 <div class="home-tile-arrow">
