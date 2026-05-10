@@ -7836,10 +7836,6 @@ function renderHome() {
             <div class="home-stat-value home-stat-warn">${vacant}</div>
             <div class="home-stat-label">Vacant</div>
           </div>
-          <div class="home-stat home-stat-wide">
-            <div class="home-stat-value home-stat-gold">AED ${totalRent.toLocaleString()}</div>
-            <div class="home-stat-label">Annual Rental Income</div>
-          </div>
         </div>
       </div>
 
