@@ -746,6 +746,15 @@ async function boot() {
     document.getElementById('partnerHeader').style.display    = '';
     document.getElementById('partnerDashboard').style.display = '';
     document.getElementById('partnerHeaderName').textContent = `Welcome, ${session.name || 'Partner'}`;
+    // Detail modal markup is inside #appBody — reparent so it can render
+    // when appBody is display:none, and bind its handlers.
+    ['detailModalOverlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName !== 'BODY') {
+        document.body.appendChild(el);
+      }
+    });
+    if (typeof bindPropertyModalUI === 'function') bindPropertyModalUI();
     await renderPartnerDashboard();
     return;
   }
@@ -9377,6 +9386,15 @@ boot = async function() {
     document.getElementById('partnerDashboard').style.display = '';
     const nameEl = document.getElementById('partnerHeaderName');
     if (nameEl) nameEl.textContent = `Welcome, ${session.name || 'Partner'}`;
+    // Detail modal markup is inside #appBody — reparent so it can render
+    // when appBody is display:none, and bind its handlers.
+    ['detailModalOverlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName !== 'BODY') {
+        document.body.appendChild(el);
+      }
+    });
+    if (typeof bindPropertyModalUI === 'function') bindPropertyModalUI();
     if (typeof renderPartnerDashboard === 'function') {
       try { await renderPartnerDashboard(); }
       catch (e) { console.error('[boot] renderPartnerDashboard failed', e); }
@@ -9896,15 +9914,51 @@ function agentCardHTML(p) {
     </div>`;
 }
 
-// Override openDetailModal so agents see admin layout, but with rent/financial stripped
+// Override openDetailModal so agents/partners see admin layout, but with
+// rent/financial details stripped to match what their role can see.
 const _origOpenDetailModal = openDetailModal;
 openDetailModal = async function(id) {
-  // Admin path unchanged
+  if (isPartnerUser()) {
+    await _origOpenDetailModal(id);
+    applyPartnerDetailMode();
+    return;
+  }
   if (!isAgentUser()) return _origOpenDetailModal(id);
-  // Agent path: delegate then strip
   await _origOpenDetailModal(id);
   applyAgentDetailMode();
 };
+
+// Partner detail view: keep Property Details, Documents, Photos, Notes;
+// drop Financial Details, Tenant Information, Cheque Schedule, Vacant rent.
+// Hide admin footer buttons (edit/delete).
+function applyPartnerDetailMode() {
+  const body = document.getElementById('detailBody');
+  if (!body) return;
+  body.classList.add('detail-agent-mode');
+
+  body.querySelectorAll('.detail-block').forEach(blk => {
+    const head = blk.querySelector('.detail-block-header');
+    if (!head) return;
+    const txt = head.textContent || '';
+    if (txt.includes('Financial Details')) blk.remove();
+    if (txt.includes('Cheque Schedule'))   blk.remove();
+    if (txt.includes('Tenant Information')) blk.remove();
+    if (txt.includes('Vacant Property')) {
+      blk.querySelectorAll('.detail-row').forEach(row => {
+        const lab = row.querySelector('.dr-label');
+        if (!lab) return;
+        const t = lab.textContent || '';
+        if (t.includes('Asking Rent') || t.includes('Per Month')) row.remove();
+      });
+      if (!blk.querySelector('.detail-row')) blk.remove();
+    }
+  });
+
+  const delBtn  = document.getElementById('deletePropertyBtn');
+  const editBtn = document.getElementById('editFromDetailBtn');
+  if (delBtn)  delBtn.style.display  = 'none';
+  if (editBtn) editBtn.style.display = 'none';
+}
 
 function applyAgentDetailMode() {
   const body = document.getElementById('detailBody');
@@ -12190,7 +12244,12 @@ async function savePartner() {
 // ─── PARTNER DASHBOARD (read-only view for partner-role logins) ───
 // Pulls the partner's properties from /api/partners/me/properties — that
 // endpoint already strips financial/tenant fields and swaps annualRent for
-// the partner-facing rent. We render a simple card list.
+// the partner-facing rent. We render admin-style cards (without admin
+// chrome) so the partner gets the same visual context the team has.
+//
+// We also push the fetched rows into _propsCache so openDetailModal /
+// loadProps work the same way they do for admin (the detail modal is then
+// stripped further by applyPartnerDetailMode).
 async function renderPartnerDashboard() {
   const list = document.getElementById('partnerPropertiesList');
   const sub  = document.getElementById('partnerDashboardSub');
@@ -12201,115 +12260,92 @@ async function renderPartnerDashboard() {
     const r = await fetch('/api/partners/me/properties', { credentials: 'same-origin' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    props = data.properties || [];
+    props = (data.properties || []).map(p => ({
+      ...p,
+      id: p.id != null ? String(p.id) : p.id,
+    }));
   } catch (e) {
     list.innerHTML = `<div style="color:var(--danger);padding:24px;text-align:center;">Failed to load properties: ${h(e.message)}</div>`;
     return;
   }
+
+  // Push partner-scoped props into the shared cache so openDetailModal
+  // (which calls loadProps()) finds them. Safe — partner session never sees
+  // admin-fetched data because boot() doesn't call fetchProperties for them.
+  _propsCache = props;
+  try { _persistPropsCache(); } catch (_) {}
+
   if (sub) sub.textContent = `${props.length} ${props.length === 1 ? 'property' : 'properties'} you have a stake in.`;
   if (!props.length) {
     list.innerHTML = `<div style="color:var(--text-3);padding:48px;text-align:center;border:1px dashed var(--border-2);border-radius:8px;">No properties linked to your account yet. Please contact ASG.</div>`;
     return;
   }
-  const fmtAed = v => (Number(v) > 0)
-    ? `AED ${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-    : '—';
-  list.innerHTML = props.map(p => {
-    const status = p.status === 'rented'
-      ? `<span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:12px;font-size:12px;">Rented</span>`
-      : p.status === 'vacant'
-        ? `<span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:12px;font-size:12px;">Vacant</span>`
-        : '';
-    const rentLine = (Number(p.annualRent) > 0)
-      ? `<div style="font-weight:600;">${fmtAed(p.annualRent)} <span style="font-weight:400;color:var(--text-3);font-size:12px;">/ year</span></div>`
-      : `<div style="color:var(--text-3);font-size:13px;">Rent not disclosed</div>`;
-    const shareLine = (Number(p.yourSharePct) > 0)
-      ? `<div style="font-size:12px;color:var(--text-3);margin-top:4px;">Your share: <strong>${Number(p.yourSharePct).toFixed(2)}%</strong></div>`
-      : '';
-    const areaLine = p.area
-      ? `<span style="color:var(--text-3);font-size:12px;">${Number(p.area).toLocaleString()} sq ft</span>`
-      : '';
-    return `
-      <div style="border:1px solid var(--border-2);border-radius:10px;padding:18px;margin-bottom:12px;background:var(--bg-1);">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
-          <div style="flex:1;min-width:240px;">
-            <div style="font-size:17px;font-weight:600;margin-bottom:4px;">${h(p.name || '')}</div>
-            <div style="color:var(--text-3);font-size:13px;">${h(p.location || '—')}</div>
-            <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-              ${status}
-              ${areaLine}
-            </div>
-          </div>
-          <div style="text-align:right;min-width:160px;">
-            ${rentLine}
-            ${shareLine}
-          </div>
-        </div>
-        <div style="margin-top:14px;border-top:1px solid var(--border-2);padding-top:12px;">
-          <button class="btn-ghost btn-sm" onclick="_partnerToggleDocs(${p.id}, this)" style="font-size:12px;">
-            📁 Documents <span class="caret">▸</span>
-          </button>
-          <div id="partnerDocs-${p.id}" style="display:none;margin-top:10px;"></div>
-        </div>
-      </div>`;
-  }).join('');
+
+  list.innerHTML = `<div class="grid agent-inventory-grid">${props.map(partnerCardHTML).join('')}</div>`;
+  // Stream any photos from the API into the card preview strips.
+  if (typeof loadCardMedia === 'function') {
+    props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+  }
 }
 
-// Map of partner-visible file categories → human labels. The backend already
-// excludes 'tenancy' and 'addendum' for partners — we don't even list them
-// here so they never render even if the server response has a stray row.
-const _PARTNER_CAT_LABELS = {
-  drec:          '🏷️ DREC / Title Deed',
-  ijari:         '📄 Owner Ijari',
-  ijari2:        '📄 Tenancy Ijari',
-  affection:     '🗺️ Affection Plan',
-  license:       '🪪 Trade License',
-  tenantlicense: '🪪 Tenant Trade License',
-  photo:         '📷 Photo',
-  other:         '📎 Other',
-};
+// Admin-style card for a partner viewer. Mirrors the admin cardHTML structure
+// (so it shares the same look + photo strip + click-to-open behavior) but
+// drops anything financial/tenant-related and swaps in the partner-facing
+// rent + share.
+function partnerCardHTML(p) {
+  const typeIcon = p.type === 'warehouse' ? '🏭' : '🏢';
 
-async function _partnerToggleDocs(propId, btn) {
-  const wrap = document.getElementById('partnerDocs-' + propId);
-  if (!wrap) return;
-  const open = wrap.style.display !== 'none';
-  if (open) {
-    wrap.style.display = 'none';
-    const c = btn.querySelector('.caret'); if (c) c.textContent = '▸';
-    return;
-  }
-  // Open + lazy-load on first click. Cache the fetched HTML on the wrapper.
-  const c = btn.querySelector('.caret'); if (c) c.textContent = '▾';
-  wrap.style.display = '';
-  if (wrap.dataset.loaded === '1') return;
-  wrap.innerHTML = `<div style="color:var(--text-3);font-size:12px;">Loading…</div>`;
-  try {
-    const r = await fetch(`/api/properties/${propId}/files`, { credentials: 'same-origin' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    const files = data.files || [];
-    if (!files.length) {
-      wrap.innerHTML = `<div style="color:var(--text-3);font-size:12px;">No documents available.</div>`;
-    } else {
-      wrap.innerHTML = files.map(f => {
-        const label = _PARTNER_CAT_LABELS[(f.category || '').toLowerCase()] || (f.category || 'Other');
-        const date  = f.uploadedAt ? new Date(f.uploadedAt + (f.uploadedAt.includes('T') ? '' : 'Z')).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '';
-        const size  = (Number(f.size) > 0) ? (Number(f.size) > 1048576 ? (Number(f.size)/1048576).toFixed(1) + ' MB' : Math.round(Number(f.size)/1024) + ' KB') : '';
-        const meta  = [date, size].filter(Boolean).join(' · ');
-        return `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid var(--border-2);border-radius:6px;margin-bottom:6px;font-size:13px;background:var(--bg-2);">
-            <div style="min-width:0;">
-              <div style="font-weight:500;">${label}</div>
-              <div style="color:var(--text-3);font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${h(f.filename || '')}${meta ? ' · ' + meta : ''}</div>
-            </div>
-            <a href="/api/properties/${propId}/files/${f.id}/download" target="_blank" rel="noopener" class="btn-ghost btn-sm" style="text-decoration:none;font-size:12px;flex-shrink:0;">Open</a>
-          </div>`;
-      }).join('');
-    }
-    wrap.dataset.loaded = '1';
-  } catch (e) {
-    wrap.innerHTML = `<div style="color:var(--danger);font-size:12px;">Failed to load: ${h(e.message)}</div>`;
-  }
+  const mediaStrip = p.media?.length
+    ? `<div class="card-media-strip count-${Math.min(p.media.length, 3)}" id="strip-${p.id}">
+        ${p.media.slice(0, 3).map((m, i) =>
+          isVideo(m.mime)
+            ? `<video id="strip-${p.id}-${i}" muted preload="none"></video>`
+            : `<img id="strip-${p.id}-${i}" alt="" loading="lazy" decoding="async">`
+        ).join('')}
+        ${p.media.length > 3 ? `<div class="card-media-more">+${p.media.length - 3}</div>` : ''}
+      </div>`
+    : '';
+
+  const mapChip = p.mapLink
+    ? `<span class="chip chip-map" onclick="event.stopPropagation();window.open('${p.mapLink}','_blank')">🗺 Map</span>`
+    : '';
+
+  const shareChip = (Number(p.yourSharePct) > 0)
+    ? `<span class="chip chip-partnership">🤝 Your share ${Number(p.yourSharePct).toFixed(2)}%</span>`
+    : '';
+
+  const rentValue = Number(p.annualRent) > 0 ? 'AED ' + num(p.annualRent) : '—';
+  const rentLabel = p.status === 'vacant' ? 'Asking Rent' : 'Annual Rent';
+
+  return `
+    <div class="property-card${p.status === 'vacant' ? ' card-vacant' : ''}" onclick="openDetailModal('${p.id}')">
+      <div class="card-header">
+        <div class="card-header-top">
+          <div>
+            <div class="card-type-pill pill-${p.type}">${typeIcon} ${p.type}</div>
+            <div class="card-title">${h(p.name || '')}</div>
+            ${p.location ? `<div class="card-location">📍 ${h(p.location)}</div>` : ''}
+          </div>
+          ${p.status ? `<span class="card-status-badge status-${p.status}">${p.status}</span>` : ''}
+        </div>
+      </div>
+      ${mediaStrip}
+      <div class="card-body">
+        <div class="card-kpis card-kpis-agent">
+          <div class="kpi"><span class="kpi-label">Size</span><span class="kpi-value">${p.size ? num(p.size)+' sq ft' : '—'}</span></div>
+          <div class="kpi"><span class="kpi-label">${rentLabel}</span><span class="kpi-value gold">${rentValue}</span></div>
+          <div class="kpi"><span class="kpi-label">Your Share</span><span class="kpi-value">${Number(p.yourSharePct) > 0 ? Number(p.yourSharePct).toFixed(2)+'%' : '—'}</span></div>
+          <div class="kpi"><span class="kpi-label">Photos</span><span class="kpi-value">${(p.media?.length || 0)} file${(p.media?.length||0)===1?'':'s'}</span></div>
+        </div>
+        <div class="card-chips">
+          ${mapChip}
+          ${shareChip}
+          ${p.compound  === 'yes' ? `<span class="chip">🏠 Compound</span>` : ''}
+          ${p.mezzanine === 'yes' ? `<span class="chip">🏗️ Mezzanine</span>` : ''}
+          ${p.usage ? `<span class="chip">${h(_fmtUsage ? _fmtUsage(p.usage) : p.usage)}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
 }
 
 async function deletePartner() {
