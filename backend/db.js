@@ -75,6 +75,24 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_property_partners_prop ON property_partners(property_id);
   `);
 
+  // Property ↔ owner-user link table. Owner accounts are independent of
+  // partners — they're customers whose properties ASG manages. Each row
+  // links an owner-user to a property with an optional management note
+  // (e.g. fee/share field — kept generic as a number for now).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS property_owners (
+      property_id  INTEGER NOT NULL,
+      user_id      INTEGER NOT NULL,
+      share_pct    REAL DEFAULT 0,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (property_id, user_id),
+      FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id)     REFERENCES users(id)      ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_property_owners_user ON property_owners(user_id);
+    CREATE INDEX IF NOT EXISTS idx_property_owners_prop ON property_owners(property_id);
+  `);
+
   // One-time migration: the original users table has CHECK(role IN ('admin','agent'))
   // which blocks role='partner'. SQLite can't ALTER a CHECK, so we rebuild the
   // table when we detect the old shape. Runs once per database.
@@ -138,6 +156,65 @@ function initDb() {
     }
   } catch (e) {
     console.warn('[db] users role migration check failed:', e.message);
+  }
+
+  // Second-pass migration: when the table already allows partner but not
+  // owner, rebuild once more so role='owner' inserts pass the CHECK.
+  // Idempotent — only runs when the current CHECK clause exactly matches
+  // (admin, agent, partner).
+  try {
+    const sqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+    if (sqlRow && /CHECK\s*\(\s*role\s+IN\s*\(\s*'admin'\s*,\s*'agent'\s*,\s*'partner'\s*\)\s*\)/i.test(sqlRow.sql)) {
+      console.log('[db] Migrating users table to allow role=owner...');
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec(`
+          BEGIN;
+          CREATE TABLE users_new (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            username         TEXT    UNIQUE NOT NULL,
+            password_hash    TEXT    NOT NULL,
+            role             TEXT    NOT NULL CHECK(role IN ('admin', 'agent', 'partner', 'owner')),
+            name             TEXT    NOT NULL,
+            email            TEXT,
+            phone            TEXT,
+            agent_role       TEXT,
+            permissions      TEXT,
+            availability     TEXT    DEFAULT 'available',
+            is_team_leader   INTEGER DEFAULT 0,
+            team_leader_id   INTEGER,
+            active           INTEGER DEFAULT 1,
+            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (team_leader_id) REFERENCES users(id)
+          );
+          INSERT INTO users_new (id, username, password_hash, role, name, email, phone,
+                                 agent_role, permissions, availability,
+                                 is_team_leader, team_leader_id, active,
+                                 created_at, updated_at)
+            SELECT id, username, password_hash, role, name, email, phone,
+                   agent_role, permissions, availability,
+                   is_team_leader, team_leader_id, active,
+                   created_at, updated_at FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+          CREATE INDEX IF NOT EXISTS idx_users_username    ON users(username);
+          CREATE INDEX IF NOT EXISTS idx_users_role        ON users(role);
+          CREATE INDEX IF NOT EXISTS idx_users_team_leader ON users(team_leader_id);
+          COMMIT;
+        `);
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length) {
+          console.warn('[db] users owner migration: FK violations, rolling back:', violations);
+          throw new Error('foreign_key_check found ' + violations.length + ' violations');
+        }
+        console.log('[db] users owner role migration complete.');
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
+  } catch (e) {
+    console.warn('[db] users owner role migration failed:', e.message);
   }
 
   // Compounds: groups of warehouses sharing one set of land/service/license/civil-defense charges.

@@ -16,6 +16,7 @@ function isLoggedIn()  { return getSession() !== null; }
 function isAdmin()       { const s = getSession(); return s && s.type === 'admin'; }
 function isAgentUser()   { const s = getSession(); return s && s.type === 'agent'; }
 function isPartnerUser() { const s = getSession(); return s && s.type === 'partner'; }
+function isOwnerUser()   { const s = getSession(); return s && s.type === 'owner'; }
 
 // Maps a backend user record into the shape the rest of the app expects in sessionStorage.
 function _sessionFromApiUser(u) {
@@ -24,6 +25,9 @@ function _sessionFromApiUser(u) {
   }
   if (u.role === 'partner') {
     return { type: 'partner', userId: u.id, name: u.name };
+  }
+  if (u.role === 'owner') {
+    return { type: 'owner', userId: u.id, name: u.name };
   }
   return {
     type: 'agent',
@@ -737,6 +741,28 @@ async function boot() {
   document.body.classList.toggle('user-admin',   session.type === 'admin');
   document.body.classList.toggle('user-agent',   session.type === 'agent');
   document.body.classList.toggle('user-partner', session.type === 'partner');
+  document.body.classList.toggle('user-owner',   session.type === 'owner');
+
+  if (session.type === 'owner') {
+    document.getElementById('adminHeader').style.display    = 'none';
+    document.getElementById('appBody').style.display        = 'none';
+    document.getElementById('agentHeader').style.display    = 'none';
+    document.getElementById('agentDashboard').style.display = 'none';
+    document.getElementById('partnerHeader').style.display    = 'none';
+    document.getElementById('partnerDashboard').style.display = 'none';
+    document.getElementById('ownerHeader').style.display      = '';
+    document.getElementById('ownerDashboard').style.display   = '';
+    document.getElementById('ownerHeaderName').textContent = `Welcome, ${session.name || 'Owner'}`;
+    ['detailModalOverlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName !== 'BODY') {
+        document.body.appendChild(el);
+      }
+    });
+    if (typeof bindPropertyModalUI === 'function') bindPropertyModalUI();
+    await renderOwnerDashboard();
+    return;
+  }
 
   if (session.type === 'partner') {
     document.getElementById('adminHeader').style.display    = 'none';
@@ -9386,6 +9412,34 @@ boot = async function() {
   document.body.classList.toggle('user-admin',   session.type === 'admin');
   document.body.classList.toggle('user-agent',   session.type === 'agent');
   document.body.classList.toggle('user-partner', session.type === 'partner');
+  document.body.classList.toggle('user-owner',   session.type === 'owner');
+
+  if (session.type === 'owner') {
+    document.getElementById('adminHeader').style.display      = 'none';
+    document.getElementById('appBody').style.display          = 'none';
+    document.getElementById('agentHeader').style.display      = 'none';
+    document.getElementById('agentDashboard').style.display   = 'none';
+    document.getElementById('partnerHeader').style.display    = 'none';
+    document.getElementById('partnerDashboard').style.display = 'none';
+    const ownerHeader = document.getElementById('ownerHeader');
+    const ownerDash   = document.getElementById('ownerDashboard');
+    if (ownerHeader) ownerHeader.style.display = '';
+    if (ownerDash)   ownerDash.style.display   = '';
+    const nameElO = document.getElementById('ownerHeaderName');
+    if (nameElO) nameElO.textContent = `Welcome, ${session.name || 'Owner'}`;
+    ['detailModalOverlay'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName !== 'BODY') {
+        document.body.appendChild(el);
+      }
+    });
+    if (typeof bindPropertyModalUI === 'function') bindPropertyModalUI();
+    if (typeof renderOwnerDashboard === 'function') {
+      try { await renderOwnerDashboard(); }
+      catch (e) { console.error('[boot] renderOwnerDashboard failed', e); }
+    }
+    return;
+  }
 
   if (session.type === 'partner') {
     document.getElementById('adminHeader').style.display      = 'none';
@@ -9928,9 +9982,9 @@ function agentCardHTML(p) {
 // rent/financial details stripped to match what their role can see.
 const _origOpenDetailModal = openDetailModal;
 openDetailModal = async function(id) {
-  if (isPartnerUser()) {
+  if (isPartnerUser() || isOwnerUser()) {
     await _origOpenDetailModal(id);
-    applyPartnerDetailMode();
+    applyPartnerDetailMode();   // owners get the same strip rules as partners
     return;
   }
   if (!isAgentUser()) return _origOpenDetailModal(id);
@@ -11652,10 +11706,10 @@ async function renderLogins() {
 function renderLoginsAccounts() {
   const el = document.getElementById('loginsAccountsList');
   if (!el) return;
-  // Partners live on their own tab — exclude them here so the Logins tab
-  // only shows admin + agent accounts.
+  // Partners and owners live on their own tab — exclude them here so the
+  // Logins tab only shows admin + agent accounts.
   const users = (_api.users.load() || [])
-    .filter(u => u.role !== 'partner')
+    .filter(u => u.role !== 'partner' && u.role !== 'owner')
     .slice()
     .sort((a, b) => {
       if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
@@ -11680,6 +11734,7 @@ function renderLoginsAccounts() {
         <div>${statusEl}</div>
         <div style="font-size:12px;color:var(--text-3);">${created}</div>
         <div class="login-actions">
+          <button class="btn-sm btn-ghost" onclick="openLoginHistoryModal(${u.id}, '${(u.name || '').replace(/'/g, "\\'")}')">📜 History</button>
           <button class="btn-sm btn-ghost" onclick="openLoginModal('${u.id}')">✏️ Edit</button>
         </div>
       </div>`;
@@ -12144,6 +12199,8 @@ function openPartnerModal(id) {
   if (req)  req.style.display  = p ? 'none' : '';
   if (hint) hint.style.display = p ? '' : 'none';
   document.getElementById('partnerDeleteBtn').style.display = p ? '' : 'none';
+  const partnerHistBtn = document.getElementById('partnerHistoryBtn');
+  if (partnerHistBtn) partnerHistBtn.style.display = p ? '' : 'none';
 
   _partnerEditingId = p ? p.id : null;
   _partnerLinks = p
@@ -12375,6 +12432,323 @@ async function deletePartner() {
   } catch (e) {
     showToast('Delete failed: ' + e.message, 'error');
   }
+}
+
+// ═════════════════════════════════════════════════════════
+//  OWNERS — accounts for property owners under management
+// ═════════════════════════════════════════════════════════
+
+let _ownersCache = [];
+let _ownerEditingId = null;
+let _ownerLinks = [];
+let _partnersSubtab = 'partners';   // 'partners' | 'owners'
+
+function showPartnersSubtab(which) {
+  _partnersSubtab = which;
+  const partnersBtn = document.getElementById('segPartnersBtn');
+  const ownersBtn   = document.getElementById('segOwnersBtn');
+  const partnersSub = document.getElementById('partnersSubview');
+  const ownersSub   = document.getElementById('ownersSubview');
+  const title       = document.getElementById('partnersTabTitle');
+  const sub         = document.getElementById('partnersTabSub');
+  const addPartner  = document.getElementById('partnersAddBtn');
+  const addOwner    = document.getElementById('ownersAddBtn');
+  if (which === 'owners') {
+    if (partnersBtn) { partnersBtn.style.background = '#fff'; partnersBtn.style.color = 'var(--text)'; }
+    if (ownersBtn)   { ownersBtn.style.background = '#1c2b4a'; ownersBtn.style.color = '#fff'; }
+    if (partnersSub) partnersSub.style.display = 'none';
+    if (ownersSub)   ownersSub.style.display = '';
+    if (title) title.textContent = '🏠 Owners';
+    if (sub)   sub.textContent = 'Property owners whose management is handled by ASG. They log in to see their properties (financials stripped).';
+    if (addPartner) addPartner.style.display = 'none';
+    if (addOwner)   addOwner.style.display = '';
+    renderOwners();
+  } else {
+    if (partnersBtn) { partnersBtn.style.background = '#1c2b4a'; partnersBtn.style.color = '#fff'; }
+    if (ownersBtn)   { ownersBtn.style.background = '#fff'; ownersBtn.style.color = 'var(--text)'; }
+    if (partnersSub) partnersSub.style.display = '';
+    if (ownersSub)   ownersSub.style.display = 'none';
+    if (title) title.textContent = '🤝 Partners';
+    if (sub)   sub.textContent = 'Outside co-owners who can log in and see only the properties they have a stake in (with a partner-facing rent and no financials).';
+    if (addPartner) addPartner.style.display = '';
+    if (addOwner)   addOwner.style.display = 'none';
+  }
+}
+
+async function fetchOwners() {
+  try {
+    const r = await fetch('/api/owners', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _ownersCache = data.owners || [];
+  } catch (e) {
+    console.warn('[owners] fetch failed', e);
+    _ownersCache = [];
+  }
+  return _ownersCache;
+}
+
+async function renderOwners() {
+  const el = document.getElementById('ownersList');
+  if (!el) return;
+  el.innerHTML = `<div class="audit-empty">Loading…</div>`;
+  await fetchOwners();
+  if (!_ownersCache.length) {
+    el.innerHTML = `<div class="audit-empty">No owner accounts yet. Click <strong>Add Owner</strong> above.</div>`;
+    return;
+  }
+  el.innerHTML = _ownersCache.map(o => {
+    const props = (o.properties || []);
+    const propLine = props.length
+      ? props.map(x => {
+          const share = x.sharePct ? ` · ${Number(x.sharePct).toFixed(2)}%` : '';
+          return `<span style="display:inline-block;background:var(--bg-2);border:1px solid var(--border-2);padding:2px 8px;border-radius:12px;margin:2px 4px 2px 0;font-size:12px;">${h(x.propertyName)}${share}</span>`;
+        }).join('')
+      : `<span style="color:var(--text-3);font-size:12px;">No properties linked</span>`;
+    return `
+      <div class="login-row" style="grid-template-columns: 1fr auto; gap:10px;">
+        <div>
+          <div class="login-name">${h(o.name || '')} <span style="color:var(--text-3);font-weight:400;font-size:12px;">@${h(o.username || '')}</span></div>
+          <div style="margin-top:6px;">${propLine}</div>
+        </div>
+        <div class="login-actions">
+          <button class="btn-sm btn-ghost" onclick="openLoginHistoryModal(${o.id}, '${(o.name || '').replace(/'/g, "\\'")}')">📜 History</button>
+          <button class="btn-sm btn-ghost" onclick="openOwnerModal('${o.id}')">✏️ Edit</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openOwnerModal(id) {
+  const o = id ? _ownersCache.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('ownerModalTitle').textContent = o ? 'Edit Owner' : 'Add Owner';
+  document.getElementById('ownerId').value       = o ? o.id : '';
+  document.getElementById('ownerName').value     = o ? (o.name || '') : '';
+  document.getElementById('ownerUsername').value = o ? (o.username || '') : '';
+  document.getElementById('ownerEmail').value    = o ? (o.email || '') : '';
+  document.getElementById('ownerPhone').value    = o ? (o.phone || '') : '';
+  document.getElementById('ownerPassword').value = '';
+  const req     = document.getElementById('ownerPasswordReq');
+  const hint    = document.getElementById('ownerPasswordHint');
+  if (req)  req.style.display  = o ? 'none' : '';
+  if (hint) hint.style.display = o ? '' : 'none';
+  document.getElementById('ownerDeleteBtn').style.display = o ? '' : 'none';
+  const histBtn = document.getElementById('ownerHistoryBtn');
+  if (histBtn) histBtn.style.display = o ? '' : 'none';
+
+  _ownerEditingId = o ? o.id : null;
+  _ownerLinks = o
+    ? (o.properties || []).map(x => ({ propertyId: x.propertyId, sharePct: x.sharePct || 0 }))
+    : [];
+  _renderOwnerLinkRows();
+  document.getElementById('ownerModalOverlay').classList.add('active');
+}
+
+function closeOwnerModal() {
+  document.getElementById('ownerModalOverlay').classList.remove('active');
+}
+
+function addOwnerLinkRow() {
+  _readOwnerLinkRowsFromDom();
+  _ownerLinks.push({ propertyId: '', sharePct: 0 });
+  _renderOwnerLinkRows();
+}
+
+function _removeOwnerLinkRow(idx) {
+  _readOwnerLinkRowsFromDom();
+  _ownerLinks.splice(idx, 1);
+  _renderOwnerLinkRows();
+}
+
+function _readOwnerLinkRowsFromDom() {
+  const rows = document.querySelectorAll('#ownerLinks .owner-link-row');
+  rows.forEach((row, i) => {
+    if (!_ownerLinks[i]) return;
+    const sel = row.querySelector('select.owner-link-prop');
+    const pct = row.querySelector('input.owner-link-share');
+    if (sel) _ownerLinks[i].propertyId = sel.value ? parseInt(sel.value, 10) : '';
+    if (pct) _ownerLinks[i].sharePct   = Number(pct.value) || 0;
+  });
+}
+
+function _renderOwnerLinkRows() {
+  const wrap = document.getElementById('ownerLinks');
+  if (!wrap) return;
+  const props = (typeof loadProps === 'function' ? loadProps() : []) || [];
+  const propsSorted = props.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  if (!_ownerLinks.length) {
+    wrap.innerHTML = `<div style="font-size:12px;color:var(--text-3);padding:8px 0;">No properties linked yet.</div>`;
+    return;
+  }
+  wrap.innerHTML = _ownerLinks.map((l, i) => {
+    const opts = ['<option value="">— Pick property —</option>']
+      .concat(propsSorted.map(p => {
+        const sel = String(p.id) === String(l.propertyId) ? ' selected' : '';
+        return `<option value="${p.id}"${sel}>${h(p.name || '')}${p.location ? ' · ' + h(p.location) : ''}</option>`;
+      })).join('');
+    return `
+      <div class="owner-link-row" style="display:grid;grid-template-columns:1fr 110px 32px;gap:8px;align-items:center;margin-bottom:6px;">
+        <select class="owner-link-prop" onchange="_readOwnerLinkRowsFromDom()">${opts}</select>
+        <input type="number" class="owner-link-share" min="0" max="100" step="0.01" placeholder="Share %" value="${l.sharePct || ''}">
+        <button type="button" class="btn-ghost btn-sm" onclick="_removeOwnerLinkRow(${i})" title="Remove" style="padding:4px 8px;">✕</button>
+      </div>`;
+  }).join('');
+}
+
+async function saveOwner() {
+  _readOwnerLinkRowsFromDom();
+  const id       = document.getElementById('ownerId').value;
+  const name     = document.getElementById('ownerName').value.trim();
+  const username = document.getElementById('ownerUsername').value.trim();
+  const password = document.getElementById('ownerPassword').value;
+  const email    = document.getElementById('ownerEmail').value.trim();
+  const phone    = document.getElementById('ownerPhone').value.trim();
+
+  if (!name)     { showToast('Full name is required', 'error'); return; }
+  if (!username) { showToast('Username is required', 'error'); return; }
+  if (!id && password.length < 6) {
+    showToast('Password must be at least 6 characters', 'error'); return;
+  }
+  if (id && password && password.length < 6) {
+    showToast('Password must be at least 6 characters (or leave blank to keep current)', 'error'); return;
+  }
+
+  const properties = _ownerLinks
+    .filter(l => l.propertyId)
+    .map(l => ({ propertyId: parseInt(l.propertyId, 10), sharePct: Number(l.sharePct) || 0 }));
+
+  const payload = { name, username, email: email || null, phone: phone || null, properties };
+  if (password) payload.password = password;
+
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const url    = id ? `/api/owners/${id}` : '/api/owners';
+    const method = id ? 'PATCH' : 'POST';
+    const r = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast(id ? 'Owner updated' : 'Owner created', 'success');
+    closeOwnerModal();
+    await renderOwners();
+  } catch (e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteOwner() {
+  const id = document.getElementById('ownerId').value;
+  if (!id) return;
+  if (!confirm('Delete this owner?\n\nTheir login will be disabled and all property links removed. Properties themselves are unaffected.')) return;
+  try {
+    if (typeof markLocalMutation === 'function') markLocalMutation();
+    const r = await fetch(`/api/owners/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || 'HTTP ' + r.status);
+    }
+    showToast('Owner deleted', 'success');
+    closeOwnerModal();
+    await renderOwners();
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+// ─── OWNER DASHBOARD (read-only view for owner-role logins) ───
+async function renderOwnerDashboard() {
+  const list = document.getElementById('ownerPropertiesList');
+  const sub  = document.getElementById('ownerDashboardSub');
+  if (!list) return;
+  list.innerHTML = `<div style="color:var(--text-3);padding:24px;text-align:center;">Loading…</div>`;
+  let props = [];
+  try {
+    const r = await fetch('/api/owners/me/properties', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    props = (data.properties || []).map(p => ({
+      ...p,
+      id: p.id != null ? String(p.id) : p.id,
+    }));
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--danger);padding:24px;text-align:center;">Failed to load properties: ${h(e.message)}</div>`;
+    return;
+  }
+
+  _propsCache = props;
+  try { _persistPropsCache(); } catch (_) {}
+
+  if (sub) sub.textContent = `${props.length} ${props.length === 1 ? 'property' : 'properties'} under management with ASG.`;
+  if (!props.length) {
+    list.innerHTML = `<div style="color:var(--text-3);padding:48px;text-align:center;border:1px dashed var(--border-2);border-radius:8px;">No properties linked to your account yet. Please contact ASG.</div>`;
+    return;
+  }
+  // Reuse partnerCardHTML — same admin-style card with financials stripped.
+  list.innerHTML = `<div class="grid agent-inventory-grid">${props.map(partnerCardHTML).join('')}</div>`;
+  if (typeof loadCardMedia === 'function') {
+    props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+  }
+}
+
+// ─── LOGIN HISTORY MODAL (per-user, used everywhere) ───
+async function openLoginHistoryModal(userId, displayName) {
+  const ov  = document.getElementById('loginHistoryOverlay');
+  const body = document.getElementById('loginHistoryBody');
+  const sub  = document.getElementById('loginHistorySub');
+  if (!ov || !body) return;
+  if (sub) sub.textContent = displayName ? `Recent sign-in attempts for ${displayName}` : 'Recent sign-in attempts';
+  body.innerHTML = `<div style="color:var(--text-3);padding:24px;text-align:center;">Loading…</div>`;
+  ov.classList.add('active');
+
+  try {
+    const r = await fetch(`/api/audit/logins?userId=${encodeURIComponent(userId)}&limit=200`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const rows = data.logins || [];
+    if (!rows.length) {
+      body.innerHTML = `<div style="color:var(--text-3);padding:32px;text-align:center;">No login activity recorded yet.</div>`;
+      return;
+    }
+    const successCount = rows.filter(r => r.success).length;
+    const failCount    = rows.length - successCount;
+    const last         = rows[0];
+    const lastWhen     = last && last.createdAt ? new Date(last.createdAt + 'Z').toLocaleString('en-GB', {
+      day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'
+    }) : '—';
+    const summary = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:13px;">
+        <div style="background:#dcfce7;color:#166534;padding:6px 10px;border-radius:6px;"><strong>${successCount}</strong> successful</div>
+        ${failCount ? `<div style="background:#fee2e2;color:#991b1b;padding:6px 10px;border-radius:6px;"><strong>${failCount}</strong> failed</div>` : ''}
+        <div style="background:var(--bg-2);padding:6px 10px;border-radius:6px;color:var(--text-3);">Last: ${lastWhen}</div>
+      </div>`;
+    body.innerHTML = summary + rows.map(r => {
+      const ok = !!r.success;
+      const when = r.createdAt ? new Date(r.createdAt + 'Z').toLocaleString('en-GB', {
+        day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'
+      }) : '—';
+      const reason = ok ? '' : `<span style="color:var(--danger);font-size:11px;margin-left:6px;">${h(_loginReasonLabel(r.reason))}</span>`;
+      return `
+        <div class="audit-row">
+          <div class="${ok?'audit-status-ok':'audit-status-fail'}">${ok?'✓':'✕'}</div>
+          <div><span class="audit-username">${h(r.username || '—')}</span>${reason}</div>
+          <div class="audit-time">${when}</div>
+          <div class="audit-ip">${h(r.ip || '—')}</div>
+          <div class="audit-ua" title="${h(r.userAgent || '')}">${h(_loginUaShort(r.userAgent))}</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--danger);padding:24px;text-align:center;">Failed to load: ${h(e.message)}</div>`;
+  }
+}
+
+function closeLoginHistoryModal() {
+  const ov = document.getElementById('loginHistoryOverlay');
+  if (ov) ov.classList.remove('active');
 }
 
 // Populate the <select id="propCompoundId"> dropdown on the property modal.
