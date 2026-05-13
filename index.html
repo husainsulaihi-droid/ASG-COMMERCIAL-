@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260510D">
+  <link rel="stylesheet" href="styles.css?v=20260513A">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -725,7 +725,7 @@
             <p class="modal-subtitle">Only Name & Type are required — fill in the rest anytime</p>
           </div>
         </div>
-        <button class="modal-close" id="closePropertyModal" title="Close">
+        <button class="modal-close" id="closePropertyModal" title="Close" onclick="closeAddModal()">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -1274,8 +1274,8 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn-ghost" id="cancelPropertyBtn">Cancel</button>
-        <button class="btn-primary" id="savePropertyBtn">
+        <button class="btn-ghost" id="cancelPropertyBtn" onclick="closeAddModal()">Cancel</button>
+        <button class="btn-primary" id="savePropertyBtn" onclick="handleSave()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           <span id="saveBtnText">Save Property</span>
         </button>
@@ -3789,6 +3789,6 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260510J"></script>
+  <script src="app.js?v=20260513A"></script>
 </body>
 </html>

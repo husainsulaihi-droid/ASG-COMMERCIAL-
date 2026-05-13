@@ -2222,7 +2222,13 @@ async function openEditModal(id) {
 }
 
 function closeAddModal() {
-  $('propertyModalOverlay').classList.remove('active');
+  const ov = $('propertyModalOverlay');
+  if (ov) {
+    ov.classList.remove('active');
+    // externalManagerAddProperty sets inline display:flex; clear it so the
+    // overlay actually disappears (CSS `.active` rule alone isn't enough).
+    ov.style.display = '';
+  }
   if (typeof flushDeferredSseRefreshes === 'function') flushDeferredSseRefreshes();
 }
 
