@@ -4515,6 +4515,23 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
   </div>
 </div>
 
+<script>
+// Push the footer to the bottom of the LAST printed page. Without this, when
+// content fills 1.x pages, the footer lands mid-page-2 because the body flex
+// only reserves one page of min-height. We measure the rendered content and
+// snap min-height up to a whole-page multiple so flex fills page N exactly.
+window.__fitFooterToLastPage = function() {
+  var MM_TO_PX = 96 / 25.4;
+  var PRINTABLE_H = (297 - 20) * MM_TO_PX;  // A4 height − 10mm × 2 margins
+  var body = document.body;
+  body.style.minHeight = '0';                // clear before measuring
+  // Force layout flush
+  void body.offsetHeight;
+  var natural = body.scrollHeight;
+  var pages = Math.max(1, Math.ceil(natural / PRINTABLE_H));
+  body.style.minHeight = (pages * PRINTABLE_H) + 'px';
+};
+</script>
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -4522,12 +4539,16 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
   win.document.write(doc);
   win.document.close();
   win.focus();
+  const doPrint = () => {
+    try { win.__fitFooterToLastPage && win.__fitFooterToLastPage(); } catch (_) {}
+    win.print();
+  };
   setTimeout(() => {
     const imgs = win.document.images;
-    if (!imgs.length) { win.print(); return; }
+    if (!imgs.length) { doPrint(); return; }
     let loaded = 0;
     Array.from(imgs).forEach(img => {
-      const tick = () => { if (++loaded >= imgs.length) win.print(); };
+      const tick = () => { if (++loaded >= imgs.length) doPrint(); };
       if (img.complete) tick();
       else { img.onload = tick; img.onerror = tick; }
     });
