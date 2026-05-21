@@ -336,6 +336,7 @@ function makeApiList(endpoint, pluralKey) {
 const _api = {
   disputes:        makeApiList('/api/disputes',                'disputes'),
   construction:    makeApiList('/api/construction',            'projects'),
+  tasks:           makeApiList('/api/tasks',                   'tasks'),
   leads:           makeApiList('/api/leads',                   'leads'),
   pending:         makeApiList('/api/pending-properties',      'submissions'),
   announcements:   makeApiList('/api/announcements',           'announcements'),
@@ -798,6 +799,7 @@ async function boot() {
     renderNavCounts(loadProps());
     setInterval(() => renderAlerts(loadProps()), 60000);
     renderAlerts(loadProps());
+    if (typeof updateTasksBadge === 'function') updateTasksBadge();
     updateApiStatusUI();
     setupMetaAutoSync();
   } else if (session.type === 'agent') {
@@ -893,6 +895,7 @@ function showTab(tab) {
   $('dashboardView').style.display    = isPropTab             ? '' : 'none';
   $('remindersView').style.display    = tab === 'reminders'    ? '' : 'none';
   $('calendarView').style.display     = tab === 'calendar'     ? '' : 'none';
+  const tasksEl = $('tasksView');       if (tasksEl) tasksEl.style.display = tab === 'tasks' ? '' : 'none';
   $('contractView').style.display     = tab === 'contract'     ? '' : 'none';
   $('disputesView').style.display     = tab === 'disputes'     ? '' : 'none';
   $('constructionView').style.display = tab === 'construction' ? '' : 'none';
@@ -904,7 +907,7 @@ function showTab(tab) {
   const loginsEl = $('loginsView');     if (loginsEl) loginsEl.style.display = tab === 'logins' ? '' : 'none';
   const partnersEl = $('partnersView'); if (partnersEl) partnersEl.style.display = tab === 'partners' ? '' : 'none';
 
-  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins','Partners'].forEach(t => {
+  ['Home','Warehouses','Offices','Residential','Land','Reminders','Calendar','Tasks','Contract','Disputes','Construction','Payment','Proposals','Documents','Map','Financials','Logins','Partners'].forEach(t => {
     const el = $('tab' + t);
     if (el) el.classList.toggle('active', t.toLowerCase() === tab);
   });
@@ -917,6 +920,7 @@ function showTab(tab) {
   if (tab === 'home')         renderHome();
   if (tab === 'reminders')    renderReminders();
   if (tab === 'calendar')     renderCalendar();
+  if (tab === 'tasks')        { populateTaskPropertySelects(); renderTasks(); }
   if (tab === 'contract')     { initContractTab(); if (typeof renderContracts === 'function') renderContracts(); }
   if (tab === 'disputes')     renderDisputes();
   if (tab === 'construction') renderProjects();
@@ -4647,6 +4651,285 @@ function quickDeleteDispute(id) {
   persistDisputes(loadDisputes().filter(x => x.id !== id));
   renderDisputes();
   showToast('Dispute deleted', 'success');
+}
+
+
+// ═══════════════════════════════════════════════════
+// TASKS — prioritised to-do list, optionally per-property, with due-date reminders
+// ═══════════════════════════════════════════════════
+function loadTasks()       { return _api.tasks.load(); }
+function persistTasks(arr) { _api.tasks.save(arr); }
+
+const TASK_PRIORITY = {
+  urgent: { label: '🔥 Urgent', cls: 'badge-danger',  ord: 0 },
+  high:   { label: '⬆️ High',   cls: 'badge-warn',    ord: 1 },
+  medium: { label: '⏺ Medium',  cls: 'badge-blue',    ord: 2 },
+  low:    { label: '⬇️ Low',    cls: 'badge-gray',    ord: 3 },
+};
+const TASK_STATUS = {
+  pending:     { label: '📌 Pending',     cls: 'badge-gray'    },
+  in_progress: { label: '⚙️ In Progress', cls: 'badge-warn'    },
+  done:        { label: '✅ Done',        cls: 'badge-success' },
+};
+
+function _taskDueTag(due) {
+  if (!due) return '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d     = new Date(due + 'T00:00:00'); if (isNaN(d)) return '';
+  const days  = Math.ceil((d - today) / 86400000);
+  if (days < 0)  return `<span class="mini-badge badge-danger">Overdue ${Math.abs(days)}d</span>`;
+  if (days === 0) return `<span class="mini-badge badge-warn">Due today</span>`;
+  if (days === 1) return `<span class="mini-badge badge-warn">Due tomorrow</span>`;
+  if (days <= 7)  return `<span class="mini-badge badge-warn">Due in ${days}d</span>`;
+  return `<span class="mini-badge badge-gray">Due ${fmtDate(due)}</span>`;
+}
+
+function populateTaskPropertySelects() {
+  const props  = loadProps();
+  const opts   = '<option value="">— No property —</option>' +
+    props.map(p => `<option value="${p.id}">${h(p.name)} (${h(p.type||'')})</option>`).join('');
+  const modalSel = $('taskPropertyId');
+  if (modalSel) {
+    const current = modalSel.value;
+    modalSel.innerHTML = opts;
+    if (current) modalSel.value = current;
+  }
+  const filterSel = $('tasksFilterProperty');
+  if (filterSel) {
+    const current = filterSel.value;
+    filterSel.innerHTML = '<option value="">All properties</option>' +
+      props.map(p => `<option value="${p.id}">${h(p.name)}</option>`).join('');
+    if (current) filterSel.value = current;
+  }
+}
+
+function renderTasks() {
+  const list = $('tasksList');
+  const empty = $('tasksEmpty');
+  const statsBar = $('tasksStatsBar');
+  if (!list) return;
+  const all = loadTasks();
+  const filterStatus = $('tasksFilterStatus')?.value || 'open';
+  const filterPrio   = $('tasksFilterPriority')?.value || '';
+  const filterProp   = $('tasksFilterProperty')?.value || '';
+
+  // Stats — based on every task, not filtered
+  if (statsBar) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    let open = 0, overdue = 0, dueSoon = 0, done = 0;
+    for (const t of all) {
+      if (t.status === 'done') { done++; continue; }
+      open++;
+      if (t.dueDate) {
+        const d = new Date(t.dueDate + 'T00:00:00');
+        if (!isNaN(d)) {
+          const days = Math.ceil((d - today) / 86400000);
+          if (days < 0) overdue++;
+          else if (days <= 7) dueSoon++;
+        }
+      }
+    }
+    statsBar.innerHTML = all.length ? `
+      <div class="ts-chip ts-chip-blue">📋 ${open} Open</div>
+      ${overdue ? `<div class="ts-chip ts-chip-danger">🔴 ${overdue} Overdue</div>` : ''}
+      ${dueSoon ? `<div class="ts-chip ts-chip-warn">🟡 ${dueSoon} Due within 7 days</div>` : ''}
+      <div class="ts-chip ts-chip-success">✅ ${done} Done</div>
+    ` : '';
+  }
+
+  // Filter
+  let items = all.slice();
+  if (filterStatus === 'open')        items = items.filter(t => t.status !== 'done');
+  else if (filterStatus !== 'all')    items = items.filter(t => t.status === filterStatus);
+  if (filterPrio) items = items.filter(t => t.priority === filterPrio);
+  if (filterProp) items = items.filter(t => String(t.propertyId) === String(filterProp));
+
+  if (!items.length) {
+    list.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  // Tasks come back from the API already sorted (status, priority, due_date).
+  list.innerHTML = items.map(taskCardHTML).join('');
+}
+
+function taskCardHTML(t) {
+  const prio = TASK_PRIORITY[t.priority] || TASK_PRIORITY.medium;
+  const stat = TASK_STATUS[t.status]     || TASK_STATUS.pending;
+  const prop = t.propertyId ? loadProps().find(p => String(p.id) === String(t.propertyId)) : null;
+  const dueTag = _taskDueTag(t.dueDate);
+  const isDone = t.status === 'done';
+
+  return `
+    <div class="item-card task-card ${isDone ? 'task-done' : ''}" onclick="openTaskModal('${t.id}')">
+      <div class="ic-top">
+        <div class="ic-left" style="flex:1;min-width:0;">
+          <div class="ic-category">${prio.label}${dueTag ? ' &nbsp; ' + dueTag : ''}</div>
+          <div class="ic-title" style="${isDone ? 'text-decoration:line-through;color:var(--text-3);' : ''}">${h(t.title)}</div>
+          ${prop ? `<div class="ic-sub">🏢 ${h(prop.name)}</div>` : ''}
+        </div>
+        <span class="ic-badge ${stat.cls}">${stat.label}</span>
+      </div>
+      ${t.notes ? `<div class="ic-notes">${h(t.notes)}</div>` : ''}
+      <div class="ic-actions" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">
+        ${t.status !== 'done'
+          ? `<button class="btn-sm btn-ghost" onclick="toggleTaskDone('${t.id}', true)">✅ Mark Done</button>`
+          : `<button class="btn-sm btn-ghost" onclick="toggleTaskDone('${t.id}', false)">↩️ Re-open</button>`}
+        ${t.status === 'pending' ? `<button class="btn-sm btn-ghost" onclick="moveTaskInProgress('${t.id}')">⚙️ Start</button>` : ''}
+        <button class="btn-sm btn-ghost" onclick="openTaskModal('${t.id}')">✏️ Edit</button>
+      </div>
+    </div>`;
+}
+
+function openTaskModal(id) {
+  populateTaskPropertySelects();
+  const overlay = $('taskModalOverlay');
+  const title   = $('taskModalTitle');
+  const delBtn  = $('taskDeleteBtn');
+  if (id) {
+    const t = loadTasks().find(x => String(x.id) === String(id));
+    if (!t) return;
+    title.textContent = 'Edit Task';
+    delBtn.style.display = '';
+    $('taskId').value         = t.id;
+    $('taskTitle').value      = t.title || '';
+    $('taskPriority').value   = t.priority || 'medium';
+    $('taskStatus').value     = t.status || 'pending';
+    $('taskPropertyId').value = t.propertyId != null ? String(t.propertyId) : '';
+    $('taskDueDate').value    = t.dueDate || '';
+    $('taskNotes').value      = t.notes || '';
+  } else {
+    title.textContent = 'Add Task';
+    delBtn.style.display = 'none';
+    $('taskId').value         = '';
+    $('taskTitle').value      = '';
+    $('taskPriority').value   = 'medium';
+    $('taskStatus').value     = 'pending';
+    $('taskPropertyId').value = '';
+    // Default due date: 3 days from today
+    const d = new Date(); d.setDate(d.getDate() + 3);
+    $('taskDueDate').value    = d.toISOString().split('T')[0];
+    $('taskNotes').value      = '';
+  }
+  overlay.classList.add('active');
+  setTimeout(() => $('taskTitle')?.focus(), 50);
+}
+
+function closeTaskModal() {
+  $('taskModalOverlay').classList.remove('active');
+}
+
+async function saveTask() {
+  const title = ($('taskTitle').value || '').trim();
+  if (!title) { showToast('Task title is required', 'error'); return; }
+  const id        = $('taskId').value;
+  const propIdRaw = $('taskPropertyId').value;
+  const payload = {
+    title,
+    priority:   $('taskPriority').value || 'medium',
+    status:     $('taskStatus').value   || 'pending',
+    propertyId: propIdRaw ? Number(propIdRaw) : null,
+    dueDate:    $('taskDueDate').value  || null,
+    notes:      ($('taskNotes').value || '').trim() || null,
+  };
+  try {
+    markLocalMutation();
+    if (id) {
+      const r = await fetch('/api/tasks/' + encodeURIComponent(id), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error('Save failed (' + r.status + ')');
+    } else {
+      const r = await fetch('/api/tasks', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error('Create failed (' + r.status + ')');
+    }
+    await _api.tasks.fetch();
+    closeTaskModal();
+    renderTasks();
+    updateTasksBadge();
+    showToast(id ? 'Task updated' : 'Task added', 'success');
+  } catch (e) {
+    showToast(e.message || 'Could not save task', 'error');
+  }
+}
+
+async function deleteCurrentTask() {
+  const id = $('taskId').value;
+  if (!id) return;
+  if (!confirm('Delete this task? This cannot be undone.')) return;
+  try {
+    markLocalMutation();
+    const r = await fetch('/api/tasks/' + encodeURIComponent(id), {
+      method: 'DELETE', credentials: 'same-origin',
+    });
+    if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
+    await _api.tasks.fetch();
+    closeTaskModal();
+    renderTasks();
+    updateTasksBadge();
+    showToast('Task deleted', 'success');
+  } catch (e) {
+    showToast(e.message || 'Could not delete task', 'error');
+  }
+}
+
+async function toggleTaskDone(id, done) {
+  try {
+    markLocalMutation();
+    const r = await fetch('/api/tasks/' + encodeURIComponent(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: done ? 'done' : 'pending' }),
+    });
+    if (!r.ok) throw new Error('Update failed');
+    await _api.tasks.fetch();
+    renderTasks();
+    updateTasksBadge();
+  } catch (e) {
+    showToast(e.message || 'Could not update task', 'error');
+  }
+}
+
+async function moveTaskInProgress(id) {
+  try {
+    markLocalMutation();
+    const r = await fetch('/api/tasks/' + encodeURIComponent(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'in_progress' }),
+    });
+    if (!r.ok) throw new Error('Update failed');
+    await _api.tasks.fetch();
+    renderTasks();
+  } catch (e) {
+    showToast(e.message || 'Could not update task', 'error');
+  }
+}
+
+// Sidebar badge — count of open tasks that are overdue or due within 7 days.
+// Refreshed by SSE on every task mutation, and on every renderTasks call.
+function updateTasksBadge() {
+  const badge = $('tasksBadge');
+  if (!badge) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  let urgent = 0;
+  for (const t of loadTasks()) {
+    if (t.status === 'done' || !t.dueDate) continue;
+    const d = new Date(t.dueDate + 'T00:00:00');
+    if (isNaN(d)) continue;
+    const days = Math.ceil((d - today) / 86400000);
+    if (days <= 7) urgent++;
+  }
+  if (urgent > 0) { badge.textContent = String(urgent); badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
 }
 
 
@@ -9920,6 +10203,7 @@ const _ENTITY_TABS = {
   contracts:     new Set(['contract']),
   projects:      new Set(['construction']),
   disputes:      new Set(['disputes']),
+  tasks:         new Set(['tasks','home']),  // home tile shows the counter too
   users:         new Set(['logins']),
 };
 
@@ -9935,6 +10219,7 @@ async function _applySseRefresh(entity) {
       if (affectsActive) _rerenderActiveTabFast();
     } else if (_api[entity] && typeof _api[entity].fetch === 'function') {
       await _api[entity].fetch();
+      if (entity === 'tasks' && typeof updateTasksBadge === 'function') updateTasksBadge();
       if (affectsActive) _rerenderActiveTabFast();
     }
   } catch (e) {
@@ -9961,6 +10246,7 @@ function _rerenderActiveTabFast() {
     case 'land':         return typeof refresh         === 'function' && refresh();
     case 'reminders':    return typeof renderReminders === 'function' && renderReminders();
     case 'calendar':     return typeof renderCalendar  === 'function' && renderCalendar();
+    case 'tasks':        return typeof renderTasks     === 'function' && renderTasks();
     case 'disputes':     return typeof renderDisputes  === 'function' && renderDisputes();
     case 'construction': return typeof renderProjects  === 'function' && renderProjects();
     case 'payment':      return typeof renderPayments  === 'function' && renderPayments();

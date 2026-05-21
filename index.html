@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260517C">
+  <link rel="stylesheet" href="styles.css?v=20260521F">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -226,6 +226,11 @@
         <button class="nav-item" id="tabCalendar" onclick="showTab('calendar')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           Calendar
+        </button>
+        <button class="nav-item" id="tabTasks" onclick="showTab('tasks')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          Tasks
+          <span class="tab-badge" id="tasksBadge" style="display:none;">0</span>
         </button>
         <button class="nav-item" id="tabDisputes" onclick="showTab('disputes')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -1930,6 +1935,137 @@
         <button class="btn-primary" onclick="addCalendarEvent()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Add Event
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- TASKS TAB                              -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="tasksView" style="display:none;">
+    <div class="tab-page">
+      <div class="tab-page-header">
+        <div>
+          <h1 class="tab-page-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            Tasks
+          </h1>
+          <p class="tab-page-sub">Prioritised to-do list — per-property tasks, due dates, follow-up reminders</p>
+        </div>
+        <button class="btn-primary" onclick="openTaskModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Task
+        </button>
+      </div>
+      <!-- Filter bar -->
+      <div class="tasks-filterbar" id="tasksFilterBar">
+        <div class="tasks-filter-group">
+          <label>Status</label>
+          <select id="tasksFilterStatus" onchange="renderTasks()">
+            <option value="open">Open (pending + in-progress)</option>
+            <option value="all">All</option>
+            <option value="pending">Pending only</option>
+            <option value="in_progress">In Progress only</option>
+            <option value="done">Done only</option>
+          </select>
+        </div>
+        <div class="tasks-filter-group">
+          <label>Priority</label>
+          <select id="tasksFilterPriority" onchange="renderTasks()">
+            <option value="">All priorities</option>
+            <option value="urgent">🔥 Urgent</option>
+            <option value="high">⬆️ High</option>
+            <option value="medium">⏺ Medium</option>
+            <option value="low">⬇️ Low</option>
+          </select>
+        </div>
+        <div class="tasks-filter-group">
+          <label>Property</label>
+          <select id="tasksFilterProperty" onchange="renderTasks()">
+            <option value="">All properties</option>
+          </select>
+        </div>
+      </div>
+      <div id="tasksStatsBar" class="ts-statsbar"></div>
+      <div id="tasksList"></div>
+      <div id="tasksEmpty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3);">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:12px;opacity:.5;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        <div style="font-size:14px;font-weight:600;color:var(--text-2);">No tasks yet</div>
+        <div style="font-size:12px;margin-top:4px;">Click <strong>Add Task</strong> to capture your first follow-up.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- TASK MODAL (add / edit)                -->
+  <!-- ═══════════════════════════════════════ -->
+  <div class="modal-overlay" id="taskModalOverlay">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">✅</div>
+          <div>
+            <h2 id="taskModalTitle">Add Task</h2>
+            <p class="modal-subtitle">Capture a follow-up with priority, property link and due date</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeTaskModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="taskId">
+        <div class="form-group">
+          <label>Task Title <span class="req">*</span></label>
+          <input type="text" id="taskTitle" placeholder="e.g. Call lessor about cheque #3 clearance">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Priority <span class="req">*</span></label>
+            <select id="taskPriority">
+              <option value="urgent">🔥 Urgent</option>
+              <option value="high">⬆️ High</option>
+              <option value="medium" selected>⏺ Medium</option>
+              <option value="low">⬇️ Low</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="taskStatus">
+              <option value="pending" selected>📌 Pending</option>
+              <option value="in_progress">⚙️ In Progress</option>
+              <option value="done">✅ Done</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Linked Property
+              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — optional</span>
+            </label>
+            <select id="taskPropertyId">
+              <option value="">— No property —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Due Date / Follow-up
+              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — used for reminders</span>
+            </label>
+            <input type="date" id="taskDueDate">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notes / Details</label>
+          <textarea id="taskNotes" rows="4" placeholder="What needs to happen? Context, next steps, contact info…" style="resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeTaskModal()">Cancel</button>
+        <button class="btn-danger" id="taskDeleteBtn" onclick="deleteCurrentTask()" style="display:none;">Delete</button>
+        <button class="btn-primary" onclick="saveTask()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Save Task
         </button>
       </div>
     </div>
@@ -3965,6 +4101,6 @@
   <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
-  <script src="app.js?v=20260521E"></script>
+  <script src="app.js?v=20260521F"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ const ENTITY_MAP = [
   ['/api/pending-properties',  'pending'],
   ['/api/disputes',            'disputes'],
   ['/api/construction',        'construction'],
+  ['/api/tasks',               'tasks'],
   ['/api/calendar',            'calendar'],
   ['/api/users',               'users'],
 ];

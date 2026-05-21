@@ -93,6 +93,29 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_property_owners_prop ON property_owners(property_id);
   `);
 
+  // Tasks: a user-managed to-do list. Each task may reference a property.
+  // Idempotent so existing production DBs (which were created before tasks
+  // existed) pick up the table on boot.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      title        TEXT    NOT NULL,
+      property_id  INTEGER,
+      priority     TEXT    DEFAULT 'medium',
+      status       TEXT    DEFAULT 'pending',
+      due_date     DATE,
+      notes        TEXT,
+      assigned_to  INTEGER,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+      FOREIGN KEY (assigned_to) REFERENCES users(id)      ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_property ON tasks(property_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status   ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_due      ON tasks(due_date);
+  `);
+
   // One-time migration: the original users table has CHECK(role IN ('admin','agent'))
   // which blocks role='partner'. SQLite can't ALTER a CHECK, so we rebuild the
   // table when we detect the old shape. Runs once per database.

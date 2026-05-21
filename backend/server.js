@@ -37,6 +37,7 @@ const partnerRoutes       = require('./routes-partners');
 const ownerRoutes         = require('./routes-owners');
 const disputeRoutes       = require('./routes-disputes');
 const constructionRoutes  = require('./routes-construction');
+const taskRoutes          = require('./routes-tasks');
 const calendarRoutes      = require('./routes-calendar');
 const sse                 = require('./sse');
 const broadcastMiddleware = require('./broadcast-middleware');
@@ -164,6 +165,7 @@ app.use('/api/partners',            partnerRoutes);
 app.use('/api/owners',              ownerRoutes);
 app.use('/api/disputes',            disputeRoutes);
 app.use('/api/construction',        constructionRoutes);
+app.use('/api/tasks',               taskRoutes);
 app.use('/api/calendar',            calendarRoutes);
 
 // Catch-all for unknown /api/* routes

@@ -183,6 +183,25 @@ CREATE TABLE disputes (
 CREATE INDEX idx_disputes_property ON disputes(property_id);
 CREATE INDEX idx_disputes_status   ON disputes(status);
 
+-- ─── TASKS (to-do list, optionally tied to a property) ───────────
+CREATE TABLE tasks (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  title        TEXT    NOT NULL,
+  property_id  INTEGER,
+  priority     TEXT    DEFAULT 'medium',   -- low / medium / high / urgent
+  status       TEXT    DEFAULT 'pending',  -- pending / in_progress / done
+  due_date     DATE,
+  notes        TEXT,
+  assigned_to  INTEGER,
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+  FOREIGN KEY (assigned_to) REFERENCES users(id)      ON DELETE SET NULL
+);
+CREATE INDEX idx_tasks_property ON tasks(property_id);
+CREATE INDEX idx_tasks_status   ON tasks(status);
+CREATE INDEX idx_tasks_due      ON tasks(due_date);
+
 -- ─── CONSTRUCTION PROJECTS ──────────────────────────────────────
 CREATE TABLE construction_projects (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
