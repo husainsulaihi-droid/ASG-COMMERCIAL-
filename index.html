@@ -7,7 +7,7 @@
 
   <!-- PWA: install to home screen, launches full-screen with brand icon -->
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#111111">
+  <meta name="theme-color" content="#040d1f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ASG CRM">
@@ -15,10 +15,13 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260513A">
+  <link rel="stylesheet" href="styles.css?v=20260517C">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- ASG editorial typography: Fraunces (display serif) + IBM Plex Sans (body)
+       + IBM Plex Mono (prices / AED amounts). Inter retained as fallback. -->
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -214,7 +217,7 @@
       </div>
       <div class="nav-divider"></div>
       <div class="nav-group">
-        <div class="nav-group-label">Tools</div>
+        <div class="nav-group-label">Schedule</div>
         <button class="nav-item" id="tabReminders" onclick="showTab('reminders')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
           Reminders
@@ -224,10 +227,6 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           Calendar
         </button>
-        <button class="nav-item" id="tabContract" onclick="showTab('contract')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Contract
-        </button>
         <button class="nav-item" id="tabDisputes" onclick="showTab('disputes')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           Disputes
@@ -236,18 +235,6 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg>
           Construction
         </button>
-        <button class="nav-item" id="tabPayment" onclick="showTab('payment')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-          Cheques
-        </button>
-        <button class="nav-item" id="tabProposals" onclick="showTab('proposals')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Proposals
-        </button>
-        <button class="nav-item" id="tabDocuments" onclick="showTab('documents')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="16" y1="13" x2="10.5" y2="13"/></svg>
-          Documents
-        </button>
         <button class="nav-item" id="tabMap" onclick="showTab('map')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
           Map
@@ -255,18 +242,50 @@
       </div>
       <div class="nav-divider"></div>
       <div class="nav-group">
-        <div class="nav-group-label">Management</div>
+        <div class="nav-group-label">Docs</div>
+        <button class="nav-item" id="tabContract" onclick="showTab('contract')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Contract
+        </button>
+        <button class="nav-item" id="tabDocuments" onclick="showTab('documents')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="16" y1="13" x2="10.5" y2="13"/></svg>
+          Documents
+        </button>
+        <button class="nav-item" id="tabProposals" onclick="showTab('proposals')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Proposals
+        </button>
+        <button class="nav-item" id="tabStudio" onclick="showTab('studio')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 16l5-5 5 5 4-4 4 4"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>
+          Studio
+        </button>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-group">
+        <div class="nav-group-label">Finance</div>
         <button class="nav-item" id="tabFinancials" onclick="showTab('financials')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
           Financials
         </button>
-        <button class="nav-item" id="tabLogins" onclick="showTab('logins')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-          Logins
+        <button class="nav-item" id="tabLedgers" onclick="showTab('ledgers')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="8" x2="16" y2="8"/><line x1="9" y1="12" x2="16" y2="12"/></svg>
+          Ledgers
         </button>
+        <button class="nav-item" id="tabPayment" onclick="showTab('payment')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Cheques
+        </button>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-group">
+        <div class="nav-group-label">Access</div>
         <button class="nav-item" id="tabPartners" onclick="showTab('partners')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
           Partners
+        </button>
+        <button class="nav-item" id="tabLogins" onclick="showTab('logins')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          Logins
         </button>
       </div>
     </nav>
@@ -725,7 +744,7 @@
             <p class="modal-subtitle">Only Name & Type are required — fill in the rest anytime</p>
           </div>
         </div>
-        <button class="modal-close" id="closePropertyModal" title="Close" onclick="closeAddModal()">
+        <button class="modal-close" id="closePropertyModal" title="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -1274,8 +1293,8 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn-ghost" id="cancelPropertyBtn" onclick="closeAddModal()">Cancel</button>
-        <button class="btn-primary" id="savePropertyBtn" onclick="handleSave()">
+        <button class="btn-ghost" id="cancelPropertyBtn">Cancel</button>
+        <button class="btn-primary" id="savePropertyBtn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           <span id="saveBtnText">Save Property</span>
         </button>
@@ -1924,6 +1943,11 @@
   </div>
 
   <!-- ═══════════════════════════════════════ -->
+  <!-- LEDGERS TAB                             -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="ledgersView" style="display:none;"></div>
+
+  <!-- ═══════════════════════════════════════ -->
   <!-- COMPOUND MODAL (add / edit)            -->
   <!-- ═══════════════════════════════════════ -->
   <div class="modal-overlay" id="compoundModalOverlay">
@@ -2329,6 +2353,12 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════════════ -->
+  <!-- STUDIO VIEW — IG carousel + WhatsApp PDF -->
+  <!-- (markup is injected by JS on first visit) -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="studioView" style="display:none;"></div>
+
     </main>
   </div><!-- end .app-body -->
 
@@ -2479,6 +2509,10 @@
           My Submissions
           <span class="nav-count" id="agentSubCount"></span>
         </button>
+        <button class="nav-item" id="aTab-studio" onclick="showAgentTab('studio')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 16l5-5 5 5 4-4 4 4"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>
+          Studio
+        </button>
       </div>
       <div class="nav-divider"></div>
       <div class="nav-group">
@@ -2619,6 +2653,9 @@
         <div id="agentSubmissionsContent"></div>
       </div>
 
+      <!-- Tab: Studio — shared markup is injected here on visit -->
+      <div id="agentTabStudio" class="agent-tab-page" style="display:none;"></div>
+
     </main>
   </div>
 
@@ -2718,16 +2755,28 @@
 
       <div class="modal-body" style="overflow-y:auto;max-height:72vh;">
 
-        <!-- Section 01: Proposal Details -->
+        <!-- Section 00: Quick Setup -->
         <div class="form-section">
           <div class="section-header">
-            <span class="section-num">01</span>
-            <h3 class="section-title">Proposal Details</h3>
+            <span class="section-num">00</span>
+            <h3 class="section-title">Quick Setup</h3>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Proposal Title</label>
-              <input type="text" id="pslTitle" value="Rental Payment Structure Proposal">
+              <label>Select Property to Auto-fill</label>
+              <select id="pslPropLink" onchange="autofillProposalProperty()">
+                <option value="">— Select a property —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Proposal Date</label>
+              <input type="date" id="pslDate">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Valid Until</label>
+              <input type="date" id="pslValidUntil">
             </div>
             <div class="form-group">
               <label>Reference Number</label>
@@ -2736,102 +2785,187 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Proposal Date</label>
-              <input type="date" id="pslDate">
+              <label>Proposal Title</label>
+              <input type="text" id="pslTitle" value="Rental Payment Structure Proposal">
             </div>
-            <div class="form-group">
-              <label>Valid Until</label>
-              <input type="date" id="pslValidUntil">
-            </div>
-          </div>
-          <div class="form-row">
             <div class="form-group">
               <label>Prepared By</label>
               <input type="text" id="pslPreparedBy" value="ASG Commercial Properties">
             </div>
+          </div>
+        </div>
+
+        <!-- Section 01: Owner / Lessor -->
+        <div class="form-section">
+          <div class="dld-section-hdr">
+            <span>Owner / Lessor Information</span>
+            <span class="dld-section-ar">معلومات المالك / المؤجر</span>
+          </div>
+          <div class="form-row">
             <div class="form-group">
-              <label>Link to Property (auto-fill)</label>
-              <select id="pslPropLink" onchange="autofillProposalProperty()">
-                <option value="">— Select property to auto-fill —</option>
-              </select>
+              <label>Owner's Name — اسم المالك</label>
+              <input type="text" id="pslOwnerName" placeholder="Full legal name of property owner">
+            </div>
+            <div class="form-group">
+              <label>Lessor's Name — اسم المؤجر
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — receives the rent</span>
+              </label>
+              <input type="text" id="pslLessorName" placeholder="If different from owner (e.g. agent)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lessor's Emirates ID — الهوية الإماراتية للمؤجر</label>
+              <input type="text" id="pslLessorEid" placeholder="784-xxxx-xxxxxxx-x">
+            </div>
+            <div class="form-group">
+              <label>Lessor's Phone — رقم هاتف المؤجر</label>
+              <input type="tel" id="pslLessorPhone" placeholder="+971 xx xxx xxxx">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Lessor's Email — البريد الإلكتروني للمؤجر</label>
+              <input type="email" id="pslLessorEmail" placeholder="lessor@email.com">
+            </div>
+          </div>
+          <div class="dld-company-row">
+            <span class="dld-company-label">Incase of a Company — في حال كانت شركة</span>
+            <div class="form-row" style="margin-top:8px;">
+              <div class="form-group">
+                <label>License No. — رقم الرخصة</label>
+                <input type="text" id="pslLessorLicense" placeholder="Trade license number">
+              </div>
+              <div class="form-group">
+                <label>Licensing Authority — سلطة الترخيص</label>
+                <input type="text" id="pslLessorAuthority" placeholder="e.g. DED, DMCC, DAFZA">
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Section 02: Property Information -->
+        <!-- Section 02: Tenant / Client -->
         <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">02</span>
-            <h3 class="section-title">Property Information</h3>
+          <div class="dld-section-hdr">
+            <span>Tenant / Client Information</span>
+            <span class="dld-section-ar">معلومات المستأجر</span>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Property Name</label>
+              <label>Tenant's Name <span class="req">*</span> — اسم المستأجر</label>
+              <input type="text" id="pslClientName" placeholder="Full legal name">
+            </div>
+            <div class="form-group">
+              <label>Tenant's Emirates ID — الهوية الإماراتية للمستأجر</label>
+              <input type="text" id="pslClientEid" placeholder="784-xxxx-xxxxxxx-x">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenant's Phone — رقم هاتف المستأجر</label>
+              <input type="tel" id="pslClientPhone" placeholder="+971 xx xxx xxxx">
+            </div>
+            <div class="form-group">
+              <label>Tenant's Email — البريد الإلكتروني للمستأجر</label>
+              <input type="email" id="pslClientEmail" placeholder="tenant@email.com">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Company Name — اسم الشركة</label>
+              <input type="text" id="pslClientCompany" placeholder="Trade / company name (optional)">
+            </div>
+          </div>
+          <div class="dld-company-row">
+            <span class="dld-company-label">Incase of a Company — في حال كانت شركة</span>
+            <div class="form-row" style="margin-top:8px;">
+              <div class="form-group">
+                <label>License No. — رقم الرخصة</label>
+                <input type="text" id="pslClientLicense" placeholder="Trade license number">
+              </div>
+              <div class="form-group">
+                <label>Licensing Authority — سلطة الترخيص</label>
+                <input type="text" id="pslClientAuthority" placeholder="e.g. DED, DMCC, DAFZA">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 03: Property -->
+        <div class="form-section">
+          <div class="dld-section-hdr">
+            <span>Property Information</span>
+            <span class="dld-section-ar">معلومات العقار</span>
+          </div>
+          <div class="form-group">
+            <label>Property Usage — استخدام العقار</label>
+            <div class="dld-usage-row">
+              <label class="dld-radio-lbl"><input type="radio" name="psl_usage" id="pslUsageResidential" value="Residential"> Residential سكني</label>
+              <label class="dld-radio-lbl"><input type="radio" name="psl_usage" id="pslUsageCommercial" value="Commercial" checked> Commercial تجاري</label>
+              <label class="dld-radio-lbl"><input type="radio" name="psl_usage" id="pslUsageIndustrial" value="Industrial"> Industrial صناعي</label>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Plot No. — رقم الأرض</label>
+              <input type="text" id="pslPlotNo" placeholder="Plot number">
+            </div>
+            <div class="form-group">
+              <label>Makani No. — رقم مكاني</label>
+              <input type="text" id="pslMakaniNo" placeholder="10-digit Makani number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Building / Property Name — اسم المبنى</label>
               <input type="text" id="pslPropName" placeholder="e.g. Warehouse Unit 5, Al Quoz">
             </div>
             <div class="form-group">
-              <label>Property Type</label>
+              <label>Property No. — رقم العقار</label>
+              <input type="text" id="pslPropertyNo" placeholder="Unit / property number">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Property Type — نوع الوحدة</label>
               <select id="pslPropType">
                 <option value="">Select type</option>
                 <option value="Warehouse">🏭 Warehouse</option>
                 <option value="Office">🏢 Office</option>
                 <option value="Residential">🏠 Residential</option>
+                <option value="Land">🏞️ Land</option>
               </select>
             </div>
+            <div class="form-group">
+              <label>Property Area (sq ft) — مساحة العقار</label>
+              <input type="number" id="pslPropSize" placeholder="Area in square feet" min="0">
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Location / Address</label>
-              <input type="text" id="pslPropLocation" placeholder="e.g. Al Quoz Industrial 3, Dubai">
+              <label>Location — الموقع</label>
+              <input type="text" id="pslPropLocation" placeholder="Full address / area name">
             </div>
             <div class="form-group">
-              <label>Built-up Size (sq ft)</label>
-              <input type="number" id="pslPropSize" placeholder="e.g. 5,000" min="0">
+              <label>Premises No. (DEWA) — رقم المبنى (ديوا)</label>
+              <input type="text" id="pslDewaNo" placeholder="DEWA premises number">
             </div>
           </div>
         </div>
 
-        <!-- Section 03: Client Details -->
+        <!-- Section 04: Rental Terms -->
         <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">03</span>
-            <h3 class="section-title">Client / Tenant Details</h3>
+          <div class="dld-section-hdr">
+            <span>Rental Terms</span>
+            <span class="dld-section-ar">شروط الإيجار</span>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Client Full Name</label>
-              <input type="text" id="pslClientName" placeholder="Full name">
-            </div>
-            <div class="form-group">
-              <label>Company Name</label>
-              <input type="text" id="pslClientCompany" placeholder="Company or trade name">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Phone Number</label>
-              <input type="tel" id="pslClientPhone" placeholder="+971 XX XXX XXXX">
-            </div>
-            <div class="form-group">
-              <label>Email Address</label>
-              <input type="email" id="pslClientEmail" placeholder="client@email.com">
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 04: Rental & Lessor -->
-        <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">04</span>
-            <h3 class="section-title">Rental &amp; Lessor</h3>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Annual Rent (AED) <span class="req">*</span></label>
+              <label>Annual Rent (AED) <span class="req">*</span> — الإيجار السنوي</label>
               <input type="number" id="pslAnnualRent" placeholder="e.g. 150,000" min="0" oninput="recalcProposalCheques();recalcAdditionalCharges();updateProposalGrandTotal()">
             </div>
             <div class="form-group">
-              <label>Number of Cheques</label>
+              <label>Number of Cheques — عدد الشيكات</label>
               <select id="pslNumCheques" onchange="renderProposalCheques();recalcProposalCheques()">
                 <option value="1">1 cheque (annual)</option>
                 <option value="2">2 cheques</option>
@@ -2844,27 +2978,21 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Tenancy Start Date</label>
+              <label>Tenancy Start Date — من</label>
               <input type="date" id="pslTenancyFrom" oninput="autoSpacePslChequeDates()">
             </div>
             <div class="form-group">
-              <label>Tenancy End Date</label>
+              <label>Tenancy End Date — إلى</label>
               <input type="date" id="pslTenancyTo">
             </div>
-          </div>
-          <div class="form-group">
-            <label>Lessor / Payable To (Rent recipient)
-              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — the legal entity receiving the rent</span>
-            </label>
-            <input type="text" id="pslLessorName" placeholder="e.g. CALCON MEASURING AND CONTROL SYSTEMS TRADING L.L.C">
           </div>
         </div>
 
         <!-- Section 05: Rental Payment Breakdown -->
         <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">05</span>
-            <h3 class="section-title">Rental Payment Breakdown</h3>
+          <div class="dld-section-hdr">
+            <span>Rental Payment Breakdown</span>
+            <span class="dld-section-ar">تفاصيل دفع الإيجار</span>
           </div>
           <p class="cf-note" style="margin:-6px 0 14px;">Each row's amount auto-splits the annual rent equally — adjust manually if a cheque differs. The "Payable To" defaults to the Lessor name above.</p>
           <div id="proposalChequeFields"></div>
@@ -2876,9 +3004,9 @@
 
         <!-- Section 06: Additional Charges -->
         <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">06</span>
-            <h3 class="section-title">Additional Charges</h3>
+          <div class="dld-section-hdr">
+            <span>Additional Charges</span>
+            <span class="dld-section-ar">رسوم إضافية</span>
           </div>
           <p class="cf-note" style="margin:-6px 0 14px;">VAT auto-calculates at 5% of annual rent. The other three charges are editable. "Payable To" defaults are pre-filled per industry standard — override if needed.</p>
 
@@ -2929,6 +3057,14 @@
               <input type="number" id="pslDrecAmount" min="0" placeholder="Auto-calc" oninput="updateProposalGrandTotal()">
               <input type="text" id="pslDrecPayable" value="DUBAI REAL ESTATE CORPORATION">
             </div>
+
+            <!-- Security Deposit (refundable) -->
+            <div class="psl-add-row">
+              <span class="psl-add-label">Security Deposit <span style="font-style:italic;color:var(--text-3);font-weight:400;">(refundable)</span></span>
+              <input type="text" id="pslSecDepDate" value="CDC" placeholder="CDC">
+              <input type="number" id="pslSecDepAmount" min="0" placeholder="e.g. 10,000" oninput="updateProposalGrandTotal()">
+              <input type="text" id="pslSecDepPayable" placeholder="Auto = Lessor">
+            </div>
           </div>
 
           <!-- Live grand total preview -->
@@ -2938,26 +3074,32 @@
           </div>
         </div>
 
-        <!-- Section 07: Terms & Conditions -->
+        <!-- Section 07: Additional Terms (10 numbered slots) -->
         <div class="form-section">
-          <div class="section-header">
-            <span class="section-num">07</span>
-            <h3 class="section-title">Terms &amp; Conditions</h3>
+          <div class="dld-section-hdr">
+            <span>Additional Terms — شروط إضافية</span>
+            <span class="dld-section-ar">اختياري</span>
           </div>
-          <div class="form-group">
-            <label>Terms (one per line — bullet points auto-added)</label>
-            <textarea id="pslTerms" rows="5" style="width:100%;resize:vertical;padding:10px 12px;font-family:inherit;font-size:13.5px;border:1px solid var(--border);border-radius:8px;color:var(--text);" placeholder="All post-dated cheques to be submitted upon signing&#10;Security deposit is refundable subject to property condition&#10;Rent is inclusive of building maintenance charges"></textarea>
-          </div>
+          <div class="form-group"><label>1.</label><input type="text" id="pslAdd1" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>2.</label><input type="text" id="pslAdd2" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>3.</label><input type="text" id="pslAdd3" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>4.</label><input type="text" id="pslAdd4" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>5.</label><input type="text" id="pslAdd5" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>6.</label><input type="text" id="pslAdd6" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>7.</label><input type="text" id="pslAdd7" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>8.</label><input type="text" id="pslAdd8" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>9.</label><input type="text" id="pslAdd9" placeholder="Additional condition (optional)"></div>
+          <div class="form-group"><label>10.</label><input type="text" id="pslAdd10" placeholder="Additional condition (optional)"></div>
         </div>
 
         <!-- Section 08: Notes -->
         <div class="form-section" style="margin-bottom:0;">
-          <div class="section-header">
-            <span class="section-num">08</span>
-            <h3 class="section-title">Additional Notes</h3>
+          <div class="dld-section-hdr">
+            <span>Additional Notes</span>
+            <span class="dld-section-ar">ملاحظات إضافية</span>
           </div>
           <div class="form-group">
-            <label>Notes to Client (optional)</label>
+            <label>Notes to Client (optional) — ملاحظات للعميل</label>
             <textarea id="pslNotes" rows="3" style="width:100%;resize:vertical;padding:10px 12px;font-family:inherit;font-size:13.5px;border:1px solid var(--border);border-radius:8px;color:var(--text);" placeholder="Optional remarks, instructions, or next steps"></textarea>
           </div>
         </div>
@@ -3789,6 +3931,11 @@
 
   <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260513A"></script>
+  <!-- Studio export deps: rasterize DOM slides → PNG, bundle PNGs, build PDF.
+       Loaded lazily-but-eagerly; ~120KB total gzipped, only fetched once. -->
+  <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
+  <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
+  <script src="app.js?v=20260521A"></script>
 </body>
 </html>

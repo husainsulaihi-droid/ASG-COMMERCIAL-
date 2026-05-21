@@ -2222,13 +2222,7 @@ async function openEditModal(id) {
 }
 
 function closeAddModal() {
-  const ov = $('propertyModalOverlay');
-  if (ov) {
-    ov.classList.remove('active');
-    // externalManagerAddProperty sets inline display:flex; clear it so the
-    // overlay actually disappears (CSS `.active` rule alone isn't enough).
-    ov.style.display = '';
-  }
+  $('propertyModalOverlay').classList.remove('active');
   if (typeof flushDeferredSseRefreshes === 'function') flushDeferredSseRefreshes();
 }
 
@@ -3647,19 +3641,35 @@ function openProposalModal() {
   $('pslTitle').value      = 'Rental Payment Structure Proposal';
   $('pslPreparedBy').value = 'ASG Commercial Properties';
   ['pslPropName','pslPropLocation','pslPropSize','pslPropType',
+   'pslPlotNo','pslMakaniNo','pslPropertyNo','pslDewaNo',
+   'pslOwnerName','pslLessorName','pslLessorEid','pslLessorPhone','pslLessorEmail',
+   'pslLessorLicense','pslLessorAuthority',
    'pslClientName','pslClientCompany','pslClientPhone','pslClientEmail',
-   'pslAnnualRent','pslLessorName','pslTenancyFrom','pslTenancyTo',
-   'pslVatAmount','pslMaintAmount','pslAdminAmount','pslDrecAmount',
-   'pslVatPayable','pslMaintPayable','pslNotes',
+   'pslClientEid','pslClientLicense','pslClientAuthority',
+   'pslAnnualRent','pslTenancyFrom','pslTenancyTo',
+   'pslVatAmount','pslServiceAmount','pslMaintAmount','pslAdminAmount','pslDrecAmount','pslSecDepAmount',
+   'pslVatPayable','pslServicePayable','pslMaintPayable','pslSecDepPayable','pslNotes',
+   'pslAdd1','pslAdd2','pslAdd3','pslAdd4','pslAdd5','pslAdd6','pslAdd7','pslAdd8','pslAdd9','pslAdd10',
   ].forEach(id => { const el = $(id); if (el) el.value = ''; });
   $('pslVatDate').value     = 'CDC';
+  $('pslServiceDate').value = 'CDC';
   $('pslMaintDate').value   = 'CDC';
   $('pslAdminDate').value   = 'CDC';
   $('pslDrecDate').value    = 'Cheque/Card';
+  $('pslSecDepDate').value  = 'CDC';
   $('pslAdminPayable').value = 'ASG Commercial Properties L.L.C';
   $('pslDrecPayable').value  = 'DUBAI REAL ESTATE CORPORATION';
   $('pslNumCheques').value   = '4';
-  $('pslTerms').value        = 'All post-dated cheques to be submitted upon signing of the tenancy contract\nSecurity deposit is fully refundable at end of tenancy, subject to property condition\nService charges are payable separately as per RERA / DLD regulations\nThis proposal is subject to final approval and signing of a formal tenancy agreement';
+  // Reset usage radio to Commercial
+  const usageDefault = $('pslUsageCommercial'); if (usageDefault) usageDefault.checked = true;
+  // Seed default terms into the first 4 slots
+  const defaultTerms = [
+    'All post-dated cheques to be submitted upon signing of the tenancy contract',
+    'Security deposit is fully refundable at end of tenancy, subject to property condition',
+    'Service charges are payable separately as per RERA / DLD regulations',
+    'This proposal is subject to final approval and signing of a formal tenancy agreement'
+  ];
+  defaultTerms.forEach((t, i) => { const el = $('pslAdd' + (i+1)); if (el) el.value = t; });
 
   $('proposalChequeFields').innerHTML = '';
   $('pslRentTotal').style.display = 'none';
@@ -3685,29 +3695,56 @@ function autofillProposalProperty() {
   if (!id) return;
   const p = loadProps().find(x => x.id === id);
   if (!p) return;
-  $('pslPropName').value     = p.name     || '';
-  $('pslPropLocation').value = p.location || '';
-  $('pslPropSize').value     = p.size     || '';
-  const typeMap = { warehouse: 'Warehouse', office: 'Office', residential: 'Residential' };
+  const set = (id, val) => { if (val != null && val !== '' && $(id)) $(id).value = val; };
+
+  // Property block
+  set('pslPropName',     p.name);
+  set('pslPropLocation', p.location);
+  set('pslPropSize',     p.size);
+  set('pslPropertyNo',   p.premiseNumber);
+  set('pslDewaNo',       p.dewaNumber);
+  const typeMap = { warehouse: 'Warehouse', office: 'Office', residential: 'Residential', land: 'Land' };
   $('pslPropType').value = typeMap[p.type] || '';
-  if (p.annualRent)  $('pslAnnualRent').value = p.annualRent;
-  // Sync property's service charges, maintenance fees, and VAT into the proposal
-  if (p.serviceCharges)  $('pslServiceAmount').value = p.serviceCharges;
-  if (p.maintenanceFees) $('pslMaintAmount').value   = p.maintenanceFees;
-  if (p.vat || p.annualRent) $('pslVatAmount').value = p.vat || Math.round(Number(p.annualRent) * 0.05);
-  if (p.tenantName)  $('pslClientName').value  = p.tenantName;
-  if (p.tenantPhone) $('pslClientPhone').value = p.tenantPhone;
-  if (p.tenantEmail) $('pslClientEmail').value = p.tenantEmail;
-  if (p.leaseStart)  $('pslTenancyFrom').value = p.leaseStart;
-  if (p.leaseEnd)    $('pslTenancyTo').value   = p.leaseEnd;
-  // Lessor: if managed property, the lessor IS the property owner;
-  // otherwise default to ASG-style entity name (user can override).
+
+  // Usage radio (best-effort match from property type)
+  if (p.type) {
+    const t = p.type.toLowerCase();
+    if (t.includes('apartment') || t.includes('villa') || t.includes('studio') || t.includes('resid')) {
+      const r = $('pslUsageResidential'); if (r) r.checked = true;
+    } else if (t.includes('industrial') || t.includes('warehouse') || t.includes('factory')) {
+      const r = $('pslUsageIndustrial'); if (r) r.checked = true;
+    } else {
+      const r = $('pslUsageCommercial'); if (r) r.checked = true;
+    }
+  }
+
+  // Rental / cheque / dates
+  set('pslAnnualRent', p.annualRent);
+  set('pslServiceAmount', p.serviceCharges);
+  set('pslMaintAmount',   p.maintenanceFees);
+  if (p.vat || p.annualRent) {
+    $('pslVatAmount').value = p.vat || Math.round(Number(p.annualRent) * 0.05);
+  }
+  set('pslSecDepAmount', p.securityDeposit);
+  set('pslTenancyFrom', p.leaseStart);
+  set('pslTenancyTo',   p.leaseEnd);
+  if (p.numCheques) $('pslNumCheques').value = p.numCheques;
+
+  // Tenant / client
+  set('pslClientName',  p.tenantName);
+  set('pslClientPhone', p.tenantPhone);
+  set('pslClientEmail', p.tenantEmail);
+
+  // Owner / Lessor — Owner is always the actual owner; Lessor receives the rent.
+  set('pslOwnerName',   p.ownerName);
+  set('pslLessorPhone', p.ownerPhone);
+  set('pslLessorEmail', p.ownerEmail);
   if (p.ownership === 'management' && p.ownerName) {
     $('pslLessorName').value = p.ownerName;
   } else if (p.partnerName) {
     $('pslLessorName').value = p.partnerName;
   }
-  if (p.numCheques) $('pslNumCheques').value = p.numCheques;
+
   renderProposalCheques();
   recalcProposalCheques();
   recalcAdditionalCharges();
@@ -3785,7 +3822,7 @@ function updateProposalGrandTotal() {
   $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
     chequeSum += Number(inp.value) || 0;
   });
-  const additional = gn('pslVatAmount') + gn('pslServiceAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount');
+  const additional = gn('pslVatAmount') + gn('pslServiceAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount') + gn('pslSecDepAmount');
   const grand = chequeSum + additional;
 
   const prevEl  = $('proposalTotalPreview');
@@ -3853,6 +3890,9 @@ function _readProposalForm() {
       payable:  row.querySelector('.psl-payable')?.value || '',
     });
   });
+  const usageEl = document.querySelector('input[name="psl_usage"]:checked');
+  const terms = [];
+  for (let i = 1; i <= 10; i++) terms.push(g('pslAdd' + i));
   return {
     id:           ($('pslEditId')?.value) || ('psl_' + uid()),
     title:        g('pslTitle')      || 'Rental Payment Structure Proposal',
@@ -3861,25 +3901,47 @@ function _readProposalForm() {
     validUntil:   g('pslValidUntil'),
     prepBy:       g('pslPreparedBy') || 'ASG Commercial Properties',
     propLink:     g('pslPropLink'),
+    // Property
     propName:     g('pslPropName'),
     propType:     g('pslPropType'),
     propLocation: g('pslPropLocation'),
     propSize:     gn('pslPropSize'),
+    propUsage:    usageEl ? usageEl.value : 'Commercial',
+    plotNo:       g('pslPlotNo'),
+    makaniNo:     g('pslMakaniNo'),
+    propertyNo:   g('pslPropertyNo'),
+    dewaNo:       g('pslDewaNo'),
+    // Owner / Lessor
+    ownerName:    g('pslOwnerName'),
+    lessor:       g('pslLessorName'),
+    lessorEid:    g('pslLessorEid'),
+    lessorPhone:  g('pslLessorPhone'),
+    lessorEmail:  g('pslLessorEmail'),
+    lessorLicense:   g('pslLessorLicense'),
+    lessorAuthority: g('pslLessorAuthority'),
+    // Tenant / Client
     client:       g('pslClientName'),
+    clientEid:    g('pslClientEid'),
     company:      g('pslClientCompany'),
     phone:        g('pslClientPhone'),
     email:        g('pslClientEmail'),
+    clientLicense:   g('pslClientLicense'),
+    clientAuthority: g('pslClientAuthority'),
+    // Rental
     rent:         gn('pslAnnualRent'),
-    lessor:       g('pslLessorName'),
     tenancyFrom:  g('pslTenancyFrom'),
     tenancyTo:    g('pslTenancyTo'),
     numCheques:   parseInt(g('pslNumCheques')) || 0,
+    // Additional charges
     vatAmount:    gn('pslVatAmount'),    vatDate:    g('pslVatDate'),    vatPayable:    g('pslVatPayable'),
     serviceAmount:gn('pslServiceAmount'),serviceDate:g('pslServiceDate'),servicePayable:g('pslServicePayable'),
     maintAmount:  gn('pslMaintAmount'),  maintDate:  g('pslMaintDate'),  maintPayable:  g('pslMaintPayable'),
     adminAmount:  gn('pslAdminAmount'),  adminDate:  g('pslAdminDate'),  adminPayable:  g('pslAdminPayable'),
     drecAmount:   gn('pslDrecAmount'),   drecDate:   g('pslDrecDate'),   drecPayable:   g('pslDrecPayable'),
-    termsRaw:     g('pslTerms'),
+    secDepAmount: gn('pslSecDepAmount'), secDepDate: g('pslSecDepDate'), secDepPayable: g('pslSecDepPayable'),
+    // Terms / notes
+    terms,
+    termsRaw:     terms.filter(t => t).join('\n'),  // legacy back-compat
     notes:        g('pslNotes'),
     cheques
   };
@@ -3905,10 +3967,24 @@ function printProposalDoc(d) {
   const propType   = d.propType   || '';
   const propLoc    = d.propLocation || '';
   const propSize   = Number(d.propSize) || 0;
+  const propUsage  = d.propUsage  || '';
+  const plotNo     = d.plotNo     || '';
+  const makaniNo   = d.makaniNo   || '';
+  const propertyNo = d.propertyNo || '';
+  const dewaNo     = d.dewaNo     || '';
+  const ownerName  = d.ownerName  || '';
+  const lessorEid  = d.lessorEid  || '';
+  const lessorPhone= d.lessorPhone|| '';
+  const lessorEmail= d.lessorEmail|| '';
+  const lessorLicense   = d.lessorLicense   || '';
+  const lessorAuthority = d.lessorAuthority || '';
   const client     = d.client     || '';
+  const clientEid  = d.clientEid  || '';
   const company    = d.company    || '';
   const phone      = d.phone      || '';
   const email      = d.email      || '';
+  const clientLicense   = d.clientLicense   || '';
+  const clientAuthority = d.clientAuthority || '';
   const rent       = Number(d.rent) || 0;
   const lessor     = (d.lessor || '').trim() || prepBy;
   const tenancyFrom= d.tenancyFrom || '';
@@ -3931,10 +4007,16 @@ function printProposalDoc(d) {
   const drecAmount  = Number(d.drecAmount) || 0;
   const drecDate    = d.drecDate    || 'Cheque/Card';
   const drecPayable = d.drecPayable || 'DUBAI REAL ESTATE CORPORATION';
+  const secDepAmount = Number(d.secDepAmount) || 0;
+  const secDepDate   = d.secDepDate    || 'CDC';
+  const secDepPayable= d.secDepPayable || lessor;
 
   const termsRaw   = d.termsRaw || '';
   const notes      = d.notes    || '';
-  const terms      = termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
+  // Prefer the new 10-slot array if present; fall back to legacy newline-separated string
+  const terms      = Array.isArray(d.terms) && d.terms.length
+    ? d.terms.map(l => String(l||'').replace(/^[•\-*]\s*/,'').trim()).filter(Boolean)
+    : termsRaw.split('\n').map(l => l.replace(/^[•\-*]\s*/,'')).filter(l => l.trim());
 
   const cheques = (d.cheques || []).map((c, i) => ({
     n:       i + 1,
@@ -4060,7 +4142,20 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-lbl{font-size:11px;color:#666}.sig-name{font-size:12px;font-weight:700;margin-top:1px}
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
-@media print{.page{padding:0 26px 110px}@page{size:A4;margin:10mm 10mm 0 10mm}}
+@media print{
+  /* Letterhead footer is position:fixed and repeats on every printed page.
+     Reserve bottom space via the @page margin so content never lands behind it.
+     The footer height is ~22mm (padding + 3 lines @ 10.5px line-height 1.4) —
+     using 28mm here gives ~6mm safety margin. */
+  @page { size: A4; margin: 10mm 10mm 28mm 10mm; }
+  .page { padding: 0 26px 0; }
+  /* Don't split these blocks across pages */
+  .terms-block, .notes-box, .valid-bar, .sigs, .sig { page-break-inside: avoid; break-inside: avoid; }
+  /* Keep table rows whole; allow a hard break before signatures if they're near the bottom */
+  .psl-tbl tr { page-break-inside: avoid; break-inside: avoid; }
+  .terms-title { page-break-after: avoid; break-after: avoid; }
+  ul.tlist li  { page-break-inside: avoid; break-inside: avoid; }
+}
 </style></head><body>
 
 <div class="lh-watermark">ASG</div>
@@ -4088,8 +4183,16 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 </div>
 
 <div class="tnt-summary">
-  ${client       ? `<div class="tnt-row"><span class="tnt-lbl">Tenant Name:</span><span class="tnt-val">${he(client)}${company?` &nbsp;·&nbsp; ${he(company)}`:''}</span></div>` : ''}
-  ${propName     ? `<div class="tnt-row"><span class="tnt-lbl">Property Details:</span><span class="tnt-val">${he(propName)}${propLoc?`, ${he(propLoc)}`:''}</span></div>` : ''}
+  ${ownerName    ? `<div class="tnt-row"><span class="tnt-lbl">Owner / Lessor:</span><span class="tnt-val">${he(ownerName)}${lessor && lessor !== ownerName ? ` &nbsp;·&nbsp; <em style="font-weight:500;">Payable to ${he(lessor)}</em>` : ''}</span></div>` : (lessor ? `<div class="tnt-row"><span class="tnt-lbl">Lessor:</span><span class="tnt-val">${he(lessor)}</span></div>` : '')}
+  ${(lessorPhone||lessorEmail) ? `<div class="tnt-row"><span class="tnt-lbl">Lessor Contact:</span><span class="tnt-val">${he([lessorPhone, lessorEmail].filter(Boolean).join(' · '))}</span></div>` : ''}
+  ${(lessorLicense||lessorAuthority) ? `<div class="tnt-row"><span class="tnt-lbl">Lessor License:</span><span class="tnt-val">${he([lessorLicense, lessorAuthority].filter(Boolean).join(' · '))}</span></div>` : ''}
+  ${client       ? `<div class="tnt-row"><span class="tnt-lbl">Tenant Name:</span><span class="tnt-val">${he(client)}${company?` &nbsp;·&nbsp; ${he(company)}`:''}${clientEid?` &nbsp;·&nbsp; EID: ${he(clientEid)}`:''}</span></div>` : ''}
+  ${(phone||email) ? `<div class="tnt-row"><span class="tnt-lbl">Tenant Contact:</span><span class="tnt-val">${he([phone, email].filter(Boolean).join(' · '))}</span></div>` : ''}
+  ${(clientLicense||clientAuthority) ? `<div class="tnt-row"><span class="tnt-lbl">Tenant License:</span><span class="tnt-val">${he([clientLicense, clientAuthority].filter(Boolean).join(' · '))}</span></div>` : ''}
+  ${propName     ? `<div class="tnt-row"><span class="tnt-lbl">Property:</span><span class="tnt-val">${he(propName)}${propertyNo?` &nbsp;·&nbsp; Unit ${he(propertyNo)}`:''}${propLoc?`, ${he(propLoc)}`:''}</span></div>` : ''}
+  ${(plotNo||makaniNo) ? `<div class="tnt-row"><span class="tnt-lbl">Plot / Makani:</span><span class="tnt-val">${he([plotNo && 'Plot ' + plotNo, makaniNo && 'Makani ' + makaniNo].filter(Boolean).join(' · '))}</span></div>` : ''}
+  ${dewaNo       ? `<div class="tnt-row"><span class="tnt-lbl">DEWA Premises:</span><span class="tnt-val">${he(dewaNo)}</span></div>` : ''}
+  ${(propType||propUsage) ? `<div class="tnt-row"><span class="tnt-lbl">Type / Usage:</span><span class="tnt-val">${he([propType, propUsage].filter(Boolean).join(' · '))}</span></div>` : ''}
   ${propSize     ? `<div class="tnt-row"><span class="tnt-lbl">Property Size:</span><span class="tnt-val">${Number(propSize).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} Sq.Ft</span></div>` : ''}
   ${(tenancyFrom||tenancyTo) ? `<div class="tnt-row"><span class="tnt-lbl">Tenancy Period:</span><span class="tnt-val">${fd(tenancyFrom)} to ${fd(tenancyTo)}</span></div>` : ''}
   ${rent         ? `<div class="tnt-row"><span class="tnt-lbl">Annual Rent:</span><span class="tnt-val tnt-val-em">${fa0(rent)}</span></div>` : ''}
@@ -4121,7 +4224,7 @@ ${cheques.length ? `
   </tbody>
 </table>` : ''}
 
-${(vatAmount||serviceAmount||maintAmount||adminAmount||drecAmount) ? `
+${(vatAmount||serviceAmount||maintAmount||adminAmount||drecAmount||secDepAmount) ? `
 <div class="tbl-title">Additional Charges</div>
 <table class="psl-tbl">
   <thead><tr>
@@ -4160,6 +4263,12 @@ ${(vatAmount||serviceAmount||maintAmount||adminAmount||drecAmount) ? `
       <td>${he(drecDate)}</td>
       <td class="amt">${fa(drecAmount)}</td>
       <td>${he(drecPayable)}</td>
+    </tr>` : ''}
+    ${secDepAmount ? `<tr>
+      <td>Security Deposit <span class="italic">(refundable)</span></td>
+      <td>${he(secDepDate)}</td>
+      <td class="amt">${fa(secDepAmount)}</td>
+      <td>${he(secDepPayable)}</td>
     </tr>` : ''}
   </tbody>
 </table>` : ''}
@@ -7809,7 +7918,8 @@ function renderHome() {
   try { proposalCount      = (loadProposals()             || []).length; } catch {}
   try { partnerCount       = (typeof _partnersCache !== 'undefined' && Array.isArray(_partnersCache)) ? _partnersCache.length : 0; } catch {}
 
-  // Tile definitions: tab id, label, group, badge count, accent colour, SVG path content
+  // Tile definitions: tab id, label, group, badge count, accent colour, SVG path content.
+  // Group names + order match the sidebar nav so the dashboard mirrors it.
   const tiles = [
     { tab:'warehouses',  label:'Warehouses',       group:'Properties',  count:warehouses,  color:'#1c2b4a',
       svg:'<rect x="1" y="8" width="22" height="13" rx="2"/><path d="M1 8l11-6 11 6"/>' },
@@ -7820,35 +7930,40 @@ function renderHome() {
     { tab:'land',        label:'Land',             group:'Properties',  count:land,        color:'#1c2b4a',
       svg:'<path d="M2 20h20"/><path d="M4 20V12l8-6 8 6v8"/><path d="M9 20v-5h6v5"/>' },
 
-    { tab:'reminders',   label:'Reminders',        group:'Operations',  count:leaseAlerts, color:'#dc2626',
+    { tab:'reminders',   label:'Reminders',        group:'Schedule',    count:leaseAlerts, color:'#dc2626',
       svg:'<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>' },
-    { tab:'calendar',    label:'Calendar',         group:'Operations',                     color:'#0d9488',
+    { tab:'calendar',    label:'Calendar',         group:'Schedule',                       color:'#0d9488',
       svg:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>' },
-    { tab:'contract',    label:'Contracts',        group:'Operations',                     color:'#7c3aed',
-      svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
-    { tab:'payment',     label:'Cheques',          group:'Operations',                     color:'#059669',
-      svg:'<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
-    { tab:'proposals',   label:'Proposals',        group:'Operations',  count:proposalCount,color:'#0891b2',
-      svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
-
-    { tab:'disputes',    label:'Disputes',         group:'Estate',      count:disputeCount,color:'#dc2626',
+    { tab:'disputes',    label:'Disputes',         group:'Schedule',    count:disputeCount,color:'#dc2626',
       svg:'<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' },
-    { tab:'construction',label:'Construction',     group:'Estate',      count:constructionCount,color:'#ea580c',
+    { tab:'construction',label:'Construction',     group:'Schedule',    count:constructionCount,color:'#ea580c',
       svg:'<polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/>' },
-    { tab:'map',         label:'Map View',         group:'Estate',                         color:'#0369a1',
+    { tab:'map',         label:'Map View',         group:'Schedule',                       color:'#0369a1',
       svg:'<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>' },
 
-    { tab:'team',        label:'Team',             group:'Management',  count:agentCount,  color:'#0891b2',
-      svg:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>' },
-    { tab:'partners',    label:'Partners',         group:'Management',  count:partnerCount,color:'#a855f7',
-      svg:'<circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/>' },
-    { tab:'documents',   label:'Documents',        group:'Management',                     color:'#475569',
+    { tab:'contract',    label:'Contracts',        group:'Docs',                           color:'#7c3aed',
+      svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
+    { tab:'documents',   label:'Documents',        group:'Docs',                           color:'#475569',
       svg:'<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>' },
-    { tab:'financials',  label:'Financials',       group:'Management',                     color:'#c9a84c',
+    { tab:'proposals',   label:'Proposals',        group:'Docs',        count:proposalCount,color:'#0891b2',
+      svg:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
+    { tab:'studio',      label:'Studio',           group:'Docs',                           color:'#C39749',
+      svg:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 16l5-5 5 5 4-4 4 4"/><circle cx="8.5" cy="8.5" r="1.5"/>' },
+
+    { tab:'financials',  label:'Financials',       group:'Finance',                        color:'#c9a84c',
       svg:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>' },
+    { tab:'ledgers',     label:'Ledgers',          group:'Finance',                        color:'#0B2447',
+      svg:'<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="8" x2="16" y2="8"/><line x1="9" y1="12" x2="16" y2="12"/>' },
+    { tab:'payment',     label:'Cheques',          group:'Finance',                        color:'#059669',
+      svg:'<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>' },
+
+    { tab:'partners',    label:'Partners',         group:'Access',      count:partnerCount,color:'#a855f7',
+      svg:'<circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/>' },
+    { tab:'logins',      label:'Logins',           group:'Access',                         color:'#1F3A66',
+      svg:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>' },
   ];
 
-  const groups = ['Properties','Operations','Estate','Management'];
+  const groups = ['Properties','Schedule','Docs','Finance','Access'];
   const tilesByGroup = groups.map(g => ({
     name: g,
     items: tiles.filter(t => t.group === g),
@@ -10121,15 +10236,75 @@ function externalManagerAddProperty() {
       return;
     }
     openAddModal();
-    if (ov) {
-      ov.classList.add('active');
-      ov.style.display = 'flex';
-    }
+    if (ov) ov.classList.add('active');
   } catch (err) {
     console.error('[externalManager] Add Property failed:', err);
     if (typeof showToast === 'function') showToast('Could not open Add Property: ' + (err.message || err), 'error');
     else alert('Could not open Add Property: ' + (err.message || err));
   }
+}
+
+// External manager portfolio view: Cards | Rows toggle. Persisted across reloads.
+let _extMgrViewMode = (() => {
+  try { return localStorage.getItem('asg_ext_mgr_view') === 'rows' ? 'rows' : 'cards'; }
+  catch (_) { return 'cards'; }
+})();
+function _extMgrSetViewMode(mode) {
+  _extMgrViewMode = (mode === 'rows') ? 'rows' : 'cards';
+  try { localStorage.setItem('asg_ext_mgr_view', _extMgrViewMode); } catch (_) {}
+  renderAgentInventory();
+}
+
+// Compact table for external_manager — one row per property with per-row
+// View / Edit / Delete buttons. Uses inline onclick so action buttons work
+// even if the bound listeners on the property modal don't fire for this
+// session (see commit f7ecf6c rationale).
+function _extMgrRowsHTML(props) {
+  const numFmt = n => n ? Number(n).toLocaleString() : '—';
+  const rows = props.map(p => {
+    const status = p.status === 'rented'
+      ? '<span class="wh-row-pill wh-row-pill-on">rented</span>'
+      : p.status === 'vacant'
+        ? '<span class="wh-row-pill wh-row-pill-warn">vacant</span>'
+        : `<span class="wh-row-pill">${h(p.status||'—')}</span>`;
+    const tenant = p.status === 'rented' && p.tenantName ? h(p.tenantName) : '—';
+    const rent   = p.annualRent ? 'AED ' + numFmt(p.annualRent) : '—';
+    const lease  = p.leaseEnd ? fmtDate(p.leaseEnd) : '—';
+    return `
+      <tr class="wh-row" data-id="${p.id}" onclick="openDetailModal('${p.id}')">
+        <td>
+          <div class="wh-row-name">${h(p.name||'')}</div>
+          ${p.location ? `<div class="wh-row-loc">📍 ${h(p.location)}</div>` : ''}
+        </td>
+        <td>${numFmt(p.size)}${p.size?' sqft':''}</td>
+        <td>${status}</td>
+        <td>${tenant}</td>
+        <td class="wh-row-rent">${rent}</td>
+        <td>${lease}</td>
+        <td class="ext-row-actions" onclick="event.stopPropagation()">
+          <button class="card-action-btn" onclick="openDetailModal('${p.id}')" title="View">👁</button>
+          <button class="card-action-btn" onclick="openEditModal('${p.id}')" title="Edit">✏️</button>
+          <button class="card-action-btn del" onclick="quickDelete('${p.id}')" title="Delete">🗑</button>
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="wh-rows-wrap">
+      <table class="wh-rows">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Size</th>
+            <th>Status</th>
+            <th>Tenant</th>
+            <th>Annual Rent</th>
+            <th>Lease End</th>
+            <th style="text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // Replace agent inventory rendering with admin-style cards
@@ -10148,21 +10323,37 @@ renderAgentInventory = function() {
   // External managers always get their own intro + Add Property button,
   // even when the portfolio is empty (they need to be able to add the first one).
   if (role === 'external_manager') {
+    const cardsActive = _extMgrViewMode === 'cards' ? ' active' : '';
+    const rowsActive  = _extMgrViewMode === 'rows'  ? ' active' : '';
+    const viewToggle = `
+      <div class="wh-view-toggle">
+        <button class="wh-view-btn${cardsActive}" onclick="_extMgrSetViewMode('cards')">▦ Cards</button>
+        <button class="wh-view-btn${rowsActive}"  onclick="_extMgrSetViewMode('rows')">≡ Rows</button>
+      </div>`;
     const introExt = `<div class="agent-inv-intro" style="background:linear-gradient(135deg,#0369a110,#0369a105);border-left-color:#0369a1;display:flex;align-items:center;gap:14px;padding:14px 16px;">
       <div class="aii-icon">🔑</div>
       <div style="flex:1;">
         <div class="aii-title">My Portfolio · ${props.length} propert${props.length===1?'y':'ies'}</div>
         <div class="aii-sub">Properties you manage. Click <strong>+ Add Property</strong> to add a warehouse you manage. New properties default to "Management" ownership.</div>
       </div>
-      <button class="btn-primary" onclick="externalManagerAddProperty()" style="white-space:nowrap;">+ Add Property</button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        ${props.length ? viewToggle : ''}
+        <button class="btn-primary" onclick="externalManagerAddProperty()" style="white-space:nowrap;">+ Add Property</button>
+      </div>
     </div>`;
     if (!props.length) {
       list.innerHTML = `${introExt}<div class="team-empty"><div class="empty-icon">🏗️</div><p>No properties yet — click <strong>+ Add Property</strong> above to get started.</p></div>`;
       return;
     }
-    list.innerHTML = `${introExt}<div class="grid agent-inventory-grid">${props.map(agentCardHTML).join('')}</div>`;
-    if (typeof loadCardMedia === 'function') {
-      props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+    if (_extMgrViewMode === 'rows') {
+      list.innerHTML = `${introExt}${_extMgrRowsHTML(props)}`;
+    } else {
+      // Admin-style cards (cardHTML) so external managers get View / Edit /
+      // Delete action buttons on each card — same UI the admin sees.
+      list.innerHTML = `${introExt}<div class="grid agent-inventory-grid">${props.map(cardHTML).join('')}</div>`;
+      if (typeof loadCardMedia === 'function') {
+        props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
+      }
     }
     return;
   }
@@ -10222,6 +10413,18 @@ renderAgentInventory = function() {
   }
 };
 
+
+// Make refresh() agent-aware: admin's mutation handlers (doDelete, etc.) call
+// refresh() to repaint the admin grid. When an external_manager triggers the
+// same flow, also repaint the agent inventory so cards/rows reflect the change.
+const _origRefreshAgentAware = refresh;
+refresh = function() {
+  try { _origRefreshAgentAware(); } catch (_) {}
+  const sess = (typeof getSession === 'function') ? getSession() : null;
+  if (sess && sess.type === 'agent') {
+    try { renderAgentInventory(); } catch (_) {}
+  }
+};
 
 // ─── Lead activities: admin can also reply ─────────
 const _origRenderActivityLog = renderActivityLog;
@@ -10416,19 +10619,46 @@ function _hydrateProposalForm(p) {
   set('pslDate', p.date);              set('pslValidUntil', p.validUntil);
   set('pslPreparedBy', p.prepBy);
   set('pslPropLink', p.propLink);
+  // Property block
   set('pslPropName', p.propName);      set('pslPropType', p.propType);
   set('pslPropLocation', p.propLocation); set('pslPropSize', p.propSize);
-  set('pslClientName', p.client);      set('pslClientCompany', p.company);
+  set('pslPlotNo', p.plotNo);          set('pslMakaniNo', p.makaniNo);
+  set('pslPropertyNo', p.propertyNo);  set('pslDewaNo', p.dewaNo);
+  // Usage radio
+  if (p.propUsage) {
+    const id = 'pslUsage' + p.propUsage;
+    const r = document.getElementById(id);
+    if (r) r.checked = true;
+  }
+  // Owner / Lessor block
+  set('pslOwnerName', p.ownerName);    set('pslLessorName', p.lessor);
+  set('pslLessorEid', p.lessorEid);    set('pslLessorPhone', p.lessorPhone);
+  set('pslLessorEmail', p.lessorEmail);
+  set('pslLessorLicense', p.lessorLicense); set('pslLessorAuthority', p.lessorAuthority);
+  // Tenant / Client block
+  set('pslClientName', p.client);      set('pslClientEid', p.clientEid);
+  set('pslClientCompany', p.company);
   set('pslClientPhone', p.phone);      set('pslClientEmail', p.email);
-  set('pslAnnualRent', p.rent);        set('pslLessorName', p.lessor);
+  set('pslClientLicense', p.clientLicense); set('pslClientAuthority', p.clientAuthority);
+  // Rental
+  set('pslAnnualRent', p.rent);
   set('pslTenancyFrom', p.tenancyFrom); set('pslTenancyTo', p.tenancyTo);
   set('pslNumCheques', p.numCheques);
+  // Additional charges
   set('pslVatAmount', p.vatAmount);    set('pslVatDate', p.vatDate);    set('pslVatPayable', p.vatPayable);
   set('pslServiceAmount', p.serviceAmount); set('pslServiceDate', p.serviceDate); set('pslServicePayable', p.servicePayable);
   set('pslMaintAmount', p.maintAmount); set('pslMaintDate', p.maintDate); set('pslMaintPayable', p.maintPayable);
   set('pslAdminAmount', p.adminAmount); set('pslAdminDate', p.adminDate); set('pslAdminPayable', p.adminPayable);
   set('pslDrecAmount', p.drecAmount);   set('pslDrecDate', p.drecDate);   set('pslDrecPayable', p.drecPayable);
-  set('pslTerms', p.termsRaw);          set('pslNotes', p.notes);
+  set('pslSecDepAmount', p.secDepAmount); set('pslSecDepDate', p.secDepDate); set('pslSecDepPayable', p.secDepPayable);
+  // Terms — prefer new 10-slot array, fall back to legacy textarea
+  if (Array.isArray(p.terms) && p.terms.length) {
+    p.terms.forEach((t, i) => { const el = document.getElementById('pslAdd' + (i+1)); if (el) el.value = t || ''; });
+  } else if (p.termsRaw) {
+    const lines = String(p.termsRaw).split('\n').filter(l => l.trim()).slice(0, 10);
+    lines.forEach((t, i) => { const el = document.getElementById('pslAdd' + (i+1)); if (el) el.value = t; });
+  }
+  set('pslNotes', p.notes);
 
   // Rebuild cheque rows then patch their values
   if (typeof renderProposalCheques === 'function') renderProposalCheques();
@@ -12864,3 +13094,1718 @@ async function _probeBackend() {
   _probeBackend();
 })();
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   STUDIO MODULE — IG carousel + WhatsApp PDF generator
+   Self-contained: builds its own DOM, exports own state, wires into
+   the existing showTab / showAgentTab pipelines via small hooks.
+   Lives at the bottom of app.js so it doesn't have to be hoisted
+   into earlier code.
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+  // --- State -----------------------------------------------------
+  const State = {
+    title: '',
+    location: '',
+    price: '',
+    size: '',
+    propertyType: '',
+    features: ['', '', '', ''],
+    cta: 'Book a viewing',
+    agentName: '',
+    agentPhone: '',
+    igHandle: '@asgproperties',
+    photos: [],       // array of { dataUrl, name }
+    propertyId: null, // when sourced from CRM
+    currentSlide: 0,
+  };
+
+  // --- Tiny HTML escape (avoid colliding with `h` from outer scope) ---
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function fmtAED(v) {
+    const n = Number(String(v).replace(/[^\d.]/g, ''));
+    if (!n) return '';
+    return n.toLocaleString('en-US');
+  }
+
+  // --- Build the shared UI markup (controls + preview pane) ---------
+  function buildShell() {
+    const root = document.createElement('div');
+    root.id = 'studioShell';
+    root.className = 'studio-shell';
+    root.innerHTML = `
+      <aside class="studio-controls">
+        <h2>Studio</h2>
+        <div class="studio-sub">Build a carousel post and a WhatsApp PDF from a property's photos.</div>
+
+        <div class="studio-section">
+          <div class="studio-section-label">Source</div>
+          <div style="display:flex; gap:8px;">
+            <button class="studio-action-btn ghost" id="studioPickCRM" style="flex:1;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="8" width="22" height="13" rx="2"/><path d="M1 8l11-6 11 6"/></svg>
+              From CRM
+            </button>
+            <button class="studio-action-btn ghost" id="studioClearAll" style="flex:1;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div class="studio-section">
+          <div class="studio-section-label">Property details</div>
+          <input class="studio-input" id="studioTitle" placeholder="Title (e.g. Premium Warehouse · Al Quoz)">
+          <input class="studio-input" id="studioLocation" placeholder="Location (e.g. Al Quoz Industrial 3, Dubai)">
+          <div class="studio-row">
+            <input class="studio-input num-mono" id="studioPrice" placeholder="Annual Rent (AED)" inputmode="numeric">
+            <input class="studio-input num-mono" id="studioSize" placeholder="Size (sqft)" inputmode="numeric">
+          </div>
+          <input class="studio-input" id="studioType" placeholder="Type (e.g. Warehouse · For Lease)">
+        </div>
+
+        <div class="studio-section">
+          <div class="studio-section-label">Key features (one per line)</div>
+          <textarea class="studio-textarea" id="studioFeatures" rows="4"
+            placeholder="Eg:&#10;30 ft clear ceiling height&#10;Loading dock + ramp&#10;DEWA + Etisalat fibre&#10;Corner unit · ample parking"></textarea>
+        </div>
+
+        <div class="studio-section">
+          <div class="studio-section-label">Photos (drag to reorder)</div>
+          <div class="studio-photo-zone" id="studioPhotoZone">
+            <div class="studio-photo-icon">📷</div>
+            <div style="font-weight:600;color:var(--text);margin-top:6px;">Click or drop images</div>
+            <div class="studio-photo-hint">JPG/PNG · multiple OK · ~1–10 photos</div>
+            <input type="file" id="studioPhotoInput" accept="image/*" multiple style="display:none;">
+          </div>
+          <div class="studio-photo-grid" id="studioPhotoGrid"></div>
+        </div>
+
+        <div class="studio-section">
+          <div class="studio-section-label">CTA + contact (last slide)</div>
+          <input class="studio-input" id="studioCta" placeholder="CTA (e.g. Book a viewing)">
+          <div class="studio-row">
+            <input class="studio-input" id="studioAgentName" placeholder="Agent name">
+            <input class="studio-input num-mono" id="studioAgentPhone" placeholder="+971 50 ..." inputmode="tel">
+          </div>
+          <input class="studio-input" id="studioIgHandle" placeholder="@asgproperties">
+        </div>
+
+        <div class="studio-actions">
+          <button class="studio-action-btn primary" id="studioExportIG">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+            Download Instagram pack (.zip)
+          </button>
+          <button class="studio-action-btn secondary" id="studioExportPDF">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download WhatsApp PDF
+          </button>
+        </div>
+      </aside>
+
+      <section class="studio-preview">
+        <div class="studio-preview-head">
+          <h3>Live preview</h3>
+          <span class="studio-slide-counter" id="studioCounter">— / —</span>
+        </div>
+        <div class="studio-thumbs" id="studioThumbs"></div>
+        <div class="studio-stage" id="studioStage"></div>
+        <div class="studio-nav">
+          <button class="studio-nav-btn" id="studioPrev" aria-label="Previous slide">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button class="studio-nav-btn" id="studioNext" aria-label="Next slide">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </section>
+    `;
+    return root;
+  }
+
+  // --- Slide generators -----------------------------------------
+  function slideCover() {
+    const photo = State.photos[0];
+    const bgImg = photo ? `background-image:url('${photo.dataUrl}');` : 'background:linear-gradient(135deg,#0B2447,#1F3A66);';
+    const priceNum = fmtAED(State.price);
+    return `
+      <div class="studio-slide cover">
+        <div class="cover-photo" style="${bgImg}"></div>
+        <div class="cover-vignette"></div>
+        <div class="cover-stripe"></div>
+        <div class="cover-meta-top">
+          <div>
+            <div class="cover-brand">ASG Properties</div>
+            <div class="cover-brand-sub">Commercial · Dubai</div>
+          </div>
+          ${State.propertyType ? `<div class="cover-pill">${esc(State.propertyType)}</div>` : ''}
+        </div>
+        <div class="cover-foot">
+          <div class="cover-title">${esc(State.title || 'Premium Property')}</div>
+          ${State.location ? `<div class="cover-location">📍 ${esc(State.location)}</div>` : ''}
+          ${priceNum ? `
+          <div class="cover-price-row">
+            <div class="cover-price-label">Annual Rent</div>
+            <div class="cover-price-amt"><span class="cover-price-aed">AED</span>${priceNum}</div>
+          </div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function slidePhoto(idx, totalPhotos) {
+    const photo = State.photos[idx];
+    const bgImg = photo ? `background-image:url('${photo.dataUrl}');` : '';
+    const features = (State.features || []).filter(Boolean);
+    const cap = features[idx] || features[idx % Math.max(features.length, 1)] || State.title || '';
+    return `
+      <div class="studio-slide photo">
+        <div class="photo-frame" style="${bgImg}">
+          <div class="photo-counter">${String(idx + 1).padStart(2,'0')} / ${String(totalPhotos).padStart(2,'0')}</div>
+          ${cap ? `
+            <div class="photo-caption">
+              <div class="photo-cap-label">Feature</div>
+              <div class="photo-cap-text">${esc(cap)}</div>
+            </div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function slideDetails() {
+    const features = (State.features || []).filter(Boolean);
+    const priceNum = fmtAED(State.price);
+    const sizeNum = fmtAED(State.size);
+    return `
+      <div class="studio-slide details">
+        <div class="details-eyebrow">${esc(State.propertyType || 'Property Details')}</div>
+        <div class="details-title">${esc(State.title || 'Premium Property')}</div>
+        ${State.location ? `<div class="details-loc">📍 ${esc(State.location)}</div>` : ''}
+        <div class="details-stats">
+          ${priceNum ? `
+            <div class="stat-tile gold">
+              <div class="st-label">Annual Rent</div>
+              <div class="st-value">AED ${priceNum}</div>
+            </div>` : ''}
+          ${sizeNum ? `
+            <div class="stat-tile">
+              <div class="st-label">Built-up Area</div>
+              <div class="st-value">${sizeNum}<span class="unit">sqft</span></div>
+            </div>` : ''}
+        </div>
+        ${features.length ? `
+          <div class="features-label">Key Features</div>
+          <ul class="features-list">
+            ${features.slice(0, 5).map(f => `
+              <li><span class="bullet"></span><span>${esc(f)}</span></li>
+            `).join('')}
+          </ul>` : ''}
+      </div>
+    `;
+  }
+
+  function slideCTA() {
+    const cta = State.cta || 'Book a viewing';
+    const aName = State.agentName || 'ASG Team';
+    const aPhone = State.agentPhone || '';
+    const ig = State.igHandle || '@asgproperties';
+    return `
+      <div class="studio-slide cta">
+        <div>
+          <div class="cta-brand">ASG Properties</div>
+          <div class="cta-brand-sub">Commercial Real Estate · Dubai</div>
+        </div>
+        <div class="cta-body">
+          <div class="cta-seal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21l8-8L3 5"/><path d="M21 21V3"/></svg>
+          </div>
+          <div class="cta-headline">${esc(cta)}</div>
+          <div class="cta-sub">DM us on Instagram or call directly — let's get you on a private viewing this week.</div>
+        </div>
+        <div class="cta-contact">
+          ${aPhone ? `
+            <div class="cc-tile">
+              <div class="cc-label">Call · ${esc(aName)}</div>
+              <div class="cc-value">${esc(aPhone)}</div>
+            </div>` : ''}
+          <div class="cc-tile">
+            <div class="cc-label">Instagram</div>
+            <div class="cc-value">${esc(ig)}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Build the ordered list of slide HTML strings
+  function buildSlideList() {
+    const slides = [];
+    slides.push({ kind: 'cover', html: slideCover() });
+    const total = State.photos.length;
+    // Skip photo 0 if we already used it as cover background — instead
+    // make slide 2..N from photos 1..N to avoid repeating the same image.
+    // If only one photo, still show a photo slide so the carousel has body.
+    const startIdx = total > 1 ? 1 : 0;
+    for (let i = startIdx; i < total; i++) {
+      slides.push({ kind: 'photo', html: slidePhoto(i, total) });
+    }
+    slides.push({ kind: 'details', html: slideDetails() });
+    slides.push({ kind: 'cta', html: slideCTA() });
+    return slides;
+  }
+
+  // --- Render the preview panel ---------------------------------
+  function renderPreview() {
+    const stage = document.getElementById('studioStage');
+    const thumbs = document.getElementById('studioThumbs');
+    const counter = document.getElementById('studioCounter');
+    const prev = document.getElementById('studioPrev');
+    const next = document.getElementById('studioNext');
+    if (!stage) return;
+
+    const slides = buildSlideList();
+    if (State.currentSlide >= slides.length) State.currentSlide = 0;
+    if (State.currentSlide < 0) State.currentSlide = slides.length - 1;
+
+    // Render the active slide at full 1080×1080, then scale it to fit
+    // the stage. We measure the stage and pick scale = (stageW - pad) / 1080.
+    const active = slides[State.currentSlide];
+    stage.innerHTML = `<div class="studio-slide-wrap" id="studioSlideWrap">${active.html}</div>`;
+    const wrap = document.getElementById('studioSlideWrap');
+    requestAnimationFrame(() => {
+      const stageW = stage.clientWidth - 56; // padding allowance
+      const stageH = stage.clientHeight - 56;
+      const scale = Math.min(stageW, stageH) / 1080;
+      wrap.style.transform = `scale(${scale})`;
+      // Keep the wrap occupying its scaled box so flex centering works
+      wrap.style.width  = (1080 * scale) + 'px';
+      wrap.style.height = (1080 * scale) + 'px';
+      // Inside the wrap, undo the px box scaling: child still 1080 abs.
+      const slideEl = wrap.querySelector('.studio-slide');
+      if (slideEl) {
+        wrap.style.transformOrigin = 'top left';
+        // re-base: clear scaling on wrap, scale slide directly
+        wrap.style.transform = '';
+        slideEl.style.transform = `scale(${scale})`;
+        slideEl.style.transformOrigin = 'top left';
+        wrap.style.width  = (1080 * scale) + 'px';
+        wrap.style.height = (1080 * scale) + 'px';
+      }
+    });
+
+    // Thumbs
+    thumbs.innerHTML = slides.map((s, i) => {
+      const isActive = i === State.currentSlide;
+      const label = s.kind === 'cover' ? 'Cover'
+                   : s.kind === 'photo' ? `P${i}`
+                   : s.kind === 'details' ? 'Info'
+                   : 'CTA';
+      // Show first photo for cover/photo thumbs
+      let thumbBg = '';
+      if (s.kind === 'cover' && State.photos[0]) thumbBg = `background-image:url('${State.photos[0].dataUrl}');background-size:cover;background-position:center;`;
+      if (s.kind === 'photo') {
+        // figure out which photo index this slide uses
+        const photoIdx = State.photos.length > 1 ? i : 0;
+        const ph = State.photos[photoIdx];
+        if (ph) thumbBg = `background-image:url('${ph.dataUrl}');background-size:cover;background-position:center;`;
+      }
+      if (s.kind === 'details') thumbBg = 'background:linear-gradient(135deg,#f6f4ee,#FAF1DD);';
+      if (s.kind === 'cta') thumbBg = 'background:linear-gradient(135deg,#040d1f,#1F3A66);';
+      return `<div class="studio-thumb${isActive?' active':''}" data-idx="${i}" style="${thumbBg}">
+        <span class="studio-thumb-label">${label}</span>
+      </div>`;
+    }).join('');
+    thumbs.querySelectorAll('.studio-thumb').forEach(el => {
+      el.addEventListener('click', () => {
+        State.currentSlide = parseInt(el.dataset.idx, 10);
+        renderPreview();
+      });
+    });
+
+    counter.textContent = `${String(State.currentSlide + 1).padStart(2,'0')} / ${String(slides.length).padStart(2,'0')}`;
+    prev.disabled = false;
+    next.disabled = false;
+  }
+
+  // --- Photo upload ---------------------------------------------
+  function renderPhotoGrid() {
+    const grid = document.getElementById('studioPhotoGrid');
+    if (!grid) return;
+    grid.innerHTML = State.photos.map((p, i) => `
+      <div class="studio-photo-tile" data-idx="${i}" draggable="true">
+        <img src="${p.dataUrl}" alt="">
+        <span class="pt-idx">${String(i + 1).padStart(2, '0')}</span>
+        <button class="pt-remove" data-rm="${i}" title="Remove">×</button>
+      </div>
+    `).join('');
+    grid.querySelectorAll('.pt-remove').forEach(b => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(b.dataset.rm, 10);
+        State.photos.splice(idx, 1);
+        renderPhotoGrid();
+        renderPreview();
+      });
+    });
+    // Simple drag-reorder
+    let dragIdx = null;
+    grid.querySelectorAll('.studio-photo-tile').forEach(t => {
+      t.addEventListener('dragstart', (e) => { dragIdx = parseInt(t.dataset.idx, 10); e.dataTransfer.effectAllowed = 'move'; });
+      t.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      t.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const toIdx = parseInt(t.dataset.idx, 10);
+        if (dragIdx == null || toIdx === dragIdx) return;
+        const [moved] = State.photos.splice(dragIdx, 1);
+        State.photos.splice(toIdx, 0, moved);
+        renderPhotoGrid();
+        renderPreview();
+      });
+    });
+  }
+
+  function handleFiles(fileList) {
+    const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+    let remaining = files.length;
+    if (!remaining) return;
+    files.forEach(f => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        State.photos.push({ dataUrl: reader.result, name: f.name });
+        remaining--;
+        if (remaining === 0) {
+          renderPhotoGrid();
+          renderPreview();
+        }
+      };
+      reader.readAsDataURL(f);
+    });
+  }
+
+  // --- Property picker (pulls from CRM cache) -------------------
+  function openPropertyPicker() {
+    // Resolve the property list from the existing app's cache.
+    const props = (typeof loadProps === 'function') ? loadProps() : [];
+    const overlay = document.createElement('div');
+    overlay.className = 'studio-pick-modal';
+    overlay.innerHTML = `
+      <div class="studio-pick-modal-content">
+        <div class="studio-pick-head">
+          <h3>Pick a property</h3>
+          <button class="studio-action-btn ghost" id="studioPickClose" style="width:auto;padding:6px 12px;">Close</button>
+        </div>
+        <div class="studio-pick-list" id="studioPickList">
+          ${props.length ? props.map(p => {
+            const photo = (p.media && p.media[0] && p.media[0].url) ? p.media[0].url : '';
+            const bg = photo ? `background-image:url('${photo}');` : '';
+            return `
+              <div class="studio-pick-item" data-id="${esc(p.id)}">
+                <div class="studio-pick-thumb" style="${bg}"></div>
+                <div class="studio-pick-meta">
+                  <div class="studio-pick-name">${esc(p.name || 'Untitled')}</div>
+                  <div class="studio-pick-sub">${esc(p.type || '')}${p.location?' · '+esc(p.location):''}${p.size?' · '+fmtAED(p.size)+' sqft':''}</div>
+                </div>
+                ${p.annualRent ? `<div class="studio-pick-price">AED ${fmtAED(p.annualRent)}</div>` : ''}
+              </div>
+            `;
+          }).join('') : `<div style="text-align:center;padding:40px 20px;color:var(--text-3);">No properties in the CRM yet.</div>`}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('#studioPickClose').addEventListener('click', () => overlay.remove());
+    overlay.querySelectorAll('.studio-pick-item').forEach(it => {
+      it.addEventListener('click', () => {
+        const p = props.find(x => x.id === it.dataset.id);
+        if (p) loadFromProperty(p);
+        overlay.remove();
+      });
+    });
+  }
+
+  async function loadFromProperty(p) {
+    State.propertyId = p.id;
+    State.title = p.name || '';
+    State.location = p.location || '';
+    State.price = p.annualRent || '';
+    State.size = p.size || '';
+    State.propertyType = (p.type || '').replace(/^\w/, c => c.toUpperCase()) + (p.status === 'vacant' ? ' · For Lease' : '');
+    // Pull a few feature-y lines
+    const feats = [];
+    if (p.size) feats.push(`${fmtAED(p.size)} sqft built-up`);
+    if (p.bays) feats.push(`${p.bays} loading bays`);
+    if (p.ceilingHeight) feats.push(`${p.ceilingHeight} ft clear ceiling`);
+    if (p.parking) feats.push(`${p.parking} parking spaces`);
+    if (p.features && Array.isArray(p.features)) feats.push(...p.features.slice(0, 4));
+    State.features = feats.slice(0, 5);
+    while (State.features.length < 4) State.features.push('');
+
+    // Load up to 8 photos from the property's media (they're served by the
+    // same origin so html2canvas can read them — but we still convert to
+    // dataURL via fetch+blob to keep export bulletproof under CORS).
+    State.photos = [];
+    if (Array.isArray(p.media) && p.media.length) {
+      const slice = p.media.slice(0, 8);
+      for (const m of slice) {
+        if (!m || !m.url) continue;
+        try {
+          const res = await fetch(m.url, { credentials: 'omit' });
+          const blob = await res.blob();
+          const dataUrl = await new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.onerror = reject;
+            r.readAsDataURL(blob);
+          });
+          State.photos.push({ dataUrl, name: m.url.split('/').pop() || 'photo' });
+        } catch (err) { /* skip unfetchable */ }
+      }
+    }
+    syncInputsFromState();
+    renderPhotoGrid();
+    renderPreview();
+  }
+
+  // --- Sync form ↔ state -----------------------------------------
+  function bindInputs() {
+    const bind = (id, key) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        State[key] = el.value;
+        renderPreview();
+      });
+    };
+    bind('studioTitle', 'title');
+    bind('studioLocation', 'location');
+    bind('studioPrice', 'price');
+    bind('studioSize', 'size');
+    bind('studioType', 'propertyType');
+    bind('studioCta', 'cta');
+    bind('studioAgentName', 'agentName');
+    bind('studioAgentPhone', 'agentPhone');
+    bind('studioIgHandle', 'igHandle');
+
+    const feats = document.getElementById('studioFeatures');
+    if (feats) {
+      feats.addEventListener('input', () => {
+        State.features = feats.value.split('\n').map(s => s.trim()).filter(Boolean);
+        renderPreview();
+      });
+    }
+  }
+
+  function syncInputsFromState() {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('studioTitle', State.title);
+    set('studioLocation', State.location);
+    set('studioPrice', State.price);
+    set('studioSize', State.size);
+    set('studioType', State.propertyType);
+    set('studioCta', State.cta);
+    set('studioAgentName', State.agentName);
+    set('studioAgentPhone', State.agentPhone);
+    set('studioIgHandle', State.igHandle);
+    set('studioFeatures', (State.features || []).filter(Boolean).join('\n'));
+  }
+
+  // --- Export: render slides off-screen and capture --------------
+  function showExportOverlay(msg) {
+    let o = document.getElementById('studioExportOverlay');
+    if (!o) {
+      o = document.createElement('div');
+      o.id = 'studioExportOverlay';
+      o.className = 'studio-export-overlay';
+      o.innerHTML = `<div class="se-spinner"></div><div class="se-msg" id="seMsg"></div><div class="se-progress" id="seProgress"></div>`;
+      document.body.appendChild(o);
+    }
+    document.getElementById('seMsg').textContent = msg;
+    document.getElementById('seProgress').textContent = '';
+    o.style.display = '';
+    return o;
+  }
+  function hideExportOverlay() {
+    const o = document.getElementById('studioExportOverlay');
+    if (o) o.remove();
+  }
+  function updateProgress(done, total) {
+    const p = document.getElementById('seProgress');
+    if (p) p.textContent = `${done} / ${total}`;
+  }
+
+  async function renderSlideToCanvas(slideHTML) {
+    // Off-screen render container — outside viewport so it doesn't flash.
+    const off = document.createElement('div');
+    off.style.position = 'fixed';
+    off.style.left = '-99999px';
+    off.style.top = '0';
+    off.style.width = '1080px';
+    off.style.height = '1080px';
+    off.innerHTML = slideHTML;
+    document.body.appendChild(off);
+    // Wait one frame so the browser lays out + loads any background-image URLs
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Give background-images a beat to paint (they're dataURLs so instant, but be safe)
+    await new Promise(r => setTimeout(r, 50));
+    const canvas = await html2canvas(off.firstElementChild, {
+      width: 1080, height: 1080,
+      windowWidth: 1080, windowHeight: 1080,
+      scale: 1,
+      backgroundColor: null,
+      useCORS: true,
+      logging: false,
+    });
+    off.remove();
+    return canvas;
+  }
+
+  async function exportIG() {
+    if (typeof html2canvas === 'undefined' || typeof JSZip === 'undefined') {
+      alert('Export libraries are still loading — try again in a second.');
+      return;
+    }
+    if (!State.photos.length && !State.title) {
+      alert('Add at least a title or a photo first.');
+      return;
+    }
+    const slides = buildSlideList();
+    const overlay = showExportOverlay('Generating Instagram slides…');
+    try {
+      const zip = new JSZip();
+      for (let i = 0; i < slides.length; i++) {
+        updateProgress(i, slides.length);
+        const canvas = await renderSlideToCanvas(slides[i].html);
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.92));
+        zip.file(`slide-${String(i + 1).padStart(2, '0')}-${slides[i].kind}.jpg`, blob);
+      }
+      updateProgress(slides.length, slides.length);
+      const content = await zip.generateAsync({ type: 'blob' });
+      const safeTitle = (State.title || 'asg-carousel').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'carousel';
+      downloadBlob(content, `${safeTitle}-ig-carousel.zip`);
+    } catch (err) {
+      console.error('Studio IG export failed:', err);
+      alert('Export failed: ' + (err && err.message ? err.message : err));
+    } finally {
+      hideExportOverlay();
+    }
+  }
+
+  async function exportPDF() {
+    if (typeof html2canvas === 'undefined' || !window.jspdf) {
+      alert('Export libraries are still loading — try again in a second.');
+      return;
+    }
+    if (!State.photos.length && !State.title) {
+      alert('Add at least a title or a photo first.');
+      return;
+    }
+    const slides = buildSlideList();
+    const overlay = showExportOverlay('Generating WhatsApp PDF…');
+    try {
+      const { jsPDF } = window.jspdf;
+      // Square A4-ish: jsPDF in mm. We use a custom 200×200mm page so each
+      // slide is a generous square, then place a 200mm canvas on it.
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [200, 200] });
+      for (let i = 0; i < slides.length; i++) {
+        updateProgress(i, slides.length);
+        const canvas = await renderSlideToCanvas(slides[i].html);
+        const imgData = canvas.toDataURL('image/jpeg', 0.88);
+        if (i > 0) pdf.addPage([200, 200], 'portrait');
+        pdf.addImage(imgData, 'JPEG', 0, 0, 200, 200, undefined, 'FAST');
+      }
+      updateProgress(slides.length, slides.length);
+      const safeTitle = (State.title || 'asg-property').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'property';
+      pdf.save(`${safeTitle}-whatsapp.pdf`);
+    } catch (err) {
+      console.error('Studio PDF export failed:', err);
+      alert('PDF export failed: ' + (err && err.message ? err.message : err));
+    } finally {
+      hideExportOverlay();
+    }
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // --- Mount / unmount + wire ------------------------------------
+  let _shellEl = null;
+  let _wired = false;
+
+  function ensureMounted(containerId) {
+    if (!_shellEl) {
+      _shellEl = buildShell();
+    }
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (_shellEl.parentElement !== container) {
+      // Move the shell into the active container
+      container.appendChild(_shellEl);
+    }
+    if (!_wired) {
+      bindInputs();
+      const photoZone = document.getElementById('studioPhotoZone');
+      const photoInput = document.getElementById('studioPhotoInput');
+      photoZone.addEventListener('click', () => photoInput.click());
+      photoZone.addEventListener('dragover', (e) => { e.preventDefault(); photoZone.style.background = 'rgba(195,151,73,0.12)'; });
+      photoZone.addEventListener('dragleave', () => { photoZone.style.background = ''; });
+      photoZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        photoZone.style.background = '';
+        if (e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+      });
+      photoInput.addEventListener('change', () => handleFiles(photoInput.files));
+
+      document.getElementById('studioPrev').addEventListener('click', () => { State.currentSlide--; renderPreview(); });
+      document.getElementById('studioNext').addEventListener('click', () => { State.currentSlide++; renderPreview(); });
+      document.getElementById('studioPickCRM').addEventListener('click', openPropertyPicker);
+      document.getElementById('studioClearAll').addEventListener('click', () => {
+        if (!confirm('Clear all studio inputs?')) return;
+        Object.assign(State, {
+          title: '', location: '', price: '', size: '', propertyType: '',
+          features: ['', '', '', ''], cta: 'Book a viewing',
+          agentName: '', agentPhone: '', igHandle: '@asgproperties',
+          photos: [], propertyId: null, currentSlide: 0,
+        });
+        syncInputsFromState();
+        renderPhotoGrid();
+        renderPreview();
+      });
+      document.getElementById('studioExportIG').addEventListener('click', exportIG);
+      document.getElementById('studioExportPDF').addEventListener('click', exportPDF);
+      _wired = true;
+    }
+    syncInputsFromState();
+    renderPhotoGrid();
+    renderPreview();
+  }
+
+  // --- Hook into existing showTab / showAgentTab ----------------
+  const _origShowTab = (typeof showTab === 'function') ? showTab : null;
+  window.showTab = function (tab) {
+    if (_origShowTab) _origShowTab(tab);
+    // For admin: studioView is the target container. We have to handle it
+    // here because the original showTab doesn't know about 'studio'.
+    const adminView = document.getElementById('studioView');
+    if (adminView) {
+      adminView.style.display = tab === 'studio' ? '' : 'none';
+      if (tab === 'studio') ensureMounted('studioView');
+    }
+    // Update active state on the admin tabStudio nav button (the original
+    // showTab's loop doesn't include 'Studio' in its list).
+    const tabBtn = document.getElementById('tabStudio');
+    if (tabBtn) tabBtn.classList.toggle('active', tab === 'studio');
+  };
+
+  // Add 'studio' to AGENT_TABS so showAgentTab's loop toggles it correctly.
+  try { if (Array.isArray(AGENT_TABS) && !AGENT_TABS.includes('studio')) AGENT_TABS.push('studio'); } catch (_) {}
+
+  const _origShowAgentTab = (typeof showAgentTab === 'function') ? showAgentTab : null;
+  window.showAgentTab = function (tab) {
+    if (_origShowAgentTab) _origShowAgentTab(tab);
+    const agentView = document.getElementById('agentTabStudio');
+    if (agentView) {
+      agentView.style.display = tab === 'studio' ? '' : 'none';
+      if (tab === 'studio') ensureMounted('agentTabStudio');
+    }
+  };
+})();
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   LEDGERS MODULE — double-entry accounting, MARG-style
+   Self-contained IIFE. Mounts into <div id="ledgersView">.
+   Data: localStorage. Vouchers debit one ledger and credit another.
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  const LS_LEDGERS  = 'asg_ledgers_v1';
+  const LS_VOUCHERS = 'asg_vouchers_v1';
+
+  // ─── State ─────────────────────────────────────────────────────────
+  const State = {
+    ledgers: [],
+    vouchers: [],
+    view: 'list',          // 'list' | 'statement'
+    activeLedgerId: null,
+    filterType: 'all',     // 'all' | 'bank' | 'party' | 'expense' | 'income' | 'asset' | 'liability'
+    search: '',
+    fromDate: '',
+    toDate: '',
+    mounted: false,
+  };
+
+  // ─── Persistence ───────────────────────────────────────────────────
+  function loadAll() {
+    try { State.ledgers  = JSON.parse(localStorage.getItem(LS_LEDGERS)  || '[]'); } catch (_) { State.ledgers = []; }
+    try { State.vouchers = JSON.parse(localStorage.getItem(LS_VOUCHERS) || '[]'); } catch (_) { State.vouchers = []; }
+    // Seed with a few starter ledgers on the very first visit, so the user
+    // sees an example shape rather than an empty screen.
+    if (State.ledgers.length === 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      State.ledgers = [
+        { id: 'led_cash',    name: 'Cash in Hand',     type: 'bank',    openingBalance: 0, openingDate: today, note: '', createdAt: new Date().toISOString() },
+        { id: 'led_rent',    name: 'Rent Received',    type: 'income',  openingBalance: 0, openingDate: today, note: '', createdAt: new Date().toISOString() },
+        { id: 'led_expense', name: 'Office Expenses',  type: 'expense', openingBalance: 0, openingDate: today, note: '', createdAt: new Date().toISOString() },
+      ];
+      saveLedgers();
+    }
+  }
+  function saveLedgers()  { localStorage.setItem(LS_LEDGERS,  JSON.stringify(State.ledgers));  }
+  function saveVouchers() { localStorage.setItem(LS_VOUCHERS, JSON.stringify(State.vouchers)); }
+
+  // ─── Helpers ───────────────────────────────────────────────────────
+  function uid(prefix) { return prefix + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
+  function esc(s)      { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+  function fmt(n)      { const x = Number(n) || 0; return x.toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function parseNum(v) {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number') return v;
+    const s = String(v).replace(/[,\s]/g, '').replace(/^\(/, '-').replace(/\)$/, '');
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+  function todayISO() { return new Date().toISOString().slice(0, 10); }
+  function findLedger(id) { return State.ledgers.find(l => l.id === id); }
+  function findLedgerByName(name) {
+    if (!name) return null;
+    const norm = String(name).trim().toLowerCase();
+    return State.ledgers.find(l => l.name.trim().toLowerCase() === norm) || null;
+  }
+  const TYPE_LABEL = { bank: 'Bank / Cash', party: 'Party', expense: 'Expense', income: 'Income', asset: 'Asset', liability: 'Liability' };
+  const TYPE_COLOR = { bank: '#10b981', party: '#3b82f6', expense: '#ef4444', income: '#22c55e', asset: '#a855f7', liability: '#f97316' };
+
+  // ─── Balance computation ───────────────────────────────────────────
+  function ledgerBalance(ledgerId, upToDateISO) {
+    const led = findLedger(ledgerId);
+    if (!led) return 0;
+    let bal = Number(led.openingBalance) || 0;
+    for (const v of State.vouchers) {
+      if (upToDateISO && v.date > upToDateISO) continue;
+      if (v.debitLedgerId  === ledgerId) bal += Number(v.amount) || 0;
+      if (v.creditLedgerId === ledgerId) bal -= Number(v.amount) || 0;
+    }
+    return bal;
+  }
+  function ledgerEntries(ledgerId, fromISO, toISO) {
+    const led = findLedger(ledgerId);
+    if (!led) return { rows: [], totals: { debit: 0, credit: 0, closing: 0 } };
+    const rows = [];
+    let running = Number(led.openingBalance) || 0;
+    rows.push({
+      date: led.openingDate || '',
+      vchType: 'Opening',
+      vchNo: '',
+      particulars: 'Opening Balance',
+      debit: running > 0 ? running : 0,
+      credit: running < 0 ? -running : 0,
+      balance: running,
+      isOpening: true,
+    });
+    const vs = State.vouchers
+      .filter(v => v.debitLedgerId === ledgerId || v.creditLedgerId === ledgerId)
+      .slice()
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+    let totalDr = 0, totalCr = 0;
+    for (const v of vs) {
+      const isDr = v.debitLedgerId === ledgerId;
+      const otherId = isDr ? v.creditLedgerId : v.debitLedgerId;
+      const other = findLedger(otherId);
+      const amt = Number(v.amount) || 0;
+      if (isDr) { running += amt; totalDr += amt; } else { running -= amt; totalCr += amt; }
+      const inRange =
+        (!fromISO || (v.date || '') >= fromISO) &&
+        (!toISO   || (v.date || '') <= toISO);
+      if (inRange) {
+        rows.push({
+          id: v.id,
+          date: v.date,
+          vchType: v.type ? (v.type[0].toUpperCase() + v.type.slice(1)) : '',
+          vchNo: v.vchNo || '',
+          particulars: other ? other.name : '(unmapped)',
+          narration: v.narration || '',
+          debit: isDr ? amt : 0,
+          credit: isDr ? 0 : amt,
+          balance: running,
+          source: v.source || 'manual',
+        });
+      }
+    }
+    return { rows, totals: { debit: totalDr, credit: totalCr, closing: running } };
+  }
+
+  // ─── Shell HTML ────────────────────────────────────────────────────
+  function buildShell(container) {
+    container.innerHTML = `
+      <div class="ledgers-root">
+        <header class="ledgers-header">
+          <div>
+            <h2 class="ledgers-title">Ledgers</h2>
+            <p class="ledgers-sub">Double-entry register. Pass vouchers or import from MARG Excel.</p>
+          </div>
+          <div class="ledgers-actions">
+            <button class="btn-ghost"   id="ldgNewLedgerBtn">+ Ledger</button>
+            <button class="btn-ghost"   id="ldgImportBtn">↑ Import Excel</button>
+            <button class="btn-primary" id="ldgNewVoucherBtn">+ Voucher</button>
+          </div>
+        </header>
+
+        <div class="ledgers-body" id="ldgBody"></div>
+      </div>
+
+      <!-- ─── Voucher modal ───────────────────────────────────────── -->
+      <div class="ledgers-modal-overlay" id="ldgVoucherOverlay">
+        <div class="ledgers-modal">
+          <div class="ledgers-modal-head">
+            <h3 id="ldgVoucherTitle">New Voucher</h3>
+            <button class="ldg-close" data-close="ldgVoucherOverlay">×</button>
+          </div>
+          <div class="ledgers-modal-body">
+            <div class="ldg-form-grid">
+              <label class="ldg-field">
+                <span>Type</span>
+                <select id="ldgVchType">
+                  <option value="payment">Payment</option>
+                  <option value="receipt">Receipt</option>
+                  <option value="journal">Journal</option>
+                  <option value="contra">Contra</option>
+                </select>
+              </label>
+              <label class="ldg-field">
+                <span>Date</span>
+                <input type="date" id="ldgVchDate">
+              </label>
+              <label class="ldg-field">
+                <span>Voucher No.</span>
+                <input type="text" id="ldgVchNo" placeholder="e.g. 101">
+              </label>
+              <label class="ldg-field">
+                <span>Amount (AED)</span>
+                <input type="number" step="0.01" id="ldgVchAmount" placeholder="0.00">
+              </label>
+              <label class="ldg-field ldg-field-wide">
+                <span>Debit (Dr)</span>
+                <select id="ldgVchDebit"></select>
+              </label>
+              <label class="ldg-field ldg-field-wide">
+                <span>Credit (Cr)</span>
+                <select id="ldgVchCredit"></select>
+              </label>
+              <label class="ldg-field ldg-field-wide">
+                <span>Narration</span>
+                <textarea id="ldgVchNarration" rows="2" placeholder="e.g. Rent for warehouse W-12 Apr-2026"></textarea>
+              </label>
+            </div>
+            <div class="ldg-hint" id="ldgVchHint"></div>
+          </div>
+          <div class="ledgers-modal-foot">
+            <button class="btn-ghost" data-close="ldgVoucherOverlay">Cancel</button>
+            <button class="btn-primary" id="ldgVoucherSave">Save Voucher</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── New-ledger modal ────────────────────────────────────── -->
+      <div class="ledgers-modal-overlay" id="ldgLedgerOverlay">
+        <div class="ledgers-modal ledgers-modal-sm">
+          <div class="ledgers-modal-head">
+            <h3 id="ldgLedgerTitle">New Ledger</h3>
+            <button class="ldg-close" data-close="ldgLedgerOverlay">×</button>
+          </div>
+          <div class="ledgers-modal-body">
+            <div class="ldg-form-grid">
+              <label class="ldg-field ldg-field-wide">
+                <span>Name</span>
+                <input type="text" id="ldgLedName" placeholder="e.g. HSBC Current 4567 / Al-Futtaim / Office Rent">
+              </label>
+              <label class="ldg-field">
+                <span>Type</span>
+                <select id="ldgLedType">
+                  <option value="bank">Bank / Cash</option>
+                  <option value="party">Party</option>
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                  <option value="asset">Asset</option>
+                  <option value="liability">Liability</option>
+                </select>
+              </label>
+              <label class="ldg-field">
+                <span>Opening Date</span>
+                <input type="date" id="ldgLedOpenDate">
+              </label>
+              <label class="ldg-field ldg-field-wide">
+                <span>Opening Balance (AED)</span>
+                <input type="number" step="0.01" id="ldgLedOpenBal" placeholder="0.00 (signed; negative = credit balance)">
+              </label>
+              <label class="ldg-field ldg-field-wide">
+                <span>Note</span>
+                <textarea id="ldgLedNote" rows="2" placeholder="Optional"></textarea>
+              </label>
+            </div>
+          </div>
+          <div class="ledgers-modal-foot">
+            <button class="btn-ghost ldg-del-btn" id="ldgLedDelete" style="display:none;">Delete</button>
+            <span style="flex:1;"></span>
+            <button class="btn-ghost" data-close="ldgLedgerOverlay">Cancel</button>
+            <button class="btn-primary" id="ldgLedSave">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Import modal ────────────────────────────────────────── -->
+      <div class="ledgers-modal-overlay" id="ldgImportOverlay">
+        <div class="ledgers-modal ledgers-modal-lg">
+          <div class="ledgers-modal-head">
+            <h3>Import MARG Statement</h3>
+            <button class="ldg-close" data-close="ldgImportOverlay">×</button>
+          </div>
+          <div class="ledgers-modal-body" id="ldgImportBody">
+            <!-- populated by openImport() -->
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ─── List view ─────────────────────────────────────────────────────
+  function renderList() {
+    const body = document.getElementById('ldgBody');
+    if (!body) return;
+
+    const types = ['all','bank','party','expense','income','asset','liability'];
+    const counts = types.reduce((acc, t) => { acc[t] = 0; return acc; }, {});
+    State.ledgers.forEach(l => { counts[l.type] = (counts[l.type] || 0) + 1; });
+    counts.all = State.ledgers.length;
+
+    let filtered = State.ledgers.slice();
+    if (State.filterType !== 'all') filtered = filtered.filter(l => l.type === State.filterType);
+    if (State.search) {
+      const q = State.search.toLowerCase();
+      filtered = filtered.filter(l => l.name.toLowerCase().includes(q));
+    }
+    filtered.sort((a, b) => a.name.localeCompare(b.name));
+
+    let cashBal = 0, partyBal = 0;
+    State.ledgers.forEach(l => {
+      const bal = ledgerBalance(l.id);
+      if (l.type === 'bank') cashBal += bal;
+      if (l.type === 'party') partyBal += bal;
+    });
+
+    body.innerHTML = `
+      <div class="ledgers-summary">
+        <div class="ldg-stat">
+          <div class="ldg-stat-label">Cash & Bank</div>
+          <div class="ldg-stat-value">${fmt(cashBal)}</div>
+        </div>
+        <div class="ldg-stat">
+          <div class="ldg-stat-label">Net Party Balance</div>
+          <div class="ldg-stat-value">${fmt(partyBal)}</div>
+        </div>
+        <div class="ldg-stat">
+          <div class="ldg-stat-label">Vouchers Passed</div>
+          <div class="ldg-stat-value">${State.vouchers.length}</div>
+        </div>
+        <div class="ldg-stat">
+          <div class="ldg-stat-label">Ledgers</div>
+          <div class="ldg-stat-value">${State.ledgers.length}</div>
+        </div>
+      </div>
+
+      <div class="ledgers-toolbar">
+        <div class="ldg-tabs">
+          ${types.map(t => `
+            <button class="ldg-tab ${State.filterType === t ? 'active' : ''}" data-filter="${t}">
+              ${t === 'all' ? 'All' : TYPE_LABEL[t]}
+              <span class="ldg-tab-count">${counts[t] || 0}</span>
+            </button>
+          `).join('')}
+        </div>
+        <input type="search" class="ldg-search" id="ldgSearch" placeholder="Search ledger…" value="${esc(State.search)}">
+      </div>
+
+      ${filtered.length === 0 ? `
+        <div class="ldg-empty">
+          <div class="ldg-empty-icon">📒</div>
+          <p>No ledgers match this filter.</p>
+          <p class="ldg-empty-sub">Tap <strong>+ Ledger</strong> above to create one.</p>
+        </div>
+      ` : `
+        <div class="ldg-grid">
+          ${filtered.map(l => {
+            const bal = ledgerBalance(l.id);
+            const sign = bal >= 0 ? 'pos' : 'neg';
+            return `
+              <button class="ldg-card" data-open="${l.id}">
+                <div class="ldg-card-head">
+                  <span class="ldg-type-pill" style="background:${TYPE_COLOR[l.type]}1a;color:${TYPE_COLOR[l.type]};border-color:${TYPE_COLOR[l.type]}33;">
+                    ${TYPE_LABEL[l.type] || l.type}
+                  </span>
+                  <button class="ldg-card-edit" data-edit="${l.id}" title="Edit ledger">✎</button>
+                </div>
+                <div class="ldg-card-name">${esc(l.name)}</div>
+                <div class="ldg-card-balance ldg-bal-${sign}">
+                  AED ${fmt(bal)}
+                </div>
+                <div class="ldg-card-foot">
+                  ${countVouchers(l.id)} entries
+                </div>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      `}
+    `;
+
+    body.querySelectorAll('[data-filter]').forEach(b => {
+      b.addEventListener('click', () => {
+        State.filterType = b.dataset.filter;
+        renderList();
+      });
+    });
+    const s = document.getElementById('ldgSearch');
+    if (s) {
+      s.addEventListener('input', () => {
+        State.search = s.value;
+        renderList();
+      });
+    }
+    body.querySelectorAll('[data-open]').forEach(b => {
+      b.addEventListener('click', (e) => {
+        if (e.target.closest('[data-edit]')) return;
+        openStatement(b.dataset.open);
+      });
+    });
+    body.querySelectorAll('[data-edit]').forEach(b => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openLedgerModal(b.dataset.edit);
+      });
+    });
+  }
+
+  function countVouchers(ledgerId) {
+    return State.vouchers.filter(v => v.debitLedgerId === ledgerId || v.creditLedgerId === ledgerId).length;
+  }
+
+  // ─── Statement view ────────────────────────────────────────────────
+  function openStatement(ledgerId) {
+    State.view = 'statement';
+    State.activeLedgerId = ledgerId;
+    renderStatement();
+  }
+
+  function renderStatement() {
+    const body = document.getElementById('ldgBody');
+    if (!body) return;
+    const led = findLedger(State.activeLedgerId);
+    if (!led) { State.view = 'list'; renderList(); return; }
+
+    const { rows, totals } = ledgerEntries(led.id, State.fromDate, State.toDate);
+
+    body.innerHTML = `
+      <div class="ldg-stmt-head">
+        <button class="ldg-back" id="ldgBack">← All Ledgers</button>
+        <div class="ldg-stmt-title">
+          <span class="ldg-type-pill" style="background:${TYPE_COLOR[led.type]}1a;color:${TYPE_COLOR[led.type]};border-color:${TYPE_COLOR[led.type]}33;">${TYPE_LABEL[led.type]}</span>
+          <h3>${esc(led.name)}</h3>
+        </div>
+        <div class="ldg-stmt-bal">
+          <div class="ldg-stmt-bal-label">Closing balance</div>
+          <div class="ldg-stmt-bal-value ldg-bal-${totals.closing >= 0 ? 'pos' : 'neg'}">AED ${fmt(totals.closing)}</div>
+        </div>
+      </div>
+
+      <div class="ldg-stmt-filter">
+        <label>From <input type="date" id="ldgFrom" value="${esc(State.fromDate)}"></label>
+        <label>To   <input type="date" id="ldgTo"   value="${esc(State.toDate)}"></label>
+        <button class="btn-ghost"   id="ldgFilterClear">Clear</button>
+        <span style="flex:1;"></span>
+        <button class="btn-ghost" id="ldgImportHere">↑ Import to this ledger</button>
+        <button class="btn-primary" id="ldgNewVoucherHere">+ Voucher</button>
+      </div>
+
+      <div class="ldg-stmt-wrap">
+        <table class="ldg-stmt-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Vch Type</th>
+              <th>Vch No</th>
+              <th>Particulars</th>
+              <th class="ldg-num">Debit</th>
+              <th class="ldg-num">Credit</th>
+              <th class="ldg-num">Balance</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr class="${r.isOpening ? 'ldg-row-opening' : ''} ${r.source === 'marg-import' ? 'ldg-row-imported' : ''}">
+                <td>${esc(r.date)}</td>
+                <td>${esc(r.vchType)}</td>
+                <td>${esc(r.vchNo)}</td>
+                <td>
+                  <div>${esc(r.particulars)}</div>
+                  ${r.narration ? `<div class="ldg-narration">${esc(r.narration)}</div>` : ''}
+                </td>
+                <td class="ldg-num ldg-dr">${r.debit ? fmt(r.debit) : ''}</td>
+                <td class="ldg-num ldg-cr">${r.credit ? fmt(r.credit) : ''}</td>
+                <td class="ldg-num">${fmt(r.balance)}</td>
+                <td>${r.id && !r.isOpening ? `<button class="ldg-row-del" data-del-vch="${r.id}" title="Delete">🗑</button>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colspan="4" style="text-align:right;">Totals (in range)</th>
+              <th class="ldg-num">${fmt(totals.debit)}</th>
+              <th class="ldg-num">${fmt(totals.credit)}</th>
+              <th class="ldg-num"></th>
+              <th></th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+
+    document.getElementById('ldgBack').addEventListener('click', () => {
+      State.view = 'list'; State.activeLedgerId = null;
+      renderList();
+    });
+    document.getElementById('ldgFrom').addEventListener('change', e => { State.fromDate = e.target.value; renderStatement(); });
+    document.getElementById('ldgTo').addEventListener('change',   e => { State.toDate   = e.target.value; renderStatement(); });
+    document.getElementById('ldgFilterClear').addEventListener('click', () => { State.fromDate = ''; State.toDate = ''; renderStatement(); });
+    document.getElementById('ldgNewVoucherHere').addEventListener('click', () => openVoucherModal({ debitLedgerId: led.type === 'bank' ? led.id : null, creditLedgerId: led.type !== 'bank' ? led.id : null }));
+    document.getElementById('ldgImportHere').addEventListener('click', () => openImport(led.id));
+    body.querySelectorAll('[data-del-vch]').forEach(b => {
+      b.addEventListener('click', () => {
+        if (confirm('Delete this voucher? This affects both ledgers it touches.')) {
+          State.vouchers = State.vouchers.filter(v => v.id !== b.dataset.delVch);
+          saveVouchers();
+          renderStatement();
+        }
+      });
+    });
+  }
+
+  // ─── Voucher modal ─────────────────────────────────────────────────
+  function fillLedgerSelect(sel, selectedId) {
+    sel.innerHTML = '<option value="">— Select ledger —</option>' +
+      State.ledgers
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(l => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${esc(l.name)} (${TYPE_LABEL[l.type]})</option>`)
+        .join('');
+  }
+
+  let _editingVoucherId = null;
+  function openVoucherModal(opts) {
+    opts = opts || {};
+    _editingVoucherId = opts.editId || null;
+    const ov = document.getElementById('ldgVoucherOverlay');
+    document.getElementById('ldgVoucherTitle').textContent = _editingVoucherId ? 'Edit Voucher' : 'New Voucher';
+    fillLedgerSelect(document.getElementById('ldgVchDebit'),  opts.debitLedgerId  || '');
+    fillLedgerSelect(document.getElementById('ldgVchCredit'), opts.creditLedgerId || '');
+    document.getElementById('ldgVchDate').value = opts.date || todayISO();
+    document.getElementById('ldgVchType').value = opts.type || 'payment';
+    document.getElementById('ldgVchNo').value   = opts.vchNo || nextVchNo();
+    document.getElementById('ldgVchAmount').value = opts.amount || '';
+    document.getElementById('ldgVchNarration').value = opts.narration || '';
+    document.getElementById('ldgVchHint').textContent = '';
+    ov.classList.add('open');
+  }
+
+  function nextVchNo() {
+    const nums = State.vouchers.map(v => parseInt(v.vchNo, 10)).filter(n => !isNaN(n));
+    return String((nums.length ? Math.max(...nums) : 100) + 1);
+  }
+
+  function saveVoucher() {
+    const drId = document.getElementById('ldgVchDebit').value;
+    const crId = document.getElementById('ldgVchCredit').value;
+    const amt  = parseNum(document.getElementById('ldgVchAmount').value);
+    const date = document.getElementById('ldgVchDate').value;
+    const type = document.getElementById('ldgVchType').value;
+    const vchNo = document.getElementById('ldgVchNo').value.trim();
+    const narration = document.getElementById('ldgVchNarration').value.trim();
+    const hint = document.getElementById('ldgVchHint');
+
+    if (!drId)          { hint.textContent = 'Pick a Debit ledger.'; return; }
+    if (!crId)          { hint.textContent = 'Pick a Credit ledger.'; return; }
+    if (drId === crId)  { hint.textContent = 'Debit and Credit must be different ledgers.'; return; }
+    if (amt <= 0)       { hint.textContent = 'Amount must be greater than zero.'; return; }
+    if (!date)          { hint.textContent = 'Pick a date.'; return; }
+
+    if (_editingVoucherId) {
+      const v = State.vouchers.find(x => x.id === _editingVoucherId);
+      if (v) Object.assign(v, { date, type, vchNo, narration, debitLedgerId: drId, creditLedgerId: crId, amount: amt });
+    } else {
+      State.vouchers.push({
+        id: uid('vch'),
+        date, type, vchNo, narration,
+        debitLedgerId: drId, creditLedgerId: crId,
+        amount: amt,
+        source: 'manual',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    saveVouchers();
+    closeOverlay('ldgVoucherOverlay');
+    if (State.view === 'statement') renderStatement(); else renderList();
+  }
+
+  // ─── New / edit ledger modal ───────────────────────────────────────
+  let _editingLedgerId = null;
+  function openLedgerModal(ledgerId) {
+    _editingLedgerId = ledgerId || null;
+    const ov = document.getElementById('ldgLedgerOverlay');
+    document.getElementById('ldgLedgerTitle').textContent = ledgerId ? 'Edit Ledger' : 'New Ledger';
+    const led = ledgerId ? findLedger(ledgerId) : null;
+    document.getElementById('ldgLedName').value     = led ? led.name : '';
+    document.getElementById('ldgLedType').value     = led ? led.type : 'bank';
+    document.getElementById('ldgLedOpenDate').value = led ? (led.openingDate || todayISO()) : todayISO();
+    document.getElementById('ldgLedOpenBal').value  = led ? led.openingBalance : '';
+    document.getElementById('ldgLedNote').value     = led ? (led.note || '') : '';
+    document.getElementById('ldgLedDelete').style.display = ledgerId ? '' : 'none';
+    ov.classList.add('open');
+  }
+
+  function saveLedger() {
+    const name = document.getElementById('ldgLedName').value.trim();
+    const type = document.getElementById('ldgLedType').value;
+    const openDate = document.getElementById('ldgLedOpenDate').value;
+    const openBal  = parseNum(document.getElementById('ldgLedOpenBal').value);
+    const note     = document.getElementById('ldgLedNote').value.trim();
+    if (!name) { alert('Ledger name is required.'); return; }
+    if (_editingLedgerId) {
+      const l = findLedger(_editingLedgerId);
+      if (l) Object.assign(l, { name, type, openingDate: openDate, openingBalance: openBal, note });
+    } else {
+      if (findLedgerByName(name)) { alert('A ledger with this name already exists.'); return; }
+      State.ledgers.push({
+        id: uid('led'),
+        name, type,
+        openingDate: openDate || todayISO(),
+        openingBalance: openBal,
+        note,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    saveLedgers();
+    closeOverlay('ldgLedgerOverlay');
+    if (State.view === 'statement') renderStatement(); else renderList();
+  }
+
+  function deleteLedger() {
+    if (!_editingLedgerId) return;
+    const touched = State.vouchers.some(v => v.debitLedgerId === _editingLedgerId || v.creditLedgerId === _editingLedgerId);
+    const msg = touched
+      ? 'This ledger is used in vouchers. Delete the ledger AND all its vouchers?'
+      : 'Delete this ledger?';
+    if (!confirm(msg)) return;
+    State.vouchers = State.vouchers.filter(v => v.debitLedgerId !== _editingLedgerId && v.creditLedgerId !== _editingLedgerId);
+    State.ledgers  = State.ledgers.filter(l => l.id !== _editingLedgerId);
+    saveLedgers(); saveVouchers();
+    closeOverlay('ldgLedgerOverlay');
+    State.view = 'list'; State.activeLedgerId = null;
+    renderList();
+  }
+
+  // ─── Excel / MARG import ───────────────────────────────────────────
+  let _importData = null;
+
+  function openImport(targetLedgerId) {
+    if (typeof XLSX === 'undefined') {
+      alert('Excel parser not loaded yet. Refresh the page and try again.');
+      return;
+    }
+    _importData = { rows: [], mapping: null, targetLedgerId: targetLedgerId || '', partyMap: {}, fileName: '' };
+    renderImportStep1();
+    document.getElementById('ldgImportOverlay').classList.add('open');
+  }
+
+  function renderImportStep1() {
+    const body = document.getElementById('ldgImportBody');
+    body.innerHTML = `
+      <div class="ldg-import-step">
+        <div class="ldg-import-stepnum">Step 1 of 3 — Choose target ledger &amp; file</div>
+        <p class="ldg-import-note">
+          Pick the ledger whose MARG statement you're importing (typically a bank or cash account).
+          Each row in the Excel will become a voucher: rows with a <strong>Debit</strong> value
+          debit this ledger, rows with a <strong>Credit</strong> value credit it. The
+          <em>Particulars</em> column on each row identifies the other ledger.
+        </p>
+        <label class="ldg-field ldg-field-wide">
+          <span>Target ledger</span>
+          <select id="ldgImpTarget">
+            <option value="">— Select —</option>
+            ${State.ledgers.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(l => `
+              <option value="${l.id}" ${l.id === _importData.targetLedgerId ? 'selected' : ''}>${esc(l.name)} (${TYPE_LABEL[l.type]})</option>
+            `).join('')}
+          </select>
+        </label>
+        <label class="ldg-field ldg-field-wide">
+          <span>MARG Excel file (.xlsx / .xls / .csv)</span>
+          <input type="file" id="ldgImpFile" accept=".xlsx,.xls,.csv">
+        </label>
+        <div class="ldg-import-feedback" id="ldgImpFeedback"></div>
+      </div>
+      <div class="ledgers-modal-foot" style="margin-top:18px;">
+        <button class="btn-ghost" data-close="ldgImportOverlay">Cancel</button>
+        <button class="btn-primary" id="ldgImpNext1" disabled>Next →</button>
+      </div>
+    `;
+    const targetSel = document.getElementById('ldgImpTarget');
+    const fileIn    = document.getElementById('ldgImpFile');
+    const nextBtn   = document.getElementById('ldgImpNext1');
+    const fb        = document.getElementById('ldgImpFeedback');
+
+    function recheck() { nextBtn.disabled = !(_importData.targetLedgerId && _importData.rows.length); }
+    targetSel.addEventListener('change', () => { _importData.targetLedgerId = targetSel.value; recheck(); });
+    fileIn.addEventListener('change', async () => {
+      const f = fileIn.files[0];
+      if (!f) return;
+      fb.textContent = 'Parsing…';
+      try {
+        const buf = await f.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+        const sheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false });
+        _importData.rows = rows;
+        _importData.fileName = f.name;
+        fb.innerHTML = `<span class="ldg-ok">Loaded <strong>${rows.length}</strong> rows from <em>${esc(f.name)}</em> (sheet: ${esc(sheetName)}).</span>`;
+        recheck();
+      } catch (err) {
+        fb.innerHTML = `<span class="ldg-err">Couldn't parse file: ${esc(err.message)}</span>`;
+        _importData.rows = [];
+        recheck();
+      }
+    });
+    nextBtn.addEventListener('click', renderImportStep2);
+  }
+
+  function renderImportStep2() {
+    const body = document.getElementById('ldgImportBody');
+    const rows = _importData.rows;
+    if (!rows.length) { renderImportStep1(); return; }
+
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const r = rows[i].map(c => String(c).trim().toLowerCase());
+      if (r.some(c => c === 'date') && r.some(c => c.includes('debit') || c.includes('credit') || c.includes('particular'))) {
+        headerIdx = i; break;
+      }
+    }
+    const header = (rows[headerIdx] || []).map(c => String(c).trim());
+
+    function guess(re) {
+      for (let i = 0; i < header.length; i++) {
+        if (re.test(header[i].toLowerCase())) return i;
+      }
+      return -1;
+    }
+    const guessed = {
+      date:        guess(/^date|^dt\.?/i),
+      vchType:     guess(/vch\s*type|voucher\s*type|type/i),
+      vchNo:       guess(/vch\s*no|voucher\s*no|v\.?\s*no|^no\.?$/i),
+      particulars: guess(/particular|account|narration|description/i),
+      debit:       guess(/debit|dr\b|deposit|amount in/i),
+      credit:      guess(/credit|cr\b|withdrawal|amount out|payment/i),
+    };
+
+    _importData.headerIdx = headerIdx;
+    _importData.mapping = guessed;
+
+    function colOpts(selected) {
+      return '<option value="-1">— ignore —</option>' +
+        header.map((h, i) => `<option value="${i}" ${i === selected ? 'selected' : ''}>${esc(h) || ('Col ' + (i+1))}</option>`).join('');
+    }
+
+    body.innerHTML = `
+      <div class="ldg-import-step">
+        <div class="ldg-import-stepnum">Step 2 of 3 — Map columns</div>
+        <p class="ldg-import-note">
+          We tried to guess. Fix any wrong picks. Header row used: <strong>row ${headerIdx + 1}</strong> of the sheet.
+        </p>
+        <div class="ldg-mapping-grid">
+          <label class="ldg-field"><span>Date</span>        <select id="ldgMap_date">${colOpts(guessed.date)}</select></label>
+          <label class="ldg-field"><span>Vch Type</span>    <select id="ldgMap_vchType">${colOpts(guessed.vchType)}</select></label>
+          <label class="ldg-field"><span>Vch No</span>      <select id="ldgMap_vchNo">${colOpts(guessed.vchNo)}</select></label>
+          <label class="ldg-field"><span>Particulars (other ledger)</span> <select id="ldgMap_particulars">${colOpts(guessed.particulars)}</select></label>
+          <label class="ldg-field"><span>Debit</span>       <select id="ldgMap_debit">${colOpts(guessed.debit)}</select></label>
+          <label class="ldg-field"><span>Credit</span>      <select id="ldgMap_credit">${colOpts(guessed.credit)}</select></label>
+        </div>
+        <p class="ldg-import-note">Preview (first 5 data rows):</p>
+        <div class="ldg-preview-wrap">
+          <table class="ldg-preview-table">
+            <thead><tr>${header.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${rows.slice(headerIdx + 1, headerIdx + 6).map(r => `
+                <tr>${header.map((_, i) => `<td>${esc(r[i] != null ? r[i] : '')}</td>`).join('')}</tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="ledgers-modal-foot" style="margin-top:18px;">
+        <button class="btn-ghost" id="ldgImpBack2">← Back</button>
+        <span style="flex:1;"></span>
+        <button class="btn-ghost" data-close="ldgImportOverlay">Cancel</button>
+        <button class="btn-primary" id="ldgImpNext2">Next →</button>
+      </div>
+    `;
+    document.getElementById('ldgImpBack2').addEventListener('click', renderImportStep1);
+    document.getElementById('ldgImpNext2').addEventListener('click', () => {
+      ['date','vchType','vchNo','particulars','debit','credit'].forEach(k => {
+        _importData.mapping[k] = parseInt(document.getElementById('ldgMap_' + k).value, 10);
+      });
+      renderImportStep3();
+    });
+  }
+
+  function normalizeDate(v) {
+    if (!v) return '';
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) {
+      let [_, d, mo, y] = m;
+      if (y.length === 2) y = (parseInt(y, 10) > 50 ? '19' : '20') + y;
+      return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    }
+    const dt = new Date(s);
+    return isNaN(dt) ? s : dt.toISOString().slice(0, 10);
+  }
+
+  function renderImportStep3() {
+    const body = document.getElementById('ldgImportBody');
+    const rows = _importData.rows;
+    const map  = _importData.mapping;
+    const target = findLedger(_importData.targetLedgerId);
+    if (!target) { renderImportStep1(); return; }
+
+    const dataRows = rows.slice(_importData.headerIdx + 1);
+    const unknownParties = new Map();
+    const parsedRows = [];
+    dataRows.forEach((r, idx) => {
+      const date   = map.date        >= 0 ? normalizeDate(r[map.date]) : '';
+      const vType  = map.vchType     >= 0 ? String(r[map.vchType] || '').trim() : '';
+      const vNo    = map.vchNo       >= 0 ? String(r[map.vchNo]   || '').trim() : '';
+      const partic = map.particulars >= 0 ? String(r[map.particulars] || '').trim() : '';
+      const dr     = map.debit       >= 0 ? parseNum(r[map.debit])  : 0;
+      const cr     = map.credit      >= 0 ? parseNum(r[map.credit]) : 0;
+      const amount = dr || cr;
+      if (!amount || !partic || !date) return;
+      const otherLedger = findLedgerByName(partic);
+      if (!otherLedger) {
+        if (!unknownParties.has(partic)) unknownParties.set(partic, []);
+        unknownParties.get(partic).push(idx);
+      }
+      parsedRows.push({
+        rowIdx: idx,
+        date, vchType: vType, vchNo: vNo,
+        particulars: partic, amount,
+        side: dr ? 'dr' : 'cr',
+        otherLedgerId: otherLedger ? otherLedger.id : null,
+      });
+    });
+
+    _importData.parsed = parsedRows;
+    const unknownNames = Array.from(unknownParties.keys());
+
+    body.innerHTML = `
+      <div class="ldg-import-step">
+        <div class="ldg-import-stepnum">Step 3 of 3 — Review &amp; resolve parties</div>
+        <p class="ldg-import-note">
+          Found <strong>${parsedRows.length}</strong> rows that look like vouchers.
+          ${unknownNames.length > 0 ? `<span class="ldg-warn">${unknownNames.length} party name(s) don't match any existing ledger.</span>` : '<span class="ldg-ok">All party names matched existing ledgers.</span>'}
+        </p>
+
+        ${unknownNames.length > 0 ? `
+          <p class="ldg-import-note">For each unmatched name, pick an existing ledger or let us create a new one:</p>
+          <div class="ldg-resolve-grid">
+            ${unknownNames.map((nm, i) => `
+              <div class="ldg-resolve-row">
+                <div class="ldg-resolve-name">${esc(nm)}</div>
+                <select class="ldg-resolve-select" data-party="${esc(nm)}">
+                  <option value="__create__">+ Create new (Party)</option>
+                  <option value="__create_expense__">+ Create new (Expense)</option>
+                  <option value="__create_income__">+ Create new (Income)</option>
+                  <option value="__skip__">⊘ Skip these rows</option>
+                  <option disabled>──────────</option>
+                  ${State.ledgers.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(l => `
+                    <option value="${l.id}">${esc(l.name)} (${TYPE_LABEL[l.type]})</option>
+                  `).join('')}
+                </select>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <p class="ldg-import-note">Preview (first 8 rows that will be created):</p>
+        <div class="ldg-preview-wrap">
+          <table class="ldg-preview-table">
+            <thead><tr><th>Date</th><th>Vch No</th><th>Particulars</th><th>Debit</th><th>Credit</th></tr></thead>
+            <tbody>
+              ${parsedRows.slice(0, 8).map(p => `
+                <tr>
+                  <td>${esc(p.date)}</td>
+                  <td>${esc(p.vchNo)}</td>
+                  <td>${esc(p.particulars)} ${p.otherLedgerId ? '' : '<span class="ldg-warn-pill">new</span>'}</td>
+                  <td class="ldg-num ldg-dr">${p.side === 'dr' ? fmt(p.amount) : ''}</td>
+                  <td class="ldg-num ldg-cr">${p.side === 'cr' ? fmt(p.amount) : ''}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="ledgers-modal-foot" style="margin-top:18px;">
+        <button class="btn-ghost" id="ldgImpBack3">← Back</button>
+        <span style="flex:1;"></span>
+        <button class="btn-ghost" data-close="ldgImportOverlay">Cancel</button>
+        <button class="btn-primary" id="ldgImpCommit">Import ${parsedRows.length} vouchers</button>
+      </div>
+    `;
+
+    document.getElementById('ldgImpBack3').addEventListener('click', renderImportStep2);
+    document.getElementById('ldgImpCommit').addEventListener('click', () => commitImport(parsedRows, unknownParties));
+  }
+
+  function commitImport(parsedRows, unknownParties) {
+    const resolutions = {};
+    document.querySelectorAll('.ldg-resolve-select').forEach(sel => {
+      resolutions[sel.dataset.party] = sel.value;
+    });
+
+    const today = todayISO();
+    Object.entries(resolutions).forEach(([name, choice]) => {
+      let type = null;
+      if (choice === '__create__')          type = 'party';
+      if (choice === '__create_expense__')  type = 'expense';
+      if (choice === '__create_income__')   type = 'income';
+      if (type) {
+        const newLed = {
+          id: uid('led'),
+          name,
+          type,
+          openingBalance: 0,
+          openingDate: today,
+          note: 'Created via MARG import on ' + today,
+          createdAt: new Date().toISOString(),
+        };
+        State.ledgers.push(newLed);
+        resolutions[name] = newLed.id;
+      }
+    });
+    saveLedgers();
+
+    const target = _importData.targetLedgerId;
+    let created = 0, skipped = 0;
+    parsedRows.forEach(p => {
+      let otherId = p.otherLedgerId;
+      if (!otherId) {
+        const r = resolutions[p.particulars];
+        if (!r || r === '__skip__') { skipped++; return; }
+        otherId = r;
+      }
+      const drId = p.side === 'dr' ? target  : otherId;
+      const crId = p.side === 'dr' ? otherId : target;
+      const dup = State.vouchers.some(v =>
+        v.source === 'marg-import' &&
+        v.date === p.date &&
+        Math.abs((Number(v.amount) || 0) - p.amount) < 0.005 &&
+        ((v.debitLedgerId === drId && v.creditLedgerId === crId) || (v.debitLedgerId === crId && v.creditLedgerId === drId)) &&
+        (v.vchNo || '') === (p.vchNo || '')
+      );
+      if (dup) { skipped++; return; }
+      State.vouchers.push({
+        id: uid('vch'),
+        date: p.date,
+        type: (p.vchType || '').toLowerCase().includes('rec') ? 'receipt'
+            : (p.vchType || '').toLowerCase().includes('pay') ? 'payment'
+            : 'journal',
+        vchNo: p.vchNo || '',
+        narration: '',
+        debitLedgerId: drId,
+        creditLedgerId: crId,
+        amount: p.amount,
+        source: 'marg-import',
+        createdAt: new Date().toISOString(),
+      });
+      created++;
+    });
+    saveVouchers();
+    closeOverlay('ldgImportOverlay');
+    alert(`Imported ${created} vouchers. Skipped ${skipped} (duplicates or unresolved).`);
+    if (State.view === 'statement') renderStatement(); else renderList();
+  }
+
+  // ─── Overlay helpers ───────────────────────────────────────────────
+  function closeOverlay(id) { const el = document.getElementById(id); if (el) el.classList.remove('open'); }
+  function wireOverlayCloses(root) {
+    root.querySelectorAll('[data-close]').forEach(b => {
+      b.addEventListener('click', () => closeOverlay(b.dataset.close));
+    });
+    root.querySelectorAll('.ledgers-modal-overlay').forEach(ov => {
+      ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('open'); });
+    });
+  }
+
+  // ─── Mount + hook ──────────────────────────────────────────────────
+  function ensureMounted() {
+    const container = document.getElementById('ledgersView');
+    if (!container) return;
+    if (!State.mounted) {
+      loadAll();
+      buildShell(container);
+      document.getElementById('ldgNewLedgerBtn').addEventListener('click', () => openLedgerModal(null));
+      document.getElementById('ldgNewVoucherBtn').addEventListener('click', () => openVoucherModal({}));
+      document.getElementById('ldgImportBtn').addEventListener('click', () => openImport(''));
+      document.getElementById('ldgVoucherSave').addEventListener('click', saveVoucher);
+      document.getElementById('ldgLedSave').addEventListener('click', saveLedger);
+      document.getElementById('ldgLedDelete').addEventListener('click', deleteLedger);
+      wireOverlayCloses(container);
+      State.mounted = true;
+    }
+    if (State.view === 'statement' && State.activeLedgerId) renderStatement();
+    else renderList();
+  }
+
+  const _prevShowTab = (typeof window.showTab === 'function') ? window.showTab : null;
+  window.showTab = function (tab) {
+    if (_prevShowTab) _prevShowTab(tab);
+    const view = document.getElementById('ledgersView');
+    if (view) {
+      view.style.display = tab === 'ledgers' ? '' : 'none';
+      if (tab === 'ledgers') ensureMounted();
+    }
+    const btn = document.getElementById('tabLedgers');
+    if (btn) btn.classList.toggle('active', tab === 'ledgers');
+  };
+
+  // Power-user helpers for console
+  window.ASGLedgers = {
+    state: State,
+    reload: () => { loadAll(); if (State.view === 'statement') renderStatement(); else renderList(); },
+    addLedger: (l) => { State.ledgers.push(l); saveLedgers(); },
+    addVoucher: (v) => { State.vouchers.push(v); saveVouchers(); },
+    wipe: () => { localStorage.removeItem(LS_LEDGERS); localStorage.removeItem(LS_VOUCHERS); location.reload(); },
+  };
+})();
