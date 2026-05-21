@@ -5232,8 +5232,90 @@ function makePinEl(p) {
   return el;
 }
 
+// Approximate polygons for Dubai's main industrial areas where warehouses concentrate.
+// Coordinates are intentionally rough (~300-500m precision) — they're for visual
+// orientation, not for legal/cadastral use.
+const INDUSTRIAL_ZONES = {
+  type: 'FeatureCollection',
+  features: [
+    { type:'Feature', properties:{ name:'Al Quoz Industrial' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.215,25.105],[55.255,25.108],[55.252,25.155],[55.213,25.150],[55.215,25.105]
+      ]] } },
+    { type:'Feature', properties:{ name:'Al Qusais Industrial' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.385,25.270],[55.440,25.278],[55.443,25.312],[55.392,25.308],[55.385,25.270]
+      ]] } },
+    { type:'Feature', properties:{ name:'Umm Ramool' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.358,25.230],[55.388,25.232],[55.388,25.256],[55.358,25.253],[55.358,25.230]
+      ]] } },
+    { type:'Feature', properties:{ name:'Ras Al Khor Industrial' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.332,25.172],[55.378,25.176],[55.380,25.212],[55.332,25.208],[55.332,25.172]
+      ]] } },
+    { type:'Feature', properties:{ name:'Dubai Investments Park (DIP)' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.155,24.975],[55.235,24.980],[55.232,25.048],[55.152,25.042],[55.155,24.975]
+      ]] } },
+    { type:'Feature', properties:{ name:'Dubai Industrial City (DIC)' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.075,24.865],[55.185,24.875],[55.185,24.945],[55.075,24.938],[55.075,24.865]
+      ]] } },
+    { type:'Feature', properties:{ name:'Jebel Ali Industrial / JAFZA' },
+      geometry:{ type:'Polygon', coordinates:[[
+        [55.035,24.990],[55.140,24.996],[55.143,25.068],[55.035,25.062],[55.035,24.990]
+      ]] } },
+  ],
+};
+
+function polygonCentroid(coords) {
+  let cx = 0, cy = 0;
+  const pts = coords[0];
+  const n = pts.length - 1;  // ring closes on itself
+  for (let i = 0; i < n; i++) { cx += pts[i][0]; cy += pts[i][1]; }
+  return [cx / n, cy / n];
+}
+
+let _industrialLabelMarkers = [];
+
+function addIndustrialZones() {
+  if (!mlMap || mlMap.getSource('industrial-zones')) return;
+
+  mlMap.addSource('industrial-zones', { type:'geojson', data: INDUSTRIAL_ZONES });
+
+  mlMap.addLayer({
+    id: 'industrial-zones-fill',
+    type: 'fill',
+    source: 'industrial-zones',
+    paint: { 'fill-color':'#c9a84c', 'fill-opacity':0.22 },
+  });
+  mlMap.addLayer({
+    id: 'industrial-zones-outline',
+    type: 'line',
+    source: 'industrial-zones',
+    paint: { 'line-color':'#8b6f1d', 'line-width':1.8, 'line-dasharray':[3,2] },
+  });
+
+  // HTML markers for labels — avoids font/sprite issues with the underlying style.
+  _industrialLabelMarkers.forEach(m => m.remove());
+  _industrialLabelMarkers = [];
+  INDUSTRIAL_ZONES.features.forEach(f => {
+    const [lng, lat] = polygonCentroid(f.geometry.coordinates);
+    const el = document.createElement('div');
+    el.textContent = f.properties.name;
+    el.style.cssText = 'background:rgba(255,255,255,.92);color:#6b4f0f;font:700 10.5px Inter,sans-serif;'
+      + 'padding:3px 8px;border:1px solid #c9a84c;border-radius:4px;white-space:nowrap;'
+      + 'box-shadow:0 1px 3px rgba(0,0,0,.18);pointer-events:none;letter-spacing:.2px;';
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .addTo(mlMap);
+    _industrialLabelMarkers.push(marker);
+  });
+}
+
 function initMapTab() {
-  if (mlMap) { mlMap.remove(); mlMap = null; mlMarkers = []; }
+  if (mlMap) { mlMap.remove(); mlMap = null; mlMarkers = []; _industrialLabelMarkers = []; }
 
   mlMap = new maplibregl.Map({
     container: 'leafletMap',
@@ -5246,6 +5328,7 @@ function initMapTab() {
   mlMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
 
   mlMap.on('load', () => {
+    addIndustrialZones();
     renderMapMarkers();
   });
 
