@@ -94,8 +94,23 @@ function initDb() {
   `);
 
   // Tasks: a user-managed to-do list. Each task may reference a property.
+  //
+  // An earlier (never-wired-up) agent-assignment feature had reserved the
+  // `tasks` table with different columns (`deadline`, `agent_id`,
+  // `description`, `type`, `created_by_*`). If a database still carries
+  // that legacy shape, drop it so the CREATE below re-creates with the
+  // schema this app actually uses. Safe: no code consumed the legacy
+  // table; task_notes was its FK child and is dropped here too.
+  try {
+    const cols = db.prepare("PRAGMA table_info(tasks)").all().map(c => c.name);
+    if (cols.length && cols.includes('deadline') && !cols.includes('due_date')) {
+      console.log('[db] Dropping legacy tasks table (agent-assignment shape) so the new to-do schema can be created.');
+      db.exec('DROP TABLE IF EXISTS task_notes; DROP TABLE tasks;');
+    }
+  } catch (_) { /* table doesn't exist yet — fine */ }
+
   // Idempotent so existing production DBs (which were created before tasks
-  // existed) pick up the table on boot.
+  // existed in this form) pick up the table on boot.
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,

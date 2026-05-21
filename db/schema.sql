@@ -183,25 +183,6 @@ CREATE TABLE disputes (
 CREATE INDEX idx_disputes_property ON disputes(property_id);
 CREATE INDEX idx_disputes_status   ON disputes(status);
 
--- ─── TASKS (to-do list, optionally tied to a property) ───────────
-CREATE TABLE tasks (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  title        TEXT    NOT NULL,
-  property_id  INTEGER,
-  priority     TEXT    DEFAULT 'medium',   -- low / medium / high / urgent
-  status       TEXT    DEFAULT 'pending',  -- pending / in_progress / done
-  due_date     DATE,
-  notes        TEXT,
-  assigned_to  INTEGER,
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
-  FOREIGN KEY (assigned_to) REFERENCES users(id)      ON DELETE SET NULL
-);
-CREATE INDEX idx_tasks_property ON tasks(property_id);
-CREATE INDEX idx_tasks_status   ON tasks(status);
-CREATE INDEX idx_tasks_due      ON tasks(due_date);
-
 -- ─── CONSTRUCTION PROJECTS ──────────────────────────────────────
 CREATE TABLE construction_projects (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -258,41 +239,24 @@ CREATE TABLE pending_properties (
   FOREIGN KEY (added_by_id) REFERENCES users(id)
 );
 
--- ─── TASKS ───────────────────────────────────────────────────────
+-- ─── TASKS (to-do list, optionally tied to a property) ───────────
 CREATE TABLE tasks (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  title           TEXT    NOT NULL,
-  type            TEXT,    -- find-tenant, follow-up, site-visit, maintenance, documents, negotiation, other
-  description     TEXT,
-  agent_id        INTEGER,
-  property_id     INTEGER,
-  priority        TEXT    DEFAULT 'medium',  -- low, medium, high
-  status          TEXT    DEFAULT 'pending', -- pending, in-progress, done, cancelled
-  deadline        DATE,
-  created_by_id   INTEGER, -- who created (assigned) this task; restricts who can delete it
-  created_by_name TEXT,
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (agent_id)      REFERENCES users(id),
-  FOREIGN KEY (created_by_id) REFERENCES users(id),
-  FOREIGN KEY (property_id)   REFERENCES properties(id)
-);
-CREATE INDEX idx_tasks_agent  ON tasks(agent_id);
-CREATE INDEX idx_tasks_status ON tasks(status);
-
--- ─── TASK NOTES (conversation thread) ──────────────────────────
-CREATE TABLE task_notes (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id      INTEGER NOT NULL,
-  text         TEXT    NOT NULL,
-  author_id    INTEGER,
-  author_name  TEXT,
-  author_type  TEXT,   -- admin, agent
+  title        TEXT    NOT NULL,
+  property_id  INTEGER,
+  priority     TEXT    DEFAULT 'medium',   -- low / medium / high / urgent
+  status       TEXT    DEFAULT 'pending',  -- pending / in_progress / done
+  due_date     DATE,
+  notes        TEXT,
+  assigned_to  INTEGER,
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (task_id)   REFERENCES tasks(id) ON DELETE CASCADE,
-  FOREIGN KEY (author_id) REFERENCES users(id)
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+  FOREIGN KEY (assigned_to) REFERENCES users(id)      ON DELETE SET NULL
 );
-CREATE INDEX idx_task_notes_task ON task_notes(task_id);
+CREATE INDEX idx_tasks_property ON tasks(property_id);
+CREATE INDEX idx_tasks_status   ON tasks(status);
+CREATE INDEX idx_tasks_due      ON tasks(due_date);
 
 -- ─── LEADS ───────────────────────────────────────────────────────
 CREATE TABLE leads (
@@ -530,37 +494,3 @@ CREATE TABLE media (
   FOREIGN KEY (uploaded_by_id) REFERENCES users(id)
 );
 CREATE INDEX idx_media_owner ON media(owner_type, owner_id);
-
--- ─── DISPUTES ─────────────────────────────────────────────────────
-CREATE TABLE disputes (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  property_id     INTEGER,
-  tenant_name     TEXT,
-  type            TEXT,    -- non-payment, damage, lease-violation, etc.
-  status          TEXT    DEFAULT 'open',    -- open, in-progress, resolved, escalated
-  description     TEXT,
-  filed_date      DATE    DEFAULT CURRENT_DATE,
-  resolved_date   DATE,
-  notes           TEXT,
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (property_id) REFERENCES properties(id)
-);
-
--- ─── CONSTRUCTION PROJECTS ───────────────────────────────────────
-CREATE TABLE construction_projects (
-  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  name                TEXT    NOT NULL,
-  property_id         INTEGER,
-  type                TEXT,    -- new-build, extension, renovation, fit-out
-  status              TEXT,    -- planning, in-progress, on-hold, completed
-  start_date          DATE,
-  target_completion   DATE,
-  budget              REAL,
-  spent               REAL,
-  contractor          TEXT,
-  notes               TEXT,
-  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (property_id) REFERENCES properties(id)
-);
