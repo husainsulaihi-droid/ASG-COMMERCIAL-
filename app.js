@@ -3782,6 +3782,33 @@ function autoSpacePslChequeDates() {
   });
 }
 
+// When the user enters any cheque date, propagate +monthsPerCheque to every
+// subsequent EMPTY cheque date. Already-filled downstream dates are left
+// untouched (so manual overrides survive). Spacing comes from chequesPerYear:
+// 4 cheques/yr → +3 months, 2 cheques/yr → +6 months, etc.
+function onPslChequeDateChange(input) {
+  const chequesPerYear = parseInt($('pslNumCheques')?.value) || 0;
+  if (!chequesPerYear) return;
+  if (!input || !input.value) return;
+  const monthsPerCheque = 12 / chequesPerYear;
+
+  const rows = Array.from($('proposalChequeFields').querySelectorAll('.psl-row'));
+  const changedRow = input.closest('.psl-row');
+  const startIdx = rows.indexOf(changedRow);
+  if (startIdx < 0) return;
+
+  const base = new Date(input.value + 'T00:00:00');
+  if (isNaN(base)) return;
+
+  for (let i = startIdx + 1; i < rows.length; i++) {
+    const dateInp = rows[i].querySelector('.psl-date');
+    if (!dateInp || dateInp.value) continue;  // preserve user's manual edits
+    const d = new Date(base);
+    d.setMonth(d.getMonth() + Math.round((i - startIdx) * monthsPerCheque));
+    dateInp.value = d.toISOString().split('T')[0];
+  }
+}
+
 // ─── Multi-year helpers ───────────────────────────
 function getContractYears() {
   return Math.max(1, Math.min(5, parseInt($('pslContractYears')?.value) || 1));
@@ -3971,7 +3998,7 @@ function renderProposalCheques() {
       html += `<div class="cheque-row psl-row" data-year="${y}" data-cheque-idx="${i}" style="grid-template-columns:34px 1.4fr 110px 1fr 1.4fr;">
         <span class="cheque-num">${rowNum}</span>
         <span class="psl-particulars">${years > 1 ? `Y${y} — ` : ''}${ord} Rental Payment</span>
-        <input type="date" class="psl-date" value="${prev.date || ''}">
+        <input type="date" class="psl-date" value="${prev.date || ''}" onchange="onPslChequeDateChange(this)">
         <input type="number" class="psl-amount" placeholder="${per || 'amount'}" min="0" value="${prev.amount || (per||'')}" oninput="updateProposalGrandTotal()">
         <input type="text"   class="psl-payable" placeholder="Defaults to Lessor" value="${prev.payable || lessor}">
       </div>`;
