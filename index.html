@@ -2956,11 +2956,17 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Annual Rent (AED) <span class="req">*</span> — الإيجار السنوي</label>
-              <input type="number" id="pslAnnualRent" placeholder="e.g. 150,000" min="0" oninput="recalcProposalCheques();recalcAdditionalCharges();updateProposalGrandTotal()">
+              <label>Contract Duration — مدة العقد</label>
+              <select id="pslContractYears" onchange="onContractYearsChange()">
+                <option value="1">1 year</option>
+                <option value="2">2 years</option>
+                <option value="3">3 years</option>
+                <option value="4">4 years</option>
+                <option value="5">5 years</option>
+              </select>
             </div>
             <div class="form-group">
-              <label>Number of Cheques — عدد الشيكات</label>
+              <label>Cheques per Year — شيكات سنوياً</label>
               <select id="pslNumCheques" onchange="renderProposalCheques();recalcProposalCheques()">
                 <option value="1">1 cheque (annual)</option>
                 <option value="2">2 cheques</option>
@@ -2973,12 +2979,31 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Tenancy Start Date — من</label>
-              <input type="date" id="pslTenancyFrom" oninput="autoSpacePslChequeDates()">
+              <label>Year 1 Annual Rent (AED) <span class="req">*</span> — إيجار السنة الأولى</label>
+              <input type="number" id="pslAnnualRent" placeholder="e.g. 150,000" min="0" oninput="onYear1RentInput()">
             </div>
             <div class="form-group">
-              <label>Tenancy End Date — إلى</label>
+              <label>Tenancy Start Date — من</label>
+              <input type="date" id="pslTenancyFrom" oninput="onTenancyStartChange()">
+            </div>
+          </div>
+          <!-- Per-year rent inputs (appears when years > 1) -->
+          <div id="pslYearlyRentsWrap" style="display:none;margin:6px 0 14px;">
+            <p class="cf-note" style="margin:0 0 8px;">Each year's annual rent. Cheques split that year's amount equally.</p>
+            <div id="pslYearlyRents"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenancy End Date — إلى
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — auto from start + duration</span>
+              </label>
               <input type="date" id="pslTenancyTo">
+            </div>
+            <div class="form-group">
+              <label>Total Contract Value (AED) — قيمة العقد
+                <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — sum of all years</span>
+              </label>
+              <input type="text" id="pslContractValue" readonly placeholder="Auto-calc">
             </div>
           </div>
         </div>
@@ -3940,6 +3965,6 @@
   <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
-  <script src="app.js?v=20260521C"></script>
+  <script src="app.js?v=20260521D"></script>
 </body>
 </html>

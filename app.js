@@ -3662,6 +3662,9 @@ function openProposalModal() {
   $('pslCommPayable').value  = 'ASG Commercial Properties L.L.C';
   $('pslDrecPayable').value  = 'DUBAI REAL ESTATE CORPORATION';
   $('pslNumCheques').value   = '4';
+  $('pslContractYears').value = '1';
+  if ($('pslContractValue')) $('pslContractValue').value = '';
+  if (typeof renderYearlyRentsInputs === 'function') renderYearlyRentsInputs();
   // Reset usage radio to Commercial
   const usageDefault = $('pslUsageCommercial'); if (usageDefault) usageDefault.checked = true;
   // Seed default terms into the first 4 slots
@@ -3751,18 +3754,21 @@ function autofillProposalProperty() {
   recalcAdditionalCharges();
 }
 
-// Auto-set evenly-spaced cheque dates starting at the tenancy start
+// Auto-set evenly-spaced cheque dates — starts at tenancyFrom, steps a year per Year block
 function autoSpacePslChequeDates() {
   const start = $('pslTenancyFrom')?.value;
   if (!start) return;
-  const n = parseInt($('pslNumCheques').value) || 0;
-  if (!n) return;
+  const chequesPerYear = parseInt($('pslNumCheques').value) || 0;
+  if (!chequesPerYear) return;
   const baseDate = new Date(start + 'T00:00:00');
   if (isNaN(baseDate)) return;
-  const monthsPerCheque = 12 / n;
+  const monthsPerCheque = 12 / chequesPerYear;
   const rows = $('proposalChequeFields').querySelectorAll('.psl-row');
-  rows.forEach((row, i) => {
+  rows.forEach(row => {
+    const y = parseInt(row.dataset.year) || 1;
+    const i = parseInt(row.dataset.chequeIdx) || 0;
     const d = new Date(baseDate);
+    d.setFullYear(d.getFullYear() + (y - 1));
     d.setMonth(d.getMonth() + Math.round(i * monthsPerCheque));
     const iso = d.toISOString().split('T')[0];
     const inp = row.querySelector('.psl-date');
@@ -3770,18 +3776,97 @@ function autoSpacePslChequeDates() {
   });
 }
 
+// ─── Multi-year helpers ───────────────────────────
+function getContractYears() {
+  return Math.max(1, Math.min(5, parseInt($('pslContractYears')?.value) || 1));
+}
+
+function getYearlyRents() {
+  const years = getContractYears();
+  const rents = [Number($('pslAnnualRent')?.value) || 0];
+  for (let y = 2; y <= years; y++) {
+    rents.push(Number($('pslYearRent' + y)?.value) || 0);
+  }
+  return rents;
+}
+
+function renderYearlyRentsInputs() {
+  const years = getContractYears();
+  const wrap  = $('pslYearlyRentsWrap');
+  const cont  = $('pslYearlyRents');
+  if (!wrap || !cont) return;
+  if (years <= 1) { wrap.style.display = 'none'; cont.innerHTML = ''; return; }
+  // Preserve any existing per-year values across re-renders
+  const prev = {};
+  cont.querySelectorAll('input[id^="pslYearRent"]').forEach(inp => { prev[inp.id] = inp.value; });
+  let html = '';
+  for (let y = 2; y <= years; y++) {
+    const val = prev['pslYearRent' + y] || '';
+    html += `<div class="form-row" style="margin-bottom:8px;">
+      <div class="form-group">
+        <label>Year ${y} Annual Rent (AED) — إيجار السنة ${y}</label>
+        <input type="number" id="pslYearRent${y}" min="0" placeholder="Annual rent for year ${y}" value="${val}" oninput="onYearNRentInput(${y})">
+      </div>
+    </div>`;
+  }
+  cont.innerHTML = html;
+  wrap.style.display = '';
+}
+
+function updateContractValue() {
+  const total = getYearlyRents().reduce((a,b)=>a+b, 0);
+  const el = $('pslContractValue');
+  if (el) el.value = total ? 'AED ' + total.toLocaleString() : '';
+}
+
+function updateTenancyEndDate() {
+  const start = $('pslTenancyFrom')?.value;
+  if (!start) return;
+  const years = getContractYears();
+  const d = new Date(start + 'T00:00:00');
+  if (isNaN(d)) return;
+  d.setFullYear(d.getFullYear() + years);
+  d.setDate(d.getDate() - 1);  // end is day before next anniversary
+  const endEl = $('pslTenancyTo');
+  if (endEl) endEl.value = d.toISOString().split('T')[0];
+}
+
+function onContractYearsChange() {
+  renderYearlyRentsInputs();
+  updateTenancyEndDate();
+  renderProposalCheques();
+  recalcProposalCheques();
+  updateContractValue();
+}
+function onYear1RentInput() {
+  recalcProposalCheques();
+  recalcAdditionalCharges();
+  updateProposalGrandTotal();
+  updateContractValue();
+}
+function onYearNRentInput(_y) {
+  recalcProposalCheques();
+  updateProposalGrandTotal();
+  updateContractValue();
+}
+function onTenancyStartChange() {
+  updateTenancyEndDate();
+  autoSpacePslChequeDates();
+}
+
 function recalcProposalCheques() {
-  const n    = parseInt($('pslNumCheques').value) || 0;
-  const rent = Number($('pslAnnualRent').value)   || 0;
-  if (!n || !rent) { updatePslRentTotal(); return; }
-  const per = Math.round(rent / n);
-  $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
-    inp.value = per;
-  });
-  // Auto-fill the Payable To if blank, defaulting to lessor name
+  const chequesPerYear = parseInt($('pslNumCheques').value) || 0;
+  const rents          = getYearlyRents();
+  if (!chequesPerYear || rents.every(r => !r)) { updatePslRentTotal(); return; }
   const lessor = ($('pslLessorName')?.value || '').trim();
-  $('proposalChequeFields').querySelectorAll('.psl-payable').forEach(inp => {
-    if (!inp.value && lessor) inp.value = lessor;
+  $('proposalChequeFields').querySelectorAll('.psl-row').forEach(row => {
+    const y = parseInt(row.dataset.year) || 1;
+    const yearRent = rents[y-1] || 0;
+    const per = chequesPerYear && yearRent ? Math.round(yearRent / chequesPerYear) : '';
+    const amtEl = row.querySelector('.psl-amount');
+    if (amtEl && per) amtEl.value = per;
+    const payEl = row.querySelector('.psl-payable');
+    if (payEl && !payEl.value && lessor) payEl.value = lessor;
   });
   updatePslRentTotal();
   updateProposalGrandTotal();
@@ -3839,20 +3924,24 @@ function updateProposalGrandTotal() {
 }
 
 function renderProposalCheques() {
-  const n    = parseInt($('pslNumCheques').value) || 4;
-  const cont = $('proposalChequeFields');
-  const rent = Number($('pslAnnualRent').value) || 0;
-  const per  = n && rent ? Math.round(rent / n) : '';
-  const lessor = ($('pslLessorName')?.value || '').trim();
+  const chequesPerYear = parseInt($('pslNumCheques').value) || 4;
+  const years          = getContractYears();
+  const rents          = getYearlyRents();
+  const cont           = $('proposalChequeFields');
+  const lessor         = ($('pslLessorName')?.value || '').trim();
 
+  // Preserve existing values by (year, chequeIdx)
   const existing = [];
-  cont.querySelectorAll('.psl-row').forEach((row, i) => {
-    existing[i] = {
+  cont.querySelectorAll('.psl-row').forEach(row => {
+    existing.push({
+      year:    parseInt(row.dataset.year) || 1,
+      idx:     parseInt(row.dataset.chequeIdx) || 0,
       date:    row.querySelector('.psl-date')?.value    || '',
       amount:  row.querySelector('.psl-amount')?.value  || '',
       payable: row.querySelector('.psl-payable')?.value || '',
-    };
+    });
   });
+  const findPrev = (y, i) => existing.find(e => e.year === y && e.idx === i) || {};
 
   let html = `<div class="cheque-table">
     <div class="cheque-head" style="grid-template-columns:34px 1.4fr 110px 1fr 1.4fr;">
@@ -3862,16 +3951,25 @@ function renderProposalCheques() {
       <span>Amount (AED)</span>
       <span>Payable To</span>
     </div>`;
-  for (let i = 0; i < n; i++) {
-    const prev = existing[i] || {};
-    const ord  = PSL_ORDINAL[i] || `Cheque ${i+1}`;
-    html += `<div class="cheque-row psl-row" style="grid-template-columns:34px 1.4fr 110px 1fr 1.4fr;">
-      <span class="cheque-num">${i+1}</span>
-      <span class="psl-particulars">${ord} Rental Payment</span>
-      <input type="date" class="psl-date" value="${prev.date || ''}">
-      <input type="number" class="psl-amount" placeholder="${per || 'amount'}" min="0" value="${prev.amount || (per||'')}" oninput="updateProposalGrandTotal()">
-      <input type="text"   class="psl-payable" placeholder="Defaults to Lessor" value="${prev.payable || lessor}">
-    </div>`;
+  let rowNum = 0;
+  for (let y = 1; y <= years; y++) {
+    const yearRent = rents[y-1] || 0;
+    const per      = chequesPerYear && yearRent ? Math.round(yearRent / chequesPerYear) : '';
+    if (years > 1) {
+      html += `<div class="cheque-year-sep" style="grid-column:1/-1;padding:8px 12px;font-weight:700;font-size:12px;color:#7a5d1e;background:#fef9d7;border-left:3px solid #c9a84c;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.5px;">Year ${y}${yearRent ? ` &nbsp;·&nbsp; AED ${yearRent.toLocaleString()}` : ''}</div>`;
+    }
+    for (let i = 0; i < chequesPerYear; i++) {
+      const prev = findPrev(y, i);
+      const ord  = PSL_ORDINAL[i] || `${i+1}th`;
+      rowNum++;
+      html += `<div class="cheque-row psl-row" data-year="${y}" data-cheque-idx="${i}" style="grid-template-columns:34px 1.4fr 110px 1fr 1.4fr;">
+        <span class="cheque-num">${rowNum}</span>
+        <span class="psl-particulars">${years > 1 ? `Y${y} — ` : ''}${ord} Rental Payment</span>
+        <input type="date" class="psl-date" value="${prev.date || ''}">
+        <input type="number" class="psl-amount" placeholder="${per || 'amount'}" min="0" value="${prev.amount || (per||'')}" oninput="updateProposalGrandTotal()">
+        <input type="text"   class="psl-payable" placeholder="Defaults to Lessor" value="${prev.payable || lessor}">
+      </div>`;
+    }
   }
   html += '</div>';
   cont.innerHTML = html;
@@ -3883,14 +3981,20 @@ function _readProposalForm() {
   const gn = id => Number($(id)?.value) || 0;
   const cheques = [];
   $('proposalChequeFields').querySelectorAll('.psl-row').forEach((row, i) => {
+    const y   = parseInt(row.dataset.year) || 1;
+    const idx = parseInt(row.dataset.chequeIdx) || 0;
     cheques.push({
       n:        i + 1,
-      ord:      PSL_ORDINAL[i] || `Cheque ${i+1}`,
+      year:     y,
+      chequeIdx:idx,
+      ord:      PSL_ORDINAL[idx] || `Cheque ${idx+1}`,
       date:     row.querySelector('.psl-date')?.value    || '',
       amount:   Number(row.querySelector('.psl-amount')?.value) || 0,
       payable:  row.querySelector('.psl-payable')?.value || '',
     });
   });
+  const contractYears = getContractYears();
+  const yearlyRents   = getYearlyRents();
   const usageEl = document.querySelector('input[name="psl_usage"]:checked');
   const terms = [];
   for (let i = 1; i <= 10; i++) terms.push(g('pslAdd' + i));
@@ -3929,6 +4033,8 @@ function _readProposalForm() {
     clientAuthority: g('pslClientAuthority'),
     // Rental
     rent:         gn('pslAnnualRent'),
+    contractYears,
+    yearlyRents,
     tenancyFrom:  g('pslTenancyFrom'),
     tenancyTo:    g('pslTenancyTo'),
     numCheques:   parseInt(g('pslNumCheques')) || 0,
@@ -3986,6 +4092,10 @@ function printProposalDoc(d) {
   const clientLicense   = d.clientLicense   || '';
   const clientAuthority = d.clientAuthority || '';
   const rent       = Number(d.rent) || 0;
+  const contractYears = Math.max(1, Math.min(5, parseInt(d.contractYears) || 1));
+  const yearlyRents   = Array.isArray(d.yearlyRents) && d.yearlyRents.length
+    ? d.yearlyRents.map(n => Number(n) || 0)
+    : [rent];
   const lessor     = (d.lessor || '').trim() || prepBy;
   const tenancyFrom= d.tenancyFrom || '';
   const tenancyTo  = d.tenancyTo   || '';
@@ -4023,14 +4133,16 @@ function printProposalDoc(d) {
 
   const cheques = (d.cheques || []).map((c, i) => ({
     n:       i + 1,
-    ord:     c.ord || PSL_ORDINAL[i] || `Cheque ${i+1}`,
+    year:    parseInt(c.year) || 1,
+    ord:     c.ord || PSL_ORDINAL[c.chequeIdx != null ? c.chequeIdx : i] || `Cheque ${i+1}`,
     date:    c.date || '',
     amount:  Number(c.amount) || 0,
     payable: c.payable || lessor
   }));
   const rentTotal = cheques.reduce((s,c)=>s+(c.amount||0), 0);
+  const contractValue = yearlyRents.reduce((a,b)=>a+b, 0);
   const grandTotal = rentTotal + vatAmount + serviceAmount + commAmount + maintAmount + adminAmount + drecAmount;
-  const modeOfPayment = numCheques ? `${numCheques} Cheque${numCheques>1?'s':''}` : '—';
+  const modeOfPayment = numCheques ? `${numCheques} Cheque${numCheques>1?'s':''} per year` + (contractYears>1?` × ${contractYears} years`:'') : '—';
 
   const fd = s => s ? new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
   const fa = n => n ? Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
@@ -4197,13 +4309,16 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
   ${dewaNo       ? `<div class="tnt-row"><span class="tnt-lbl">DEWA Premises:</span><span class="tnt-val">${he(dewaNo)}</span></div>` : ''}
   ${(propType||propUsage) ? `<div class="tnt-row"><span class="tnt-lbl">Type / Usage:</span><span class="tnt-val">${he([propType, propUsage].filter(Boolean).join(' · '))}</span></div>` : ''}
   ${propSize     ? `<div class="tnt-row"><span class="tnt-lbl">Property Size:</span><span class="tnt-val">${Number(propSize).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} Sq.Ft</span></div>` : ''}
-  ${(tenancyFrom||tenancyTo) ? `<div class="tnt-row"><span class="tnt-lbl">Tenancy Period:</span><span class="tnt-val">${fd(tenancyFrom)} to ${fd(tenancyTo)}</span></div>` : ''}
-  ${rent         ? `<div class="tnt-row"><span class="tnt-lbl">Annual Rent:</span><span class="tnt-val tnt-val-em">${fa0(rent)}</span></div>` : ''}
+  ${(tenancyFrom||tenancyTo) ? `<div class="tnt-row"><span class="tnt-lbl">Tenancy Period:</span><span class="tnt-val">${fd(tenancyFrom)} to ${fd(tenancyTo)}${contractYears>1?` &nbsp;·&nbsp; <strong>${contractYears} years</strong>`:''}</span></div>` : ''}
+  ${contractYears > 1
+    ? `<div class="tnt-row"><span class="tnt-lbl">Annual Rent:</span><span class="tnt-val">${yearlyRents.map((r,i)=>`Y${i+1}: ${fa0(r)}`).join(' &nbsp;·&nbsp; ')}</span></div>
+       <div class="tnt-row"><span class="tnt-lbl">Contract Value:</span><span class="tnt-val tnt-val-em">${fa0(contractValue)}</span></div>`
+    : (rent ? `<div class="tnt-row"><span class="tnt-lbl">Annual Rent:</span><span class="tnt-val tnt-val-em">${fa0(rent)}</span></div>` : '')}
   <div class="tnt-row"><span class="tnt-lbl">Mode of Payment:</span><span class="tnt-val">${he(modeOfPayment)}</span></div>
 </div>
 
 ${cheques.length ? `
-<div class="tbl-title">Rental Payment Breakdown</div>
+<div class="tbl-title">Rental Payment Breakdown${contractYears>1?` — ${contractYears}-Year Contract`:''}</div>
 <table class="psl-tbl">
   <thead><tr>
     <th style="width:34%">Particulars</th>
@@ -4212,14 +4327,27 @@ ${cheques.length ? `
     <th style="width:30%">Payable To</th>
   </tr></thead>
   <tbody>
-    ${cheques.map(c=>`<tr>
-      <td>${he(c.ord)} Rental Payment</td>
-      <td>${fd(c.date)}</td>
-      <td class="amt">${fa(c.amount)}</td>
-      <td>${he(c.payable)}</td>
-    </tr>`).join('')}
+    ${(() => {
+      // Group cheques by year and emit a year-header row before each year's cheques
+      const out = [];
+      let lastYear = null;
+      cheques.forEach(c => {
+        if (contractYears > 1 && c.year !== lastYear) {
+          const yearRent = yearlyRents[c.year - 1] || 0;
+          out.push(`<tr style="background:#fef9d7;"><td colspan="4" style="font-weight:800;color:#7a5d1e;text-transform:uppercase;letter-spacing:.6px;font-size:11.5px;padding:7px 12px;">Year ${c.year}${yearRent ? ` — Annual Rent: ${fa0(yearRent)}` : ''}</td></tr>`);
+          lastYear = c.year;
+        }
+        out.push(`<tr>
+          <td>${contractYears>1?`Y${c.year} — `:''}${he(c.ord)} Rental Payment</td>
+          <td>${fd(c.date)}</td>
+          <td class="amt">${fa(c.amount)}</td>
+          <td>${he(c.payable)}</td>
+        </tr>`);
+      });
+      return out.join('');
+    })()}
     <tr class="total-row">
-      <td class="lbl">TOTAL Rent Value <span class="italic">(exclusive of 5% VAT)</span></td>
+      <td class="lbl">${contractYears>1?'TOTAL Contract Value':'TOTAL Rent Value'} <span class="italic">(exclusive of 5% VAT)</span></td>
       <td class="center">—</td>
       <td class="amt val">AED ${fa(rentTotal)}</td>
       <td class="center">—</td>
@@ -10649,10 +10777,20 @@ function _hydrateProposalForm(p) {
   set('pslClientCompany', p.company);
   set('pslClientPhone', p.phone);      set('pslClientEmail', p.email);
   set('pslClientLicense', p.clientLicense); set('pslClientAuthority', p.clientAuthority);
-  // Rental
+  // Rental — multi-year
+  set('pslContractYears', p.contractYears || 1);
   set('pslAnnualRent', p.rent);
-  set('pslTenancyFrom', p.tenancyFrom); set('pslTenancyTo', p.tenancyTo);
   set('pslNumCheques', p.numCheques);
+  if (typeof renderYearlyRentsInputs === 'function') renderYearlyRentsInputs();
+  if (Array.isArray(p.yearlyRents)) {
+    p.yearlyRents.forEach((amt, idx) => {
+      if (idx === 0) return; // Year 1 lives in pslAnnualRent
+      const el = document.getElementById('pslYearRent' + (idx + 1));
+      if (el && amt != null) el.value = amt;
+    });
+  }
+  if (typeof updateContractValue === 'function') updateContractValue();
+  set('pslTenancyFrom', p.tenancyFrom); set('pslTenancyTo', p.tenancyTo);
   // Additional charges
   set('pslVatAmount', p.vatAmount);    set('pslVatDate', p.vatDate);    set('pslVatPayable', p.vatPayable);
   set('pslServiceAmount', p.serviceAmount); set('pslServiceDate', p.serviceDate); set('pslServicePayable', p.servicePayable);
@@ -10672,9 +10810,15 @@ function _hydrateProposalForm(p) {
 
   // Rebuild cheque rows then patch their values
   if (typeof renderProposalCheques === 'function') renderProposalCheques();
-  const rows = document.querySelectorAll('#proposalChequeFields .psl-row');
+  const rows = Array.from(document.querySelectorAll('#proposalChequeFields .psl-row'));
   (p.cheques || []).forEach((c, i) => {
-    const r = rows[i]; if (!r) return;
+    // Match by (year, chequeIdx) if available; fall back to flat index for legacy data
+    let r;
+    if (c.year != null && c.chequeIdx != null) {
+      r = rows.find(row => parseInt(row.dataset.year) === c.year && parseInt(row.dataset.chequeIdx) === c.chequeIdx);
+    }
+    if (!r) r = rows[i];
+    if (!r) return;
     const dEl = r.querySelector('.psl-date');    if (dEl) dEl.value = c.date    || '';
     const aEl = r.querySelector('.psl-amount');  if (aEl) aEl.value = c.amount  || '';
     const pEl = r.querySelector('.psl-payable'); if (pEl) pEl.value = c.payable || '';
