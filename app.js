@@ -4236,24 +4236,16 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;fo
 .page > *{position:relative;z-index:1}
 
 /* ─── ASG Letterhead Footer ─── */
-/* Sits inside <tfoot> so the browser repeats it AND reserves space on every
-   printed page. No position:fixed — that one's ignored by the layout engine
-   when paginating, which is why long proposals were overlapping. */
+/* Position:fixed pins the footer to the bottom of every printed page (including
+   the last). Multi-page overflow is prevented by the year-page-break rule —
+   each year of a multi-year contract starts on its own page, so individual
+   tables never grow large enough to crash into the footer band. */
 .lh-footer{
+  position:fixed;left:0;right:0;bottom:0;z-index:5;
   background:#1a1f2e;color:#fff;padding:10px 44px;
   height:22mm;box-sizing:border-box;
   display:flex;align-items:center;
   overflow:hidden;
-}
-/* The wrapping print table — tfoot uses table-footer-group to repeat on every page */
-.prnt-wrap{width:100%;border-collapse:collapse}
-.prnt-wrap > tbody > tr > td,
-.prnt-wrap > tfoot > tr > td{padding:0;vertical-align:top}
-@media screen{
-  .lh-footer{position:fixed;left:0;right:0;bottom:0;z-index:5}
-}
-@media print{
-  .prnt-wrap tfoot{display:table-footer-group}
 }
 .lh-footer-grid{width:100%}
 .lh-footer-grid{
@@ -4309,13 +4301,14 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
 @media print{
-  /* The footer lives inside a <tfoot> with display:table-footer-group, so
-     the browser reserves vertical space for it on every paginated page and
-     repeats it at the bottom. This works regardless of what the user picks
-     in the print dialog's Margins dropdown. Modest @page margin is enough. */
-  @page { size: A4; margin: 10mm 10mm 14mm 10mm; }
+  /* Footer = position:fixed at page bottom (22mm tall). @page margin reserves
+     30mm at the bottom = 22mm footer + 8mm gap so content can't crash into
+     the dark band. body padding-bottom is a fallback for browsers where the
+     user overrides @page margins in the print dialog ("None"/"Minimum"). */
+  @page { size: A4; margin: 10mm 10mm 30mm 10mm; }
   html, body { background: #fff; }
-  .page { padding: 0 26px 6mm; }
+  body { padding-bottom: 30mm; }
+  .page { padding: 0 26px 8mm; }
   /* Don't split these blocks across pages */
   .terms-block, .notes-box, .valid-bar, .sigs, .sig { page-break-inside: avoid; break-inside: avoid; }
   /* Keep every cheque/charge row whole; let the table itself flow across pages */
@@ -4334,8 +4327,6 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 </style></head><body>
 
 <div class="lh-watermark">ASG</div>
-
-<table class="prnt-wrap"><tbody><tr><td>
 
 <div class="page">
 
@@ -4500,8 +4491,6 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
 
 </div>
 
-</td></tr></tbody>
-<tfoot><tr><td>
 <div class="lh-footer">
   <div class="lh-footer-grid">
     <div class="lh-fcol">
@@ -4520,8 +4509,6 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
     </div>
   </div>
 </div>
-</td></tr></tfoot>
-</table>
 
 </body></html>`;
 
@@ -5214,21 +5201,36 @@ function parseLatLng(p) {
   return null;
 }
 
+// Marker element. All visual effects (shadow + emoji) are rendered INSIDE the
+// SVG to avoid CSS `filter` and absolute-positioned children — both of which
+// snap MapLibre's transformed wrapper to whole-pixel positions, causing pins
+// to drift at low zoom (1 px = many km when zoomed out).
+let _pinFilterIdSeq = 0;
 function makePinEl(p) {
   const isWH  = p.type === 'warehouse';
   const isRes = p.type === 'residential';
   const color = isWH ? '#c9a84c' : isRes ? '#059669' : '#111111';
   const ring  = isWH ? '#8a6d20' : isRes ? '#036040' : '#555';
   const emoji = isWH ? '🏭' : isRes ? '🏠' : '🏢';
+  const filterId = `pin-shadow-${++_pinFilterIdSeq}`;
   const el = document.createElement('div');
-  el.style.cssText = 'cursor:pointer;width:36px;height:46px;position:relative;filter:drop-shadow(0 3px 8px rgba(0,0,0,.4));';
+  el.style.cssText = 'cursor:pointer;width:36px;height:46px;';
   el.innerHTML = `
-    <svg width="36" height="46" viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg" style="display:block;">
-      <path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 18 28 18 28S36 30.255 36 18C36 8.059 27.941 0 18 0z" fill="${color}"/>
+    <svg width="36" height="46" viewBox="0 0 36 46" xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible;">
+      <defs>
+        <filter id="${filterId}" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="3" stdDeviation="2.4" flood-opacity="0.42"/>
+        </filter>
+      </defs>
+      <g filter="url(#${filterId})">
+        <path d="M18 0C8.059 0 0 8.059 0 18c0 12.255 18 28 18 28S36 30.255 36 18C36 8.059 27.941 0 18 0z" fill="${color}"/>
+      </g>
       <circle cx="18" cy="18" r="10" fill="white" fill-opacity="0.93"/>
       <circle cx="18" cy="18" r="10" fill="none" stroke="${ring}" stroke-width="1" stroke-opacity="0.3"/>
-    </svg>
-    <div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:13px;line-height:1;user-select:none;">${emoji}</div>`;
+      <text x="18" y="22.5" text-anchor="middle" font-size="13"
+            font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,EmojiOne Color,Twemoji Mozilla,sans-serif"
+            style="user-select:none;">${emoji}</text>
+    </svg>`;
   return el;
 }
 
