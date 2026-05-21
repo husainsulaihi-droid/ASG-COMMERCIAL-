@@ -4236,16 +4236,20 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;fo
 .page > *{position:relative;z-index:1}
 
 /* ─── ASG Letterhead Footer ─── */
-/* Position:fixed pins the footer to the bottom of every printed page (including
-   the last). Multi-page overflow is prevented by the year-page-break rule —
-   each year of a multi-year contract starts on its own page, so individual
-   tables never grow large enough to crash into the footer band. */
+/* Footer is in normal document flow as the LAST element. On screen we pin it
+   to the viewport bottom for preview. In print, the body is a flex column so
+   the footer sits at the bottom of the *last* page only — no footer on
+   intermediate pages. */
 .lh-footer{
-  position:fixed;left:0;right:0;bottom:0;z-index:5;
   background:#1a1f2e;color:#fff;padding:10px 44px;
   height:22mm;box-sizing:border-box;
   display:flex;align-items:center;
   overflow:hidden;
+  flex-shrink:0;
+}
+@media screen{
+  .lh-footer{position:fixed;left:0;right:0;bottom:0;z-index:5}
+  body{padding-bottom:22mm}
 }
 .lh-footer-grid{width:100%}
 .lh-footer-grid{
@@ -4301,14 +4305,15 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
 @media print{
-  /* Footer = position:fixed at page bottom (22mm tall). @page margin reserves
-     30mm at the bottom = 22mm footer + 8mm gap so content can't crash into
-     the dark band. body padding-bottom is a fallback for browsers where the
-     user overrides @page margins in the print dialog ("None"/"Minimum"). */
-  @page { size: A4; margin: 10mm 10mm 30mm 10mm; }
-  html, body { background: #fff; }
-  body { padding-bottom: 30mm; }
-  .page { padding: 0 26px 8mm; }
+  /* Footer flows in normal document order as the last element, so it only
+     appears on the LAST printed page. Body is a flex column with min-height
+     of one page so the footer sits at the bottom of that last page even when
+     content is short. Intermediate pages contain only content — no footer. */
+  @page { size: A4; margin: 10mm; }
+  html { background: #fff; }
+  body { background: #fff; margin: 0; padding: 0;
+         min-height: 100vh; display: flex; flex-direction: column; }
+  .page { flex: 1 0 auto; padding: 0 26px 8mm; }
   /* Don't split these blocks across pages */
   .terms-block, .notes-box, .valid-bar, .sigs, .sig { page-break-inside: avoid; break-inside: avoid; }
   /* Keep every cheque/charge row whole; let the table itself flow across pages */
