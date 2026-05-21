@@ -4206,10 +4206,11 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;fo
 /* ─── ASG Letterhead Footer ─── */
 .lh-footer{
   position:fixed;left:0;right:0;bottom:0;
-  background:#1a1f2e;color:#fff;padding:12px 44px;
+  background:#1a1f2e;color:#fff;padding:10px 44px;
   z-index:5;
-  height:24mm;box-sizing:border-box;
+  height:22mm;box-sizing:border-box;
   display:flex;align-items:center;
+  overflow:hidden;
 }
 .lh-footer-grid{width:100%}
 .lh-footer-grid{
@@ -4265,11 +4266,16 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
 @media print{
-  /* Letterhead footer is position:fixed (height 24mm, constrained via height+box-sizing).
-     Reserve 36mm bottom @page margin so content never lands behind it
-     (24mm footer + 12mm safety, esp. for long multi-year cheque tables). */
-  @page { size: A4; margin: 10mm 10mm 36mm 10mm; }
-  .page { padding: 0 26px 0; }
+  /* Footer = position:fixed, height locked to 22mm via height+box-sizing+overflow.
+     @page bottom margin = 45mm — that's 22mm footer + a generous 23mm clear zone
+     so even if the browser's print-margin setting trims a few mm, content never
+     drifts into the dark footer band. The redundant padding-bottom on .page is
+     a belt-and-suspenders fallback for browsers that don't honor @page margins
+     (e.g. when the user picks "None" or "Minimum" in the print dialog). */
+  @page { size: A4; margin: 10mm 10mm 45mm 10mm; }
+  html, body { background: #fff; }
+  body { padding-bottom: 45mm; }
+  .page { padding: 0 26px 14mm; }
   /* Don't split these blocks across pages */
   .terms-block, .notes-box, .valid-bar, .sigs, .sig { page-break-inside: avoid; break-inside: avoid; }
   /* Keep every cheque/charge row whole; let the table itself flow across pages */
@@ -4281,9 +4287,8 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
   .psl-tbl tr[style*="background:#fef9d7"] { page-break-after: avoid; break-after: avoid; }
   .terms-title { page-break-after: avoid; break-after: avoid; }
   ul.tlist li  { page-break-inside: avoid; break-inside: avoid; }
-  /* Push the closing summary blocks to the next page if they'd otherwise sit on the
-     last page's footer area (guard against any residual encroachment) */
-  .sigs { margin-top: 32px; }
+  /* Push signatures further down so they never crowd the footer band */
+  .sigs { margin-top: 40px; margin-bottom: 8mm; }
 }
 </style></head><body>
 
