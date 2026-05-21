@@ -90,6 +90,7 @@ CREATE TABLE properties (
   brokerage_amount    REAL,    -- one-off brokerage fee earned for this property; ADDS to income
   premise_number      TEXT,
   dewa_number         TEXT,
+  power_kw            REAL,    -- Power capacity in KW (electrical infrastructure)
   owner_email         TEXT,
   partners            TEXT,    -- JSON array of {name, phone} for multi-partner ownership
   -- Rental

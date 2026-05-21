@@ -17,6 +17,7 @@ const cols = [
   ['properties', 'mezzanine',            'TEXT'],
   ['properties', 'premise_number',       'TEXT'],
   ['properties', 'dewa_number',          'TEXT'],
+  ['properties', 'power_kw',             'REAL'],
   ['properties', 'partner_name',         'TEXT'],
   ['properties', 'our_share',            'REAL'],
   ['properties', 'owner_name',           'TEXT'],

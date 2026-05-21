@@ -37,7 +37,7 @@ const router = express.Router();
 const PROP_FIELDS = [
   'type', 'name', 'unit_no', 'trade_license', 'usage', 'location', 'map_link',
   'size', 'area', 'compound', 'mezzanine',
-  'premise_number', 'dewa_number',
+  'premise_number', 'dewa_number', 'power_kw',
   'ownership', 'partner_name', 'our_share', 'owner_name', 'owner_phone', 'owner_email',
   'partners',                                       // JSON array of {name, phone}
   'mgmt_fee', 'mgmt_date', 'mgmt_maintenance', 'mgmt_admin_fee',

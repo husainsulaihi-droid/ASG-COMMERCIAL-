@@ -2148,6 +2148,7 @@ async function openEditModal(id) {
   $('propSecurityDeposit').value       = p.securityDeposit      || '';
   $('propPremiseNo').value             = p.premiseNumber || '';
   $('propDewaNo').value                = p.dewaNumber    || '';
+  if ($('propPowerKw')) $('propPowerKw').value = p.powerKw ?? '';
   $('propOwnerEmail').value            = p.ownerEmail    || '';
   // Partners: hydrate from JSON. If legacy single-partner data is present
   // and partners JSON is empty, seed the partners array with the legacy row.
@@ -2627,6 +2628,7 @@ async function handleSave() {
     brokerageAmount:       Number($('propBrokerage').value)             || null,
     premiseNumber:         $('propPremiseNo').value.trim()  || null,
     dewaNumber:            $('propDewaNo').value.trim()     || null,
+    powerKw:               Number($('propPowerKw')?.value)  || null,
     ownerEmail:            $('propOwnerEmail').value.trim() || null,
     partners:              (() => {
       const n = parseInt($('propNumPartners')?.value, 10) || 0;
@@ -4204,13 +4206,24 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;fo
 .page > *{position:relative;z-index:1}
 
 /* ─── ASG Letterhead Footer ─── */
+/* Sits inside <tfoot> so the browser repeats it AND reserves space on every
+   printed page. No position:fixed — that one's ignored by the layout engine
+   when paginating, which is why long proposals were overlapping. */
 .lh-footer{
-  position:fixed;left:0;right:0;bottom:0;
   background:#1a1f2e;color:#fff;padding:10px 44px;
-  z-index:5;
   height:22mm;box-sizing:border-box;
   display:flex;align-items:center;
   overflow:hidden;
+}
+/* The wrapping print table — tfoot uses table-footer-group to repeat on every page */
+.prnt-wrap{width:100%;border-collapse:collapse}
+.prnt-wrap > tbody > tr > td,
+.prnt-wrap > tfoot > tr > td{padding:0;vertical-align:top}
+@media screen{
+  .lh-footer{position:fixed;left:0;right:0;bottom:0;z-index:5}
+}
+@media print{
+  .prnt-wrap tfoot{display:table-footer-group}
 }
 .lh-footer-grid{width:100%}
 .lh-footer-grid{
@@ -4266,16 +4279,13 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
 @media print{
-  /* Footer = position:fixed, height locked to 22mm via height+box-sizing+overflow.
-     @page bottom margin = 45mm — that's 22mm footer + a generous 23mm clear zone
-     so even if the browser's print-margin setting trims a few mm, content never
-     drifts into the dark footer band. The redundant padding-bottom on .page is
-     a belt-and-suspenders fallback for browsers that don't honor @page margins
-     (e.g. when the user picks "None" or "Minimum" in the print dialog). */
-  @page { size: A4; margin: 10mm 10mm 45mm 10mm; }
+  /* The footer lives inside a <tfoot> with display:table-footer-group, so
+     the browser reserves vertical space for it on every paginated page and
+     repeats it at the bottom. This works regardless of what the user picks
+     in the print dialog's Margins dropdown. Modest @page margin is enough. */
+  @page { size: A4; margin: 10mm 10mm 14mm 10mm; }
   html, body { background: #fff; }
-  body { padding-bottom: 45mm; }
-  .page { padding: 0 26px 14mm; }
+  .page { padding: 0 26px 6mm; }
   /* Don't split these blocks across pages */
   .terms-block, .notes-box, .valid-bar, .sigs, .sig { page-break-inside: avoid; break-inside: avoid; }
   /* Keep every cheque/charge row whole; let the table itself flow across pages */
@@ -4285,14 +4295,17 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
   .psl-tbl thead { display: table-header-group; }
   /* Keep year-separator headers with at least one cheque row below them */
   .psl-tbl tr[style*="background:#fef9d7"] { page-break-after: avoid; break-after: avoid; }
+  /* Each new year of a multi-year contract starts on its own page (extra safety) */
+  .psl-tbl tr.year-sep-break { page-break-before: always; break-before: page; }
   .terms-title { page-break-after: avoid; break-after: avoid; }
   ul.tlist li  { page-break-inside: avoid; break-inside: avoid; }
-  /* Push signatures further down so they never crowd the footer band */
-  .sigs { margin-top: 40px; margin-bottom: 8mm; }
+  .sigs { margin-top: 28px; margin-bottom: 4mm; }
 }
 </style></head><body>
 
 <div class="lh-watermark">ASG</div>
+
+<table class="prnt-wrap"><tbody><tr><td>
 
 <div class="page">
 
@@ -4353,7 +4366,8 @@ ${cheques.length ? `
       cheques.forEach(c => {
         if (contractYears > 1 && c.year !== lastYear) {
           const yearRent = yearlyRents[c.year - 1] || 0;
-          out.push(`<tr style="background:#fef9d7;"><td colspan="4" style="font-weight:800;color:#7a5d1e;text-transform:uppercase;letter-spacing:.6px;font-size:11.5px;padding:7px 12px;">Year ${c.year}${yearRent ? ` — Annual Rent: ${fa0(yearRent)}` : ''}</td></tr>`);
+          const breakCls = c.year > 1 ? ' year-sep-break' : '';
+          out.push(`<tr class="${breakCls.trim()}" style="background:#fef9d7;"><td colspan="4" style="font-weight:800;color:#7a5d1e;text-transform:uppercase;letter-spacing:.6px;font-size:11.5px;padding:7px 12px;">Year ${c.year}${yearRent ? ` — Annual Rent: ${fa0(yearRent)}` : ''}</td></tr>`);
           lastYear = c.year;
         }
         out.push(`<tr>
@@ -4456,6 +4470,8 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
 
 </div>
 
+</td></tr></tbody>
+<tfoot><tr><td>
 <div class="lh-footer">
   <div class="lh-footer-grid">
     <div class="lh-fcol">
@@ -4474,6 +4490,8 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
     </div>
   </div>
 </div>
+</td></tr></tfoot>
+</table>
 
 </body></html>`;
 
