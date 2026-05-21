@@ -3642,7 +3642,7 @@ function openProposalModal() {
   $('pslPreparedBy').value = 'ASG Commercial Properties';
   ['pslPropName','pslPropLocation','pslPropSize','pslPropType',
    'pslPlotNo','pslMakaniNo','pslPropertyNo','pslDewaNo',
-   'pslOwnerName','pslLessorName','pslLessorEid','pslLessorPhone','pslLessorEmail',
+   'pslLessorName','pslLessorEid','pslLessorPhone','pslLessorEmail',
    'pslLessorLicense','pslLessorAuthority',
    'pslClientName','pslClientCompany','pslClientPhone','pslClientEmail',
    'pslClientEid','pslClientLicense','pslClientAuthority',
@@ -3735,8 +3735,7 @@ function autofillProposalProperty() {
   set('pslClientPhone', p.tenantPhone);
   set('pslClientEmail', p.tenantEmail);
 
-  // Owner / Lessor — Owner is always the actual owner; Lessor receives the rent.
-  set('pslOwnerName',   p.ownerName);
+  // Lessor — entity receiving the rent
   set('pslLessorPhone', p.ownerPhone);
   set('pslLessorEmail', p.ownerEmail);
   if (p.ownership === 'management' && p.ownerName) {
@@ -3911,8 +3910,7 @@ function _readProposalForm() {
     makaniNo:     g('pslMakaniNo'),
     propertyNo:   g('pslPropertyNo'),
     dewaNo:       g('pslDewaNo'),
-    // Owner / Lessor
-    ownerName:    g('pslOwnerName'),
+    // Lessor
     lessor:       g('pslLessorName'),
     lessorEid:    g('pslLessorEid'),
     lessorPhone:  g('pslLessorPhone'),
@@ -3972,7 +3970,6 @@ function printProposalDoc(d) {
   const makaniNo   = d.makaniNo   || '';
   const propertyNo = d.propertyNo || '';
   const dewaNo     = d.dewaNo     || '';
-  const ownerName  = d.ownerName  || '';
   const lessorEid  = d.lessorEid  || '';
   const lessorPhone= d.lessorPhone|| '';
   const lessorEmail= d.lessorEmail|| '';
@@ -4183,7 +4180,7 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 </div>
 
 <div class="tnt-summary">
-  ${ownerName    ? `<div class="tnt-row"><span class="tnt-lbl">Owner / Lessor:</span><span class="tnt-val">${he(ownerName)}${lessor && lessor !== ownerName ? ` &nbsp;·&nbsp; <em style="font-weight:500;">Payable to ${he(lessor)}</em>` : ''}</span></div>` : (lessor ? `<div class="tnt-row"><span class="tnt-lbl">Lessor:</span><span class="tnt-val">${he(lessor)}</span></div>` : '')}
+  ${lessor       ? `<div class="tnt-row"><span class="tnt-lbl">Lessor:</span><span class="tnt-val">${he(lessor)}</span></div>` : ''}
   ${(lessorPhone||lessorEmail) ? `<div class="tnt-row"><span class="tnt-lbl">Lessor Contact:</span><span class="tnt-val">${he([lessorPhone, lessorEmail].filter(Boolean).join(' · '))}</span></div>` : ''}
   ${(lessorLicense||lessorAuthority) ? `<div class="tnt-row"><span class="tnt-lbl">Lessor License:</span><span class="tnt-val">${he([lessorLicense, lessorAuthority].filter(Boolean).join(' · '))}</span></div>` : ''}
   ${client       ? `<div class="tnt-row"><span class="tnt-lbl">Tenant Name:</span><span class="tnt-val">${he(client)}${company?` &nbsp;·&nbsp; ${he(company)}`:''}${clientEid?` &nbsp;·&nbsp; EID: ${he(clientEid)}`:''}</span></div>` : ''}
@@ -10630,8 +10627,8 @@ function _hydrateProposalForm(p) {
     const r = document.getElementById(id);
     if (r) r.checked = true;
   }
-  // Owner / Lessor block
-  set('pslOwnerName', p.ownerName);    set('pslLessorName', p.lessor);
+  // Lessor block
+  set('pslLessorName', p.lessor);
   set('pslLessorEid', p.lessorEid);    set('pslLessorPhone', p.lessorPhone);
   set('pslLessorEmail', p.lessorEmail);
   set('pslLessorLicense', p.lessorLicense); set('pslLessorAuthority', p.lessorAuthority);

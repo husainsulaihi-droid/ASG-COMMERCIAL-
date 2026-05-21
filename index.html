@@ -2738,8 +2738,8 @@
   <!-- ═══════════════════════════════════════ -->
   <!-- PROPOSAL MODAL                         -->
   <!-- ═══════════════════════════════════════ -->
-  <div class="modal-overlay" id="proposalOverlay">
-    <div class="modal" style="max-width:720px;">
+  <div class="modal-overlay" id="proposalOverlay" style="justify-content:center;">
+    <div class="modal" style="max-width:100%;width:100%;border-left:none;">
       <div class="modal-header">
         <div class="modal-header-left">
           <div class="modal-header-icon">💼</div>
@@ -2753,7 +2753,8 @@
         </button>
       </div>
 
-      <div class="modal-body" style="overflow-y:auto;max-height:72vh;">
+      <div class="modal-body" style="overflow-y:auto;">
+        <div style="max-width:980px;margin:0 auto;">
 
         <!-- Section 00: Quick Setup -->
         <div class="form-section">
@@ -2795,35 +2796,29 @@
           </div>
         </div>
 
-        <!-- Section 01: Owner / Lessor -->
+        <!-- Section 01: Lessor -->
         <div class="form-section">
           <div class="dld-section-hdr">
-            <span>Owner / Lessor Information</span>
-            <span class="dld-section-ar">معلومات المالك / المؤجر</span>
+            <span>Lessor Information</span>
+            <span class="dld-section-ar">معلومات المؤجر</span>
           </div>
           <div class="form-row">
-            <div class="form-group">
-              <label>Owner's Name — اسم المالك</label>
-              <input type="text" id="pslOwnerName" placeholder="Full legal name of property owner">
-            </div>
             <div class="form-group">
               <label>Lessor's Name — اسم المؤجر
                 <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — receives the rent</span>
               </label>
-              <input type="text" id="pslLessorName" placeholder="If different from owner (e.g. agent)">
+              <input type="text" id="pslLessorName" placeholder="e.g. CALCON MEASURING AND CONTROL SYSTEMS TRADING L.L.C">
             </div>
-          </div>
-          <div class="form-row">
             <div class="form-group">
               <label>Lessor's Emirates ID — الهوية الإماراتية للمؤجر</label>
               <input type="text" id="pslLessorEid" placeholder="784-xxxx-xxxxxxx-x">
             </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label>Lessor's Phone — رقم هاتف المؤجر</label>
               <input type="tel" id="pslLessorPhone" placeholder="+971 xx xxx xxxx">
             </div>
-          </div>
-          <div class="form-row">
             <div class="form-group">
               <label>Lessor's Email — البريد الإلكتروني للمؤجر</label>
               <input type="email" id="pslLessorEmail" placeholder="lessor@email.com">
@@ -3104,6 +3099,7 @@
           </div>
         </div>
 
+        </div><!-- end content max-width wrapper -->
       </div><!-- end modal-body -->
 
       <div class="modal-footer">
@@ -3936,6 +3932,6 @@
   <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
-  <script src="app.js?v=20260521A"></script>
+  <script src="app.js?v=20260521B"></script>
 </body>
 </html>
