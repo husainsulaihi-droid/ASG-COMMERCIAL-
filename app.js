@@ -4202,9 +4202,12 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;fo
 /* ─── ASG Letterhead Footer ─── */
 .lh-footer{
   position:fixed;left:0;right:0;bottom:0;
-  background:#1a1f2e;color:#fff;padding:14px 44px;
+  background:#1a1f2e;color:#fff;padding:12px 44px;
   z-index:5;
+  height:24mm;box-sizing:border-box;
+  display:flex;align-items:center;
 }
+.lh-footer-grid{width:100%}
 .lh-footer-grid{
   display:grid;
   grid-template-columns:1.1fr 1.1fr 1.6fr;
@@ -4258,18 +4261,25 @@ ul.tlist li::before{content:'•';position:absolute;left:0;color:#c9a84c;font-we
 .sig-space{height:38px}.sig-date{font-size:10.5px;color:#aaa;margin-top:6px}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #eee;text-align:center;font-size:9.5px;color:#bbb}
 @media print{
-  /* Letterhead footer is position:fixed and repeats on every printed page.
-     Reserve bottom space via the @page margin so content never lands behind it.
-     The footer height is ~22mm (padding + 3 lines @ 10.5px line-height 1.4) —
-     using 28mm here gives ~6mm safety margin. */
-  @page { size: A4; margin: 10mm 10mm 28mm 10mm; }
+  /* Letterhead footer is position:fixed (height 24mm, constrained via height+box-sizing).
+     Reserve 36mm bottom @page margin so content never lands behind it
+     (24mm footer + 12mm safety, esp. for long multi-year cheque tables). */
+  @page { size: A4; margin: 10mm 10mm 36mm 10mm; }
   .page { padding: 0 26px 0; }
   /* Don't split these blocks across pages */
   .terms-block, .notes-box, .valid-bar, .sigs, .sig { page-break-inside: avoid; break-inside: avoid; }
-  /* Keep table rows whole; allow a hard break before signatures if they're near the bottom */
+  /* Keep every cheque/charge row whole; let the table itself flow across pages */
+  .psl-tbl { page-break-inside: auto; break-inside: auto; }
   .psl-tbl tr { page-break-inside: avoid; break-inside: avoid; }
+  /* The repeated <thead> appears on every page when the table spans pages */
+  .psl-tbl thead { display: table-header-group; }
+  /* Keep year-separator headers with at least one cheque row below them */
+  .psl-tbl tr[style*="background:#fef9d7"] { page-break-after: avoid; break-after: avoid; }
   .terms-title { page-break-after: avoid; break-after: avoid; }
   ul.tlist li  { page-break-inside: avoid; break-inside: avoid; }
+  /* Push the closing summary blocks to the next page if they'd otherwise sit on the
+     last page's footer area (guard against any residual encroachment) */
+  .sigs { margin-top: 32px; }
 }
 </style></head><body>
 
