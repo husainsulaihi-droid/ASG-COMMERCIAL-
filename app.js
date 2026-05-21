@@ -3647,17 +3647,19 @@ function openProposalModal() {
    'pslClientName','pslClientCompany','pslClientPhone','pslClientEmail',
    'pslClientEid','pslClientLicense','pslClientAuthority',
    'pslAnnualRent','pslTenancyFrom','pslTenancyTo',
-   'pslVatAmount','pslServiceAmount','pslMaintAmount','pslAdminAmount','pslDrecAmount','pslSecDepAmount',
+   'pslVatAmount','pslServiceAmount','pslCommAmount','pslMaintAmount','pslAdminAmount','pslDrecAmount','pslSecDepAmount',
    'pslVatPayable','pslServicePayable','pslMaintPayable','pslSecDepPayable','pslNotes',
    'pslAdd1','pslAdd2','pslAdd3','pslAdd4','pslAdd5','pslAdd6','pslAdd7','pslAdd8','pslAdd9','pslAdd10',
   ].forEach(id => { const el = $(id); if (el) el.value = ''; });
   $('pslVatDate').value     = 'CDC';
   $('pslServiceDate').value = 'CDC';
+  $('pslCommDate').value    = 'CDC';
   $('pslMaintDate').value   = 'CDC';
   $('pslAdminDate').value   = 'CDC';
   $('pslDrecDate').value    = 'Cheque/Card';
   $('pslSecDepDate').value  = 'CDC';
   $('pslAdminPayable').value = 'ASG Commercial Properties L.L.C';
+  $('pslCommPayable').value  = 'ASG Commercial Properties L.L.C';
   $('pslDrecPayable').value  = 'DUBAI REAL ESTATE CORPORATION';
   $('pslNumCheques').value   = '4';
   // Reset usage radio to Commercial
@@ -3821,7 +3823,7 @@ function updateProposalGrandTotal() {
   $('proposalChequeFields').querySelectorAll('.psl-amount').forEach(inp => {
     chequeSum += Number(inp.value) || 0;
   });
-  const additional = gn('pslVatAmount') + gn('pslServiceAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount') + gn('pslSecDepAmount');
+  const additional = gn('pslVatAmount') + gn('pslServiceAmount') + gn('pslCommAmount') + gn('pslMaintAmount') + gn('pslAdminAmount') + gn('pslDrecAmount') + gn('pslSecDepAmount');
   const grand = chequeSum + additional;
 
   const prevEl  = $('proposalTotalPreview');
@@ -3933,6 +3935,7 @@ function _readProposalForm() {
     // Additional charges
     vatAmount:    gn('pslVatAmount'),    vatDate:    g('pslVatDate'),    vatPayable:    g('pslVatPayable'),
     serviceAmount:gn('pslServiceAmount'),serviceDate:g('pslServiceDate'),servicePayable:g('pslServicePayable'),
+    commAmount:   gn('pslCommAmount'),   commDate:   g('pslCommDate'),   commPayable:   g('pslCommPayable'),
     maintAmount:  gn('pslMaintAmount'),  maintDate:  g('pslMaintDate'),  maintPayable:  g('pslMaintPayable'),
     adminAmount:  gn('pslAdminAmount'),  adminDate:  g('pslAdminDate'),  adminPayable:  g('pslAdminPayable'),
     drecAmount:   gn('pslDrecAmount'),   drecDate:   g('pslDrecDate'),   drecPayable:   g('pslDrecPayable'),
@@ -3995,6 +3998,9 @@ function printProposalDoc(d) {
   const serviceAmount = Number(d.serviceAmount) || 0;
   const serviceDate   = d.serviceDate    || 'CDC';
   const servicePayable= d.servicePayable || lessor;
+  const commAmount   = Number(d.commAmount) || 0;
+  const commDate     = d.commDate    || 'CDC';
+  const commPayable  = d.commPayable || 'ASG Commercial Properties L.L.C';
   const maintAmount = Number(d.maintAmount) || 0;
   const maintDate   = d.maintDate    || 'CDC';
   const maintPayable= d.maintPayable || lessor;
@@ -4023,7 +4029,7 @@ function printProposalDoc(d) {
     payable: c.payable || lessor
   }));
   const rentTotal = cheques.reduce((s,c)=>s+(c.amount||0), 0);
-  const grandTotal = rentTotal + vatAmount + serviceAmount + maintAmount + adminAmount + drecAmount;
+  const grandTotal = rentTotal + vatAmount + serviceAmount + commAmount + maintAmount + adminAmount + drecAmount;
   const modeOfPayment = numCheques ? `${numCheques} Cheque${numCheques>1?'s':''}` : '—';
 
   const fd = s => s ? new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
@@ -4221,7 +4227,7 @@ ${cheques.length ? `
   </tbody>
 </table>` : ''}
 
-${(vatAmount||serviceAmount||maintAmount||adminAmount||drecAmount||secDepAmount) ? `
+${(vatAmount||serviceAmount||commAmount||maintAmount||adminAmount||drecAmount||secDepAmount) ? `
 <div class="tbl-title">Additional Charges</div>
 <table class="psl-tbl">
   <thead><tr>
@@ -4242,6 +4248,12 @@ ${(vatAmount||serviceAmount||maintAmount||adminAmount||drecAmount||secDepAmount)
       <td>${he(serviceDate)}</td>
       <td class="amt">${fa(serviceAmount)}</td>
       <td>${he(servicePayable)}</td>
+    </tr>` : ''}
+    ${commAmount ? `<tr>
+      <td>Commission Fee</td>
+      <td>${he(commDate)}</td>
+      <td class="amt">${fa(commAmount)}</td>
+      <td>${he(commPayable)}</td>
     </tr>` : ''}
     ${maintAmount ? `<tr>
       <td>Annual Maintenance Fee</td>
@@ -10607,7 +10619,7 @@ function _hydrateProposalForm(p) {
     edit = document.createElement('input');
     edit.type = 'hidden';
     edit.id = 'pslEditId';
-    document.getElementById('proposalModalOverlay')?.appendChild(edit);
+    document.getElementById('proposalOverlay')?.appendChild(edit);
   }
   edit.value = p.id;
 
@@ -10644,6 +10656,7 @@ function _hydrateProposalForm(p) {
   // Additional charges
   set('pslVatAmount', p.vatAmount);    set('pslVatDate', p.vatDate);    set('pslVatPayable', p.vatPayable);
   set('pslServiceAmount', p.serviceAmount); set('pslServiceDate', p.serviceDate); set('pslServicePayable', p.servicePayable);
+  set('pslCommAmount', p.commAmount);   set('pslCommDate', p.commDate);   set('pslCommPayable', p.commPayable);
   set('pslMaintAmount', p.maintAmount); set('pslMaintDate', p.maintDate); set('pslMaintPayable', p.maintPayable);
   set('pslAdminAmount', p.adminAmount); set('pslAdminDate', p.adminDate); set('pslAdminPayable', p.adminPayable);
   set('pslDrecAmount', p.drecAmount);   set('pslDrecDate', p.drecDate);   set('pslDrecPayable', p.drecPayable);

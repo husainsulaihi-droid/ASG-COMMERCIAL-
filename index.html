@@ -3029,6 +3029,14 @@
               <input type="text" id="pslServicePayable" placeholder="Auto = Lessor">
             </div>
 
+            <!-- Commission Fee -->
+            <div class="psl-add-row">
+              <span class="psl-add-label">Commission Fee</span>
+              <input type="text" id="pslCommDate" value="CDC" placeholder="CDC">
+              <input type="number" id="pslCommAmount" min="0" placeholder="e.g. 7,500" oninput="updateProposalGrandTotal()">
+              <input type="text" id="pslCommPayable" value="ASG Commercial Properties L.L.C">
+            </div>
+
             <!-- Annual Maintenance -->
             <div class="psl-add-row">
               <span class="psl-add-label">Annual Maintenance Fee</span>
@@ -3932,6 +3940,6 @@
   <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
-  <script src="app.js?v=20260521B"></script>
+  <script src="app.js?v=20260521C"></script>
 </body>
 </html>
