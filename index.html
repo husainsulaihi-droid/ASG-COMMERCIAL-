@@ -2022,20 +2022,18 @@
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label>Follow-up Date <span class="req">*</span>
+              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — drives the reminder</span>
+            </label>
+            <input type="date" id="taskDueDate">
+          </div>
+          <div class="form-group">
             <label>Priority <span class="req">*</span></label>
             <select id="taskPriority">
               <option value="urgent">🔥 Urgent</option>
               <option value="high">⬆️ High</option>
               <option value="medium" selected>⏺ Medium</option>
               <option value="low">⬇️ Low</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Status</label>
-            <select id="taskStatus">
-              <option value="pending" selected>📌 Pending</option>
-              <option value="in_progress">⚙️ In Progress</option>
-              <option value="done">✅ Done</option>
             </select>
           </div>
         </div>
@@ -2049,15 +2047,19 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Due Date / Follow-up
-              <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — used for reminders</span>
-            </label>
-            <input type="date" id="taskDueDate">
+            <label>Status</label>
+            <select id="taskStatus">
+              <option value="pending" selected>📌 Pending</option>
+              <option value="in_progress">⚙️ In Progress</option>
+              <option value="done">✅ Done</option>
+            </select>
           </div>
         </div>
         <div class="form-group">
-          <label>Notes / Details</label>
-          <textarea id="taskNotes" rows="4" placeholder="What needs to happen? Context, next steps, contact info…" style="resize:vertical;"></textarea>
+          <label>Notes / Details
+            <span style="font-size:11px;font-weight:400;color:var(--text-3);"> — optional</span>
+          </label>
+          <textarea id="taskNotes" rows="3" placeholder="What needs to happen? Context, next steps, contact info…" style="resize:vertical;"></textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -4101,6 +4103,6 @@
   <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
-  <script src="app.js?v=20260521F"></script>
+  <script src="app.js?v=20260521G"></script>
 </body>
 </html>
