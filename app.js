@@ -1407,6 +1407,9 @@ function renderStats(props) {
   $('statManaged').textContent   = typed.filter(p => p.ownership === 'management').length;
   $('statRevenue').textContent   = revenue ? 'AED ' + revenue.toLocaleString() : 'AED 0';
   $('statTotalArea').textContent = area ? area.toLocaleString() : '0';
+  // Hide Annual Income KPI on the Warehouses tab (per user request)
+  const revCard = $('statRevenueCard');
+  if (revCard) revCard.style.display = (tf === 'warehouse') ? 'none' : '';
 }
 
 function renderNavCounts(props) {
