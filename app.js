@@ -2810,9 +2810,11 @@ async function openDetailModal(id) {
       const files = await apiListPropertyFiles(id);
       if (files && files.length) {
         const byCat = {};
-        // Files arrive sorted newest-first (ORDER BY uploaded_at DESC), so the
-        // first row we see per category IS the latest upload. Skip subsequent
-        // (older) rows in the same category so re-uploads actually appear.
+        const oldByCat = {};
+        // Files arrive sorted newest-first (ORDER BY uploaded_at DESC). The
+        // first row per category is the LATEST upload; subsequent rows in the
+        // same category are previous versions we surface as "(Old)" tiles
+        // (user wants old uploads preserved AND visible, labeled differently).
         for (const f of files) {
           const cat = f.category || 'other';
           if (cat === 'photo') {
@@ -2820,6 +2822,8 @@ async function openDetailModal(id) {
             byCat.photos.push(f);
           } else if (!byCat[cat]) {
             byCat[cat] = f;
+          } else {
+            (oldByCat[cat] = oldByCat[cat] || []).push(f);
           }
         }
         // Overwrite legacy fields so the existing render uses API data.
@@ -2834,6 +2838,7 @@ async function openDetailModal(id) {
           addendum:      byCat.addendum,
           floorplan:     byCat.floorplan,
         };
+        p.filesOld = oldByCat;
         p.media = byCat.photos || [];
       }
     } catch (e) { console.warn('[openDetailModal] file fetch failed:', e); }
@@ -2997,14 +3002,23 @@ async function openDetailModal(id) {
         <div class="detail-block-header">📁 Documents & Attachments</div>
         <div class="docs-grid">
           ${docTile('DREC / Title Deed', p.files?.drec)}
+          ${oldDocTiles('DREC / Title Deed', p.filesOld?.drec)}
           ${docTile('Ijari (Owner)', p.files?.ijari)}
+          ${oldDocTiles('Ijari (Owner)', p.filesOld?.ijari)}
           ${docTile('Ijari (Tenancy)', p.files?.ijari2)}
+          ${oldDocTiles('Ijari (Tenancy)', p.filesOld?.ijari2)}
           ${docTile('Affection Plan', p.files?.affection)}
+          ${oldDocTiles('Affection Plan', p.filesOld?.affection)}
           ${docTile('Tenancy Contract', p.files?.tenancy)}
+          ${oldDocTiles('Tenancy Contract', p.filesOld?.tenancy)}
           ${docTile('Trade License', p.files?.license)}
+          ${oldDocTiles('Trade License', p.filesOld?.license)}
           ${docTile('Tenant License', p.files?.tenantlicense)}
+          ${oldDocTiles('Tenant License', p.filesOld?.tenantlicense)}
           ${docTile('Addendum', p.files?.addendum)}
+          ${oldDocTiles('Addendum', p.filesOld?.addendum)}
           ${docTile('Floor Plan', p.files?.floorplan)}
+          ${oldDocTiles('Floor Plan', p.filesOld?.floorplan)}
         </div>
       </div>
 
@@ -3123,6 +3137,30 @@ async function downloadFile(fileId, fallbackName) {
   const a = document.createElement('a');
   a.href = rec.data; a.download = rec.name || fallbackName;
   a.click();
+}
+
+// Render historical versions of a doc category as muted "OLD" tiles. Each
+// tile gets a date stamp so the user can pick the right archival copy.
+function oldDocTiles(label, list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return list.map(info => {
+    if (!info || !info.id || !info.propertyId) return '';
+    const safeName = (info.filename || info.name || 'file');
+    const ext  = (info.filename || info.name || '').split('.').pop().toLowerCase();
+    const icon = ['jpg','jpeg','png','gif','webp'].includes(ext) ? '🖼️' : ext === 'pdf' ? '📄' : '📋';
+    const dateStr = info.uploadedAt ? new Date(info.uploadedAt).toLocaleDateString() : '';
+    const url = `/api/properties/${info.propertyId}/files/${info.id}/download`;
+    return `
+      <a class="doc-tile doc-tile-old" href="${url}" target="_blank" rel="noopener"
+         style="text-decoration:none;color:inherit;opacity:.72;border-style:dashed;">
+        <div class="doc-tile-icon" style="filter:grayscale(.5);">${icon}</div>
+        <div class="doc-tile-title">${h(label)}
+          <span style="background:#e5e7eb;color:#6b7280;font-size:9px;padding:1px 6px;border-radius:6px;margin-left:4px;text-transform:uppercase;letter-spacing:.3px;font-weight:700;">Old${dateStr ? ' · ' + dateStr : ''}</span>
+        </div>
+        <div class="doc-tile-name">${h(safeName)}</div>
+        <div class="doc-tile-action">⬇ View / Download</div>
+      </a>`;
+  }).join('');
 }
 
 function closeDetailModal() {
