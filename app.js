@@ -760,6 +760,10 @@ let lbIndex = 0;
 // ─── Tab State ────────────────────────────────────
 let activeTab        = 'warehouses';
 let activeTypeFilter = 'warehouse';
+// When the user picks Ownership = Management AND clicks a landlord chip
+// in the sub-tab row, this narrows the grid to just that landlord's
+// managed properties. Empty string = show all managed landlords.
+let activeManagedLandlord = '';
 
 // ─── Boot ─────────────────────────────────────────
 async function boot() {
@@ -942,7 +946,11 @@ function showTab(tab) {
 
   if (isPropTab) {
     const typeMap = { warehouses: 'warehouse', offices: 'office', residential: 'residential', land: 'land' };
+    const prevTypeFilter = activeTypeFilter;
     activeTypeFilter = typeMap[tab];
+    // Reset the landlord sub-filter when switching between property types —
+    // the landlord chip set differs per type, so the picked one may not apply.
+    if (prevTypeFilter !== activeTypeFilter) activeManagedLandlord = '';
     refresh();
   }
   if (tab === 'home')         renderHome();
@@ -1398,6 +1406,7 @@ function generateContractHTML_old_unused(d) {
 // ─── Render Pipeline ──────────────────────────────
 function refresh() {
   const all      = loadProps();
+  renderManagedSubTabs(all);
   const filtered = applyFilters(all);
   renderStats(all);
   renderNavCounts(all);
@@ -1405,6 +1414,70 @@ function refresh() {
   renderReminderBadge(all);
   renderGrid(filtered);
   if (activeTab === 'reminders') renderReminders();
+}
+
+// ─── Managed-by-landlord sub-tabs ─────────────────
+// Shown only when the user picks Ownership=Management. Lists every unique
+// owner_name across the managed properties (already narrowed by the active
+// property-type tab). Clicking a landlord chip filters the grid further.
+function renderManagedSubTabs(allProps) {
+  const wrap = $('managedSubTabs');
+  if (!wrap) return;
+  const ownershipF = $('filterOwnership')?.value || '';
+  if (ownershipF !== 'management') {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    if (activeManagedLandlord) activeManagedLandlord = '';  // reset when leaving Management view
+    return;
+  }
+  // Count managed props per landlord, within the current type tab
+  const counts = new Map();
+  let totalManaged = 0;
+  for (const p of allProps) {
+    if (p.ownership !== 'management') continue;
+    if (activeTypeFilter && p.type !== activeTypeFilter) continue;
+    totalManaged++;
+    const name = (p.ownerName || '').trim() || '— Unassigned —';
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  if (!totalManaged) {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  // Sort: known landlords by name (case-insensitive), Unassigned last
+  const landlords = [...counts.entries()].sort((a, b) => {
+    if (a[0] === '— Unassigned —') return 1;
+    if (b[0] === '— Unassigned —') return -1;
+    return a[0].localeCompare(b[0], undefined, { sensitivity: 'base' });
+  });
+  const chip = (label, value, count, active) => `
+    <button type="button"
+            class="managed-subtab${active ? ' active' : ''}"
+            onclick="setManagedLandlord('${value.replace(/'/g, "\\'")}')">
+      ${h(label)}
+      <span class="managed-subtab-count">${count}</span>
+    </button>`;
+  let html = `<span class="managed-subtabs-label">Managed by:</span>`;
+  html += chip('All Landlords', '', totalManaged, !activeManagedLandlord);
+  for (const [name, c] of landlords) {
+    const value = (name === '— Unassigned —') ? '' : name;
+    // Skip "All Landlords" duplicate if there's only the unassigned bucket
+    if (!value) continue;
+    html += chip(name, value, c, activeManagedLandlord === name);
+  }
+  // Add the unassigned chip last (if any)
+  if (counts.has('— Unassigned —')) {
+    // Unassigned is currently uncovered by activeManagedLandlord (would need a separate flag).
+    // Skip for now — they appear under "All Landlords".
+  }
+  wrap.innerHTML = html;
+  wrap.style.display = 'flex';
+}
+
+function setManagedLandlord(name) {
+  activeManagedLandlord = name || '';
+  refresh();
 }
 
 function applyFilters(props) {
@@ -1416,6 +1489,12 @@ function applyFilters(props) {
     if (activeTypeFilter && p.type !== activeTypeFilter) return false;
     if (statusF    && p.status    !== statusF)    return false;
     if (ownershipF && p.ownership !== ownershipF) return false;
+    // Managed-by-landlord sub-filter: only narrow when both ownership=management
+    // AND a specific landlord chip is picked. Empty-string landlord = "All".
+    if (ownershipF === 'management' && activeManagedLandlord) {
+      const owner = (p.ownerName || '').trim();
+      if (owner !== activeManagedLandlord) return false;
+    }
     return true;
   });
 }
