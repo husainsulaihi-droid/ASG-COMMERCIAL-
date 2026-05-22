@@ -2810,13 +2810,16 @@ async function openDetailModal(id) {
       const files = await apiListPropertyFiles(id);
       if (files && files.length) {
         const byCat = {};
+        // Files arrive sorted newest-first (ORDER BY uploaded_at DESC), so the
+        // first row we see per category IS the latest upload. Skip subsequent
+        // (older) rows in the same category so re-uploads actually appear.
         for (const f of files) {
           const cat = f.category || 'other';
           if (cat === 'photo') {
             byCat.photos = byCat.photos || [];
             byCat.photos.push(f);
-          } else {
-            byCat[cat] = f; // last one wins per doc category
+          } else if (!byCat[cat]) {
+            byCat[cat] = f;
           }
         }
         // Overwrite legacy fields so the existing render uses API data.
