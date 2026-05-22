@@ -1477,7 +1477,13 @@ function renderManagedSubTabs(allProps) {
 
 function setManagedLandlord(name) {
   activeManagedLandlord = name || '';
-  refresh();
+  // Re-render whichever inventory the user is currently looking at.
+  // Agents have their own list element + render path; admins use refresh().
+  if (typeof isAgentUser === 'function' && isAgentUser()) {
+    try { renderAgentInventory(); } catch (_) {}
+  } else {
+    refresh();
+  }
 }
 
 function applyFilters(props) {
@@ -11157,6 +11163,36 @@ function _extMgrRowsHTML(props) {
     </div>`;
 }
 
+// Build the "Managed by:" landlord chip row for an agent's property list.
+// Same UX as the admin's chip row — collect unique owner_name values, count
+// per landlord, render selectable chips. Returns '' if there's nothing
+// interesting to filter (e.g. only one landlord, or empty list).
+function _agentLandlordChipsHTML(props) {
+  if (!props || props.length < 2) return '';
+  const counts = new Map();
+  for (const p of props) {
+    const name = (p.ownerName || '').trim();
+    if (!name) continue;            // skip blanks — they live under "All"
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  if (counts.size < 2) return '';   // only one landlord = no value in chips
+  const landlords = [...counts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
+  const chip = (label, value, count, active) => `
+    <button type="button" class="managed-subtab${active ? ' active' : ''}"
+            onclick="setManagedLandlord('${value.replace(/'/g, "\\'")}')">
+      ${h(label)} <span class="managed-subtab-count">${count}</span>
+    </button>`;
+  let html = `<div class="managed-subtabs" style="display:flex;">`;
+  html += `<span class="managed-subtabs-label">Landlord:</span>`;
+  html += chip('All', '', props.length, !activeManagedLandlord);
+  for (const [name, c] of landlords) {
+    html += chip(name, name, c, activeManagedLandlord === name);
+  }
+  html += `</div>`;
+  return html;
+}
+
 // Replace agent inventory rendering with admin-style cards
 const _origRenderAgentInventory = renderAgentInventory;
 renderAgentInventory = function() {
@@ -11168,7 +11204,13 @@ renderAgentInventory = function() {
 
   const role = sess.role || 'general';
   const meta = agentRoleMeta(role);
-  const props = allProps.filter(meta.inventoryFilter || (() => true));
+  let props = allProps.filter(meta.inventoryFilter || (() => true));
+  // Build chips from the *unfiltered* portfolio so the user can switch
+  // between landlords, but narrow what we actually render by the pick.
+  const landlordChips = _agentLandlordChipsHTML(props);
+  if (activeManagedLandlord) {
+    props = props.filter(p => (p.ownerName || '').trim() === activeManagedLandlord);
+  }
 
   // External managers always get their own intro + Add Property button,
   // even when the portfolio is empty (they need to be able to add the first one).
@@ -11196,11 +11238,11 @@ renderAgentInventory = function() {
       return;
     }
     if (_extMgrViewMode === 'rows') {
-      list.innerHTML = `${introExt}${_extMgrRowsHTML(props)}`;
+      list.innerHTML = `${introExt}${landlordChips}${_extMgrRowsHTML(props)}`;
     } else {
       // Admin-style cards (cardHTML) so external managers get View / Edit /
       // Delete action buttons on each card — same UI the admin sees.
-      list.innerHTML = `${introExt}<div class="grid agent-inventory-grid">${props.map(cardHTML).join('')}</div>`;
+      list.innerHTML = `${introExt}${landlordChips}<div class="grid agent-inventory-grid">${props.map(cardHTML).join('')}</div>`;
       if (typeof loadCardMedia === 'function') {
         props.forEach(p => { if (p.media?.length) loadCardMedia(p); });
       }
@@ -11255,7 +11297,7 @@ renderAgentInventory = function() {
   }
 
   // Render as a grid of admin-style cards
-  list.innerHTML = `${intro}<div class="grid agent-inventory-grid">${props.map(agentCardHTML).join('')}</div>`;
+  list.innerHTML = `${intro}${landlordChips}<div class="grid agent-inventory-grid">${props.map(agentCardHTML).join('')}</div>`;
 
   // Hydrate media thumbnails (mirror admin behavior)
   if (typeof loadCardMedia === 'function') {
