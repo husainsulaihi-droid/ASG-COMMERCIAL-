@@ -190,6 +190,78 @@ router.post('/', requireAuth, canWriteFile, upload.single('file'), async (req, r
   res.status(201).json({ file: rowToApi(row) });
 });
 
+// ─── Replace a file in place (keeps DB id, swaps disk content) ─────
+// Frontend must include the existing category in the form data so multer
+// drops the new file in the correct per-property/per-category folder.
+router.patch('/:fileId', requireAuth, canWriteFile, upload.single('file'), async (req, res) => {
+  const propId = parseInt(req.params.id, 10);
+  const fileId = parseInt(req.params.fileId, 10);
+  const file = req.file;
+
+  if (!file) return res.status(400).json({ error: 'file is required' });
+
+  const row = getDb().prepare(
+    'SELECT * FROM property_files WHERE id = ? AND property_id = ?'
+  ).get(fileId, propId);
+  if (!row) {
+    fs.unlink(file.path, () => {});
+    return res.status(404).json({ error: 'file not found' });
+  }
+
+  // Remove the previous file from disk (best-effort)
+  if (row.local_path && row.local_path !== file.path) {
+    fs.unlink(row.local_path, () => {});
+  }
+
+  // Best-effort: replace on Drive too
+  let driveMeta = { drive_id: row.drive_id, drive_url: row.drive_url };
+  if (driveUploader.isEnabled()) {
+    try {
+      if (row.drive_id) {
+        try { await driveUploader.deleteDriveFile(row.drive_id); } catch (_) {}
+      }
+      driveMeta = await driveUploader.uploadPropertyFile({
+        propertyId: propId,
+        category: row.category,
+        localPath: file.path,
+        filename: file.originalname,
+        mime: file.mimetype,
+      });
+    } catch (e) {
+      console.warn(`[property-files] Drive replace failed for ${fileId}:`, e.message);
+    }
+  }
+
+  getDb().prepare(`
+    UPDATE property_files
+       SET filename = ?, local_path = ?, mime = ?, size = ?,
+           drive_id = ?, drive_url = ?, uploaded_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+  `).run(
+    file.originalname, file.path, file.mimetype, file.size,
+    driveMeta.drive_id, driveMeta.drive_url, fileId
+  );
+  const updated = getDb().prepare('SELECT * FROM property_files WHERE id = ?').get(fileId);
+  res.json({ file: rowToApi(updated) });
+});
+
+// ─── Promote a file to "current" (re-stamps uploaded_at to NOW) ─────
+// Files are sorted newest-first in the UI; bumping the timestamp makes
+// this file leapfrog whichever upload was previously the "current" tile.
+router.post('/:fileId/promote', requireAuth, canWriteFile, (req, res) => {
+  const propId = parseInt(req.params.id, 10);
+  const fileId = parseInt(req.params.fileId, 10);
+  const row = getDb().prepare(
+    'SELECT id FROM property_files WHERE id = ? AND property_id = ?'
+  ).get(fileId, propId);
+  if (!row) return res.status(404).json({ error: 'file not found' });
+  getDb().prepare(
+    "UPDATE property_files SET uploaded_at = CURRENT_TIMESTAMP WHERE id = ?"
+  ).run(fileId);
+  const updated = getDb().prepare('SELECT * FROM property_files WHERE id = ?').get(fileId);
+  res.json({ file: rowToApi(updated) });
+});
+
 // ─── Delete a file ────────────────────────────────────────────────
 router.delete('/:fileId', requireAuth, canWriteFile, async (req, res) => {
   const propId = parseInt(req.params.id, 10);

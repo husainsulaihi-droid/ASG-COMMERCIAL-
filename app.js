@@ -502,6 +502,34 @@ async function apiDeletePropertyFile(propertyId, fileId) {
   return res.ok;
 }
 
+async function apiReplacePropertyFile(propertyId, fileId, category, file) {
+  const fd = new FormData();
+  fd.append('category', category);
+  fd.append('file', file);
+  const res = await fetch(`/api/properties/${propertyId}/files/${fileId}`, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    body: fd,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Replace failed: HTTP ${res.status}`);
+  }
+  return (await res.json()).file;
+}
+
+async function apiPromotePropertyFile(propertyId, fileId) {
+  const res = await fetch(`/api/properties/${propertyId}/files/${fileId}/promote`, {
+    method: 'POST',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Promote failed: HTTP ${res.status}`);
+  }
+  return (await res.json()).file;
+}
+
 // ─── Cheque-only edit modal (used by Rentals tab) ─────
 let _chequeEditPropertyId = null;
 
@@ -3121,12 +3149,15 @@ function docTile(label, info) {
   if (info.id && info.propertyId) {
     const url = `/api/properties/${info.propertyId}/files/${info.id}/download`;
     return `
-      <a class="doc-tile" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;">
-        <div class="doc-tile-icon">${icon}</div>
-        <div class="doc-tile-title">${label}</div>
-        <div class="doc-tile-name">${h(safeName)}</div>
-        <div class="doc-tile-action">⬇ View / Download</div>
-      </a>`;
+      <div class="doc-tile-wrap" style="position:relative;">
+        <a class="doc-tile" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block;">
+          <div class="doc-tile-icon">${icon}</div>
+          <div class="doc-tile-title">${label}</div>
+          <div class="doc-tile-name">${h(safeName)}</div>
+          <div class="doc-tile-action">⬇ View / Download</div>
+        </a>
+        ${fileKebab(info.id, info.propertyId, info.category || '')}
+      </div>`;
   }
 
   // Legacy IDB file
@@ -3160,16 +3191,109 @@ function oldDocTiles(label, list) {
     const dateStr = info.uploadedAt ? new Date(info.uploadedAt).toLocaleDateString() : '';
     const url = `/api/properties/${info.propertyId}/files/${info.id}/download`;
     return `
-      <a class="doc-tile doc-tile-old" href="${url}" target="_blank" rel="noopener"
-         style="text-decoration:none;color:inherit;opacity:.72;border-style:dashed;">
-        <div class="doc-tile-icon" style="filter:grayscale(.5);">${icon}</div>
-        <div class="doc-tile-title">${h(label)}
-          <span style="background:#e5e7eb;color:#6b7280;font-size:9px;padding:1px 6px;border-radius:6px;margin-left:4px;text-transform:uppercase;letter-spacing:.3px;font-weight:700;">Old${dateStr ? ' · ' + dateStr : ''}</span>
-        </div>
-        <div class="doc-tile-name">${h(safeName)}</div>
-        <div class="doc-tile-action">⬇ View / Download</div>
-      </a>`;
+      <div class="doc-tile-wrap" style="position:relative;">
+        <a class="doc-tile doc-tile-old" href="${url}" target="_blank" rel="noopener"
+           style="text-decoration:none;color:inherit;opacity:.72;border-style:dashed;display:block;">
+          <div class="doc-tile-icon" style="filter:grayscale(.5);">${icon}</div>
+          <div class="doc-tile-title">${h(label)}
+            <span style="background:#e5e7eb;color:#6b7280;font-size:9px;padding:1px 6px;border-radius:6px;margin-left:4px;text-transform:uppercase;letter-spacing:.3px;font-weight:700;">Old${dateStr ? ' · ' + dateStr : ''}</span>
+          </div>
+          <div class="doc-tile-name">${h(safeName)}</div>
+          <div class="doc-tile-action">⬇ View / Download</div>
+        </a>
+        ${fileKebab(info.id, info.propertyId, info.category || '')}
+      </div>`;
   }).join('');
+}
+
+// ─── Per-tile action menu (Replace / Make Current / Delete) ─────
+// Renders a kebab "⋮" button in the corner of each file tile. Clicking it
+// opens a small popover; selecting an action calls the right backend
+// endpoint and re-opens the detail modal to show the updated list.
+function fileKebab(fileId, propertyId, category) {
+  return `<button type="button" class="doc-tile-kebab"
+    onclick="event.preventDefault();event.stopPropagation();toggleFileActionMenu(this,${fileId},${propertyId},'${(category||'').replace(/'/g,'')}');"
+    style="position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:4px;border:none;
+           background:rgba(255,255,255,.92);cursor:pointer;font-size:16px;line-height:1;font-weight:700;
+           color:#444;box-shadow:0 1px 3px rgba(0,0,0,.15);z-index:2;">⋮</button>`;
+}
+
+function toggleFileActionMenu(btn, fileId, propertyId, category) {
+  // Close any open menu first
+  document.querySelectorAll('.doc-tile-action-menu').forEach(el => el.remove());
+  const menu = document.createElement('div');
+  menu.className = 'doc-tile-action-menu';
+  menu.style.cssText = 'position:absolute;top:34px;right:6px;background:#fff;border:1px solid #e5e7eb;'
+    + 'border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);z-index:5;min-width:170px;overflow:hidden;'
+    + 'font-size:13px;';
+  const mkItem = (label, color, handler) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.style.cssText = 'display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:#fff;'
+      + `cursor:pointer;font-size:13px;color:${color};font-family:inherit;`;
+    b.onmouseover = () => b.style.background = '#f3f4f6';
+    b.onmouseout  = () => b.style.background = '#fff';
+    b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); menu.remove(); handler(); };
+    return b;
+  };
+  menu.appendChild(mkItem('↻  Replace file…',  '#0f172a', () => doReplaceFile(propertyId, fileId, category)));
+  menu.appendChild(mkItem('⬆  Make Current',   '#0f172a', () => doPromoteFile(propertyId, fileId)));
+  menu.appendChild(mkItem('🗑  Delete',         '#b91c1c', () => doDeleteFile(propertyId, fileId)));
+  btn.parentElement.appendChild(menu);
+  // Click anywhere else closes the menu
+  setTimeout(() => {
+    const closer = (e) => {
+      if (!menu.contains(e.target) && e.target !== btn) {
+        menu.remove();
+        document.removeEventListener('click', closer);
+      }
+    };
+    document.addEventListener('click', closer);
+  }, 0);
+}
+
+function doReplaceFile(propertyId, fileId, category) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.style.display = 'none';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try {
+      showToast && showToast('Replacing…', 'info');
+      await apiReplacePropertyFile(propertyId, fileId, category || 'other', f);
+      showToast && showToast('File replaced', 'success');
+      if (currentDetailId) await openDetailModal(currentDetailId);
+    } catch (e) {
+      showToast && showToast(e.message || 'Replace failed', 'error');
+    } finally { inp.remove(); }
+  };
+  document.body.appendChild(inp);
+  inp.click();
+}
+
+async function doPromoteFile(propertyId, fileId) {
+  if (!confirm('Make this file the current version? The previous current copy will move to "Old".')) return;
+  try {
+    await apiPromotePropertyFile(propertyId, fileId);
+    showToast && showToast('File promoted to current', 'success');
+    if (currentDetailId) await openDetailModal(currentDetailId);
+  } catch (e) {
+    showToast && showToast(e.message || 'Promote failed', 'error');
+  }
+}
+
+async function doDeleteFile(propertyId, fileId) {
+  if (!confirm('Permanently delete this file? This removes it from disk and from Drive.')) return;
+  try {
+    const ok = await apiDeletePropertyFile(propertyId, fileId);
+    if (!ok) throw new Error('Delete failed');
+    showToast && showToast('File deleted', 'success');
+    if (currentDetailId) await openDetailModal(currentDetailId);
+  } catch (e) {
+    showToast && showToast(e.message || 'Delete failed', 'error');
+  }
 }
 
 function closeDetailModal() {
