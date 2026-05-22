@@ -329,6 +329,30 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_contracts_prop       ON contracts(prop_id);
   `);
 
+  // Property file uploads — local storage + optional Google Drive mirror.
+  // Created idempotently so existing prod DBs missing this table get it on
+  // the next backend boot (otherwise POST /api/properties/:id/files crashes
+  // with "no such table: property_files" and returns HTTP 500).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS property_files (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_id     INTEGER NOT NULL,
+      category        TEXT,
+      filename        TEXT,
+      local_path      TEXT,
+      drive_id        TEXT,
+      drive_url       TEXT,
+      mime            TEXT,
+      size            INTEGER,
+      uploaded_by_id  INTEGER,
+      uploaded_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (property_id)    REFERENCES properties(id) ON DELETE CASCADE,
+      FOREIGN KEY (uploaded_by_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_property_files_property ON property_files(property_id);
+    CREATE INDEX IF NOT EXISTS idx_property_files_category ON property_files(category);
+  `);
+
   // Shared persistent documents — exactly two editable slots, visible to
   // and editable by every logged-in user (admin + agents). Last write wins.
   db.exec(`
@@ -389,6 +413,14 @@ function initDb() {
     // (which stays admin-private). All partners on the property see the same
     // value; their individual share % is on property_partners.share_pct.
     ['properties', 'partner_rent',    'REAL DEFAULT 0'],
+    // Per-property file upload destination. Set on first ensurePropertyFolder()
+    // call; renamed when property.name changes. Missing column = HTTP 500
+    // on POST /api/properties/:id/files because property-folder-export.js
+    // does an UPDATE on this column inside ensurePropertyFolder.
+    ['properties', 'folder_name',     'TEXT'],
+    ['properties', 'drive_folder_id', 'TEXT'],
+    // Electrical infrastructure (KW) — surfaced in property "Basic Info" form.
+    ['properties', 'power_kw',        'REAL'],
     ['contracts',  'term6',           'TEXT'],
     ['contracts',  'term7',           'TEXT'],
     ['contracts',  'term8',           'TEXT'],

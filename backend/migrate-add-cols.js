@@ -18,6 +18,8 @@ const cols = [
   ['properties', 'premise_number',       'TEXT'],
   ['properties', 'dewa_number',          'TEXT'],
   ['properties', 'power_kw',             'REAL'],
+  ['properties', 'folder_name',          'TEXT'],
+  ['properties', 'drive_folder_id',      'TEXT'],
   ['properties', 'partner_name',         'TEXT'],
   ['properties', 'our_share',            'REAL'],
   ['properties', 'owner_name',           'TEXT'],
