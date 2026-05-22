@@ -4479,12 +4479,19 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;background:#fff;fo
 .doc-dates{font-size:11px;color:#555;margin-top:4px}
 
 /* ─── ASG Watermark ─── */
+/* Brand colours: gold fill + dark-navy outline (matches the footer band).
+   Lighter font weight + stroke keeps it ornamental, not dominant. */
 .lh-watermark{
   position:fixed;
   top:50%;left:50%;
   transform:translate(-50%,-50%);
-  font-size:340px;font-weight:900;letter-spacing:30px;
-  color:#f8efd5;
+  font-size:310px;
+  font-weight:300;
+  letter-spacing:26px;
+  color:#c9a84c;
+  -webkit-text-stroke:1.5px #1a1f2e;
+          text-stroke:1.5px #1a1f2e;
+  opacity:.22;
   z-index:0;
   pointer-events:none;
   user-select:none;
@@ -4775,21 +4782,53 @@ ${validUntil ? `<div class="valid-bar">This proposal is valid until <strong>${fd
 </div>
 
 <script>
-// Push the footer to the bottom of the LAST printed page. Without this, when
-// content fills 1.x pages, the footer lands mid-page-2 because the body flex
-// only reserves one page of min-height. We measure the rendered content and
-// snap min-height up to a whole-page multiple so flex fills page N exactly.
+// Anchor the footer to the bottom of the LAST printed page.
+//
+// Why: flex with min-height:100vh only reserves one page of body height. If
+// content actually fills 1.x pages, body is 1.x pages tall, and the flex
+// pushes the footer to the bottom of body — i.e. somewhere on page 2, not
+// the bottom of page 2.
+//
+// Fix: measure how much vertical space the content needs WHEN RENDERED AT
+// PRINT WIDTH (A4 content area = 190mm), round up to the next whole printable
+// page, and set min-height to exactly that many pages. The flex now fills
+// the last page completely and the footer lands at its true bottom.
 window.__fitFooterToLastPage = function() {
-  var MM_TO_PX = 96 / 25.4;
-  var PRINTABLE_H = (297 - 20) * MM_TO_PX;  // A4 height − 10mm × 2 margins
-  var body = document.body;
-  body.style.minHeight = '0';                // clear before measuring
-  // Force layout flush
-  void body.offsetHeight;
-  var natural = body.scrollHeight;
-  var pages = Math.max(1, Math.ceil(natural / PRINTABLE_H));
-  body.style.minHeight = (pages * PRINTABLE_H) + 'px';
+  try {
+    var MM_TO_PX = 96 / 25.4;
+    var PAGE_W_MM = 210, PAGE_H_MM = 297;
+    var MARGIN_MM = 10;            // matches @page margin
+    var CONTENT_W_MM = PAGE_W_MM - MARGIN_MM * 2;        // 190
+    var PRINTABLE_H = (PAGE_H_MM - MARGIN_MM * 2) * MM_TO_PX;  // ~1047px
+    var body = document.body;
+
+    // Save current inline styles so we can restore them after measuring.
+    var prevMinH  = body.style.minHeight;
+    var prevWidth = body.style.width;
+
+    // Force body to print content width — otherwise wrapping at the screen
+    // window's width over- or under-estimates the printed height.
+    body.style.width     = CONTENT_W_MM + 'mm';
+    body.style.minHeight = '0';
+    void body.offsetHeight;        // flush layout
+
+    var natural = body.scrollHeight;
+    var pages   = Math.max(1, Math.ceil(natural / PRINTABLE_H));
+
+    // Restore width; set the snapped min-height.
+    body.style.width     = prevWidth;
+    body.style.minHeight = (pages * PRINTABLE_H) + 'px';
+  } catch (err) {
+    if (typeof console !== 'undefined') console.error('[fitFooter]', err);
+  }
 };
+
+// Run automatically once everything (CSS + images + fonts) has loaded, plus
+// a small settle delay. Parent can also call __fitFooterToLastPage() before
+// print as a belt-and-suspenders trigger.
+window.addEventListener('load', function() {
+  setTimeout(window.__fitFooterToLastPage, 80);
+});
 </script>
 </body></html>`;
 
