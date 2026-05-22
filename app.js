@@ -2811,10 +2811,15 @@ async function openDetailModal(id) {
       if (files && files.length) {
         const byCat = {};
         const oldByCat = {};
-        // Files arrive sorted newest-first (ORDER BY uploaded_at DESC). The
-        // first row per category is the LATEST upload; subsequent rows in the
-        // same category are previous versions we surface as "(Old)" tiles
-        // (user wants old uploads preserved AND visible, labeled differently).
+        // Files arrive sorted newest-first (ORDER BY uploaded_at DESC). For
+        // each doc category we keep:
+        //   • the latest upload as the primary tile (no badge)
+        //   • EXACTLY ONE prior version as the "Old" tile, and only if it was
+        //     uploaded within the past 12 months — older copies still live in
+        //     the DB / on disk for audit but are hidden from the modal to
+        //     stop the grid filling with re-upload duplicates.
+        const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
         for (const f of files) {
           const cat = f.category || 'other';
           if (cat === 'photo') {
@@ -2822,9 +2827,13 @@ async function openDetailModal(id) {
             byCat.photos.push(f);
           } else if (!byCat[cat]) {
             byCat[cat] = f;
-          } else {
-            (oldByCat[cat] = oldByCat[cat] || []).push(f);
+          } else if (!oldByCat[cat]) {
+            const ts = f.uploadedAt ? new Date(f.uploadedAt).getTime() : 0;
+            if (ts && (now - ts) <= ONE_YEAR_MS) {
+              oldByCat[cat] = [f];   // wrap in array so oldDocTiles loops cleanly
+            }
           }
+          // anything older than the immediate predecessor is silently ignored
         }
         // Overwrite legacy fields so the existing render uses API data.
         p.files = {
