@@ -15,7 +15,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 
-  <link rel="stylesheet" href="styles.css?v=20260521G">
+  <link rel="stylesheet" href="styles.css?v=20260523A">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2907,6 +2907,29 @@
       <div class="modal-body" style="overflow-y:auto;">
         <div style="max-width:980px;margin:0 auto;">
 
+        <!-- AI Auto-fill from text -->
+        <div class="psl-ai-panel">
+          <div class="psl-ai-head" onclick="togglePslAiPanel()">
+            <div class="psl-ai-title">
+              <span class="psl-ai-spark">✨</span>
+              <div>
+                <strong>Auto-fill from description</strong>
+                <span class="psl-ai-sub">Paste the contract details in plain words — we'll detect and fill what we can. You review the rest.</span>
+              </div>
+            </div>
+            <span class="psl-ai-chevron" id="pslAiChevron">▾</span>
+          </div>
+          <div class="psl-ai-body" id="pslAiBody">
+            <textarea id="pslAiText" rows="5" placeholder="e.g. Leasing Warehouse Unit 7 in Al Quoz, 12,000 sqft. Landlord Saifuddin Properties LLC (licence 1023445, DED), 050xxxxxxx. Tenant Gulf Logistics FZE, ahmed@gulflog.ae, +9715xxxxxxxx. Rent AED 480,000 first year, 500,000 second year, 4 cheques a year. Starts 1/6/2026 for 2 years. Deposit AED 48,000."></textarea>
+            <div class="psl-ai-actions">
+              <button type="button" class="btn-primary psl-ai-btn" id="pslAiBtn" onclick="parseProposalFromText()">
+                <span class="psl-ai-btn-label">✨ Detect &amp; auto-fill</span>
+              </button>
+              <span class="psl-ai-status" id="pslAiStatus"></span>
+            </div>
+          </div>
+        </div>
+
         <!-- Section 00: Quick Setup -->
         <div class="form-section">
           <div class="section-header">
@@ -4116,6 +4139,6 @@
   <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
-  <script src="app.js?v=20260521V"></script>
+  <script src="app.js?v=20260523A"></script>
 </body>
 </html>

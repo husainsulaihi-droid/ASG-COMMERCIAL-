@@ -3953,6 +3953,12 @@ function openProposalModal() {
   $('pslPropLink').innerHTML = '<option value="">— Select property to auto-fill —</option>' +
     props.map(p => `<option value="${p.id}">${p.name} (${p.type||''})</option>`).join('');
 
+  // Reset the AI auto-fill panel
+  if ($('pslAiText'))   $('pslAiText').value = '';
+  if ($('pslAiStatus')) { $('pslAiStatus').textContent = ''; $('pslAiStatus').className = 'psl-ai-status'; }
+  if ($('pslAiBody'))   $('pslAiBody').classList.remove('collapsed');
+  if ($('pslAiChevron')) $('pslAiChevron').textContent = '▾';
+
   // Render initial 4-cheque skeleton
   renderProposalCheques();
 
@@ -3961,6 +3967,167 @@ function openProposalModal() {
 
 function closeProposalModal() {
   $('proposalOverlay').classList.remove('active');
+}
+
+// ─── AI auto-fill from free-text description ──────────────────────────────
+function togglePslAiPanel() {
+  const body = $('pslAiBody');
+  const chev = $('pslAiChevron');
+  if (!body) return;
+  const collapsed = body.classList.toggle('collapsed');
+  if (chev) chev.textContent = collapsed ? '▸' : '▾';
+}
+
+// Send the pasted description to the backend parser (Ollama), then drop the
+// detected values into the form. Only fields the model is confident about are
+// filled — everything else is left for the user to complete and review.
+async function parseProposalFromText() {
+  const ta  = $('pslAiText');
+  const btn = $('pslAiBtn');
+  const status = $('pslAiStatus');
+  const text = (ta?.value || '').trim();
+  if (!text) {
+    if (status) { status.textContent = 'Type or paste the contract details first.'; status.className = 'psl-ai-status warn'; }
+    ta?.focus();
+    return;
+  }
+
+  const lbl = btn?.querySelector('.psl-ai-btn-label');
+  const prevLbl = lbl ? lbl.textContent : '';
+  if (btn) btn.disabled = true;
+  if (lbl) lbl.textContent = '⏳ Reading… (this can take up to a minute)';
+  if (status) { status.textContent = 'Analysing the description…'; status.className = 'psl-ai-status busy'; }
+
+  try {
+    const res = await fetch('/api/proposals/parse', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      let msg = e.error || ('HTTP ' + res.status);
+      if (res.status === 502 || res.status === 504) {
+        msg = 'AI auto-fill is unavailable right now — you can still fill the form manually.';
+      }
+      if (status) { status.textContent = msg; status.className = 'psl-ai-status err'; }
+      return;
+    }
+    const data = await res.json();
+    const count = applyParsedProposalFields(data.fields || {});
+    if (status) {
+      status.textContent = count
+        ? `Filled ${count} field${count === 1 ? '' : 's'}. Please review everything before downloading.`
+        : 'Couldn’t detect any fields — try adding more detail, or fill the form manually.';
+      status.className = 'psl-ai-status ' + (count ? 'ok' : 'warn');
+    }
+  } catch (err) {
+    console.warn('[parseProposalFromText]', err);
+    if (status) { status.textContent = 'Network error — could not reach the AI parser.'; status.className = 'psl-ai-status err'; }
+  } finally {
+    if (btn) btn.disabled = false;
+    if (lbl) lbl.textContent = prevLbl || '✨ Detect & auto-fill';
+  }
+}
+
+// Maps the sanitized field object from /api/proposals/parse onto the proposal
+// form. Returns the number of fields actually filled (for the status line).
+function applyParsedProposalFields(f) {
+  if (!f || typeof f !== 'object') return 0;
+  let filled = 0;
+  const flash = el => { el.classList.add('psl-ai-filled'); setTimeout(() => el.classList.remove('psl-ai-filled'), 2800); };
+  const setVal = (id, val) => {
+    if (val == null || val === '') return;
+    const el = $(id); if (!el) return;
+    el.value = val; flash(el); filled++;
+  };
+
+  // Property
+  setVal('pslPropName',     f.propName);
+  setVal('pslPropLocation', f.propLocation);
+  setVal('pslPropSize',     f.propSize);
+  setVal('pslPlotNo',       f.plotNo);
+  setVal('pslMakaniNo',     f.makaniNo);
+  setVal('pslPropertyNo',   f.propertyNo);
+  setVal('pslDewaNo',       f.dewaNo);
+  if (f.propType && ['Warehouse','Office','Residential','Land'].includes(f.propType)) {
+    setVal('pslPropType', f.propType);
+  }
+  if (f.usage) {
+    const r = $('pslUsage' + f.usage); // pslUsageCommercial / Residential / Industrial
+    if (r) { r.checked = true; flash(r.closest('label') || r); filled++; }
+  }
+
+  // Lessor
+  setVal('pslLessorName',      f.lessorName);
+  setVal('pslLessorEid',       f.lessorEid);
+  setVal('pslLessorPhone',     f.lessorPhone);
+  setVal('pslLessorEmail',     f.lessorEmail);
+  setVal('pslLessorLicense',   f.lessorLicense);
+  setVal('pslLessorAuthority', f.lessorAuthority);
+
+  // Client / tenant
+  setVal('pslClientName',      f.clientName);
+  setVal('pslClientCompany',   f.clientCompany);
+  setVal('pslClientPhone',     f.clientPhone);
+  setVal('pslClientEmail',     f.clientEmail);
+  setVal('pslClientEid',       f.clientEid);
+  setVal('pslClientLicense',   f.clientLicense);
+  setVal('pslClientAuthority', f.clientAuthority);
+
+  // Contract term + per-year rents
+  if (f.contractYears) {
+    const yEl = $('pslContractYears');
+    if (yEl) { yEl.value = String(f.contractYears); flash(yEl); filled++; }
+    renderYearlyRentsInputs();
+  }
+  setVal('pslAnnualRent', f.annualRent);
+  if (Array.isArray(f.yearlyRents) && f.yearlyRents.length) {
+    const years = getContractYears();
+    const yr = f.yearlyRents;
+    if (yr.length === years) {
+      // Full array including year 1
+      setVal('pslAnnualRent', yr[0]);
+      for (let y = 2; y <= years; y++) setVal('pslYearRent' + y, yr[y - 1]);
+    } else {
+      // Partial array — treat as years 2..N (the model often omits year 1)
+      for (let i = 0; i < yr.length && (2 + i) <= years; i++) setVal('pslYearRent' + (2 + i), yr[i]);
+    }
+  }
+
+  // Dates + cheque frequency
+  if (f.numCheques) { const c = $('pslNumCheques'); if (c) { c.value = String(f.numCheques); flash(c); filled++; } }
+  setVal('pslTenancyFrom', f.tenancyFrom);
+  if (f.tenancyFrom) updateTenancyEndDate();
+  if (f.tenancyTo)   setVal('pslTenancyTo', f.tenancyTo);
+
+  // Additional charges
+  setVal('pslSecDepAmount',  f.securityDeposit);
+  setVal('pslServiceAmount', f.serviceCharges);
+  setVal('pslCommAmount',    f.commission);
+  setVal('pslMaintAmount',   f.maintenance);
+  setVal('pslAdminAmount',   f.adminFee);
+  setVal('pslNotes',         f.notes);
+
+  // Special terms → first free term slots
+  if (Array.isArray(f.terms) && f.terms.length) {
+    let slot = 5; // leave the 4 default terms in place; append after them
+    for (const t of f.terms) {
+      while (slot <= 10 && ($('pslAdd' + slot)?.value || '').trim()) slot++;
+      if (slot > 10) break;
+      setVal('pslAdd' + slot, t); slot++;
+    }
+  }
+
+  // Rebuild the cheque grid and recompute totals from whatever we filled
+  renderProposalCheques();
+  recalcProposalCheques();
+  recalcAdditionalCharges();
+  if (f.tenancyFrom) autoSpacePslChequeDates();
+  updateProposalGrandTotal();
+
+  return filled;
 }
 
 function autofillProposalProperty() {
