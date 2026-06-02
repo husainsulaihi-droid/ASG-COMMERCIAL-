@@ -42,14 +42,18 @@ function canWriteFile(req, res, next) {
   next();
 }
 
-// Block external_manager from reading files attached to properties they didn't add.
-// Other roles fall through to existing requireAuth behavior.
+// External managers can read files of properties they don't own — but only
+// the 'affection' category. We flag the request here; the list handler
+// filters down to affection-only, and the download handler 403s anything
+// outside that category. Other roles fall through unchanged.
 function blockNonOwnerExternalManager(req, res, next) {
   if (req.user && req.user.agentRole === 'external_manager') {
     const propId = parseInt(req.params.id, 10);
     const prop = getDb().prepare('SELECT added_by_id FROM properties WHERE id = ?').get(propId);
     if (!prop) return res.status(404).json({ error: 'property not found' });
-    if (prop.added_by_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+    if (prop.added_by_id !== req.user.id) {
+      req._extMgrAffectionOnly = true;
+    }
   }
   next();
 }
@@ -102,6 +106,9 @@ router.get('/', requireAuth, blockNonOwnerExternalManager, gatePartnerFile, (req
   if (req.user.role === 'partner') {
     rows = rows.filter(r => !PARTNER_HIDDEN_CATS.has((r.category || '').toLowerCase()));
   }
+  if (req._extMgrAffectionOnly) {
+    rows = rows.filter(r => (r.category || '').toLowerCase() === 'affection');
+  }
   res.json({ files: rows.map(rowToApi) });
 });
 
@@ -115,6 +122,10 @@ router.get('/:fileId/download', requireAuth, blockNonOwnerExternalManager, gateP
   if (!row || !row.local_path) return res.status(404).json({ error: 'file not found' });
   // Belt + suspenders: even a linked partner can't pull a hidden-cat file
   // by guessing its file id.
+  // Non-owner external_manager can only stream the affection plan.
+  if (req._extMgrAffectionOnly && (row.category || '').toLowerCase() !== 'affection') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   if (req.user.role === 'partner' && PARTNER_HIDDEN_CATS.has((row.category || '').toLowerCase())) {
     return res.status(403).json({ error: 'Forbidden' });
   }

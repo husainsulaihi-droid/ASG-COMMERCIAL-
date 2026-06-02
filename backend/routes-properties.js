@@ -81,7 +81,11 @@ function visibleByRole(rows, user) {
     return rows.filter(p => ids.has(p.id));
   }
   const r = user.agentRole || 'general';
-  if (r === 'external_manager')           return rows.filter(p => p.added_by_id === user.id);
+  // External managers now see the WHOLE portfolio (admin-style cards on the
+  // agent inventory). shapeForViewer keeps full detail only on rows they
+  // added; every other row is stripped down to property details + affection
+  // plan, and mutation routes still 403 via canWrite when not the owner.
+  if (r === 'external_manager')           return rows;
   if (r === 'sales' || r === 'general')   return rows.filter(p => p.status === 'vacant');
   if (r === 'leasing')                    return rows.filter(p => p.status === 'rented');
   if (r === 'property_management')        return rows.filter(p => p.ownership === 'management');
@@ -126,10 +130,13 @@ function shapeForViewer(row, user, ctx = {}) {
     return api;
   }
   // External managers manage their own portfolio — show full detail for rows
-  // they added (visibleByRole already restricts them to those rows).
+  // they added. For everyone else's rows, fall through to the same stripping
+  // as a regular agent, and explicitly drop tenant info too (canSeeTenantInfo
+  // returns true for external_manager which is only correct for own rows).
   if (user.agentRole === 'external_manager' && row.added_by_id === user.id) return api;
   for (const f of FINANCIAL_FIELDS) delete api[f];
-  if (!canSeeTenantInfo(user))    for (const f of TENANT_FIELDS) delete api[f];
+  const stripTenant = !canSeeTenantInfo(user) || user.agentRole === 'external_manager';
+  if (stripTenant) for (const f of TENANT_FIELDS) delete api[f];
   return api;
 }
 
