@@ -101,6 +101,42 @@ function _legacyLocalStorageLogin(user, pass, err) {
   document.getElementById('loginPass').focus();
 }
 
+// Show the "Sign in with Google" button only if the backend has it configured,
+// and surface any ?auth_error=… that the OAuth callback bounced us back with.
+async function initGoogleLogin() {
+  // Surface an auth error from a failed Google round-trip.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const e = params.get('auth_error');
+    if (e) {
+      const errEl = document.getElementById('loginError');
+      const messages = {
+        not_authorized: 'That Google account is not authorized. Ask an admin to add your email to your user profile.',
+        unverified_email: 'That Google account has no verified email address.',
+        cancelled: 'Google sign-in was cancelled.',
+        bad_state: 'Google sign-in expired or was interrupted. Please try again.',
+        exchange_failed: 'Could not complete Google sign-in. Please try again.',
+        google_disabled: 'Google sign-in is not enabled.',
+      };
+      if (errEl) { errEl.textContent = messages[e] || 'Google sign-in failed. Please try again.'; errEl.style.display = 'block'; }
+      // Clean the URL so a refresh doesn't re-show the error.
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  } catch (_) { /* ignore */ }
+
+  try {
+    const res = await fetch('/api/auth/config', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const cfg = await res.json();
+    if (cfg && cfg.googleEnabled) {
+      const wrap = document.getElementById('googleLoginWrap');
+      if (wrap) wrap.style.display = 'block';
+    }
+  } catch (e) {
+    // Backend unreachable — just leave the Google button hidden.
+  }
+}
+
 async function doLogout() {
   if (!confirm('Sign out of ASG Commercial?')) return;
   // Best-effort: tell the backend to destroy the session, but don't block on failure.
@@ -14207,6 +14243,7 @@ async function _probeBackend() {
   }
   // No valid session — show login screen.
   _probeBackend();
+  initGoogleLogin();
 })();
 
 

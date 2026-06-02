@@ -1,12 +1,20 @@
 /**
  * Auth routes.
  *
- *   POST /api/auth/login   — { username, password } -> sets cookie, returns { user }
- *   POST /api/auth/logout  — destroys session, clears cookie
- *   GET  /api/auth/me      — returns { user } if logged in, 401 otherwise
+ *   POST /api/auth/login            — { username, password } -> sets cookie, returns { user }
+ *   POST /api/auth/logout           — destroys session, clears cookie
+ *   GET  /api/auth/me               — returns { user } if logged in, 401 otherwise
+ *   GET  /api/auth/config           — { googleEnabled } so the UI can show/hide the button
+ *   GET  /api/auth/google           — redirect to Google's consent screen
+ *   GET  /api/auth/google/callback  — Google redirects back here; matches email -> session
+ *
+ * Google login (when enabled) does NOT replace password login — both work.
+ * Access is gated by the users table: only a verified Google email that
+ * matches an active user's `email` is allowed in.
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const { getDb } = require('./db');
 const {
   verifyPassword,
@@ -16,8 +24,13 @@ const {
   SESSION_TTL_MS
 } = require('./auth');
 const { requireAuth, COOKIE_NAME } = require('./middleware');
+const googleOAuth = require('./google-oauth');
 
 const router = express.Router();
+
+// Short-lived cookie holding the OAuth `state` value for CSRF protection.
+const OAUTH_STATE_COOKIE = 'g_oauth_state';
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 // Cookie options. `secure` is set automatically when running behind HTTPS
 // (we detect it via the X-Forwarded-Proto header set by nginx).
@@ -94,6 +107,87 @@ router.post('/logout', (req, res) => {
 // ─── GET /api/auth/me ─────────────────────────────
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
+});
+
+// ─── GET /api/auth/config ─────────────────────────
+// Public — lets the login screen decide whether to render the Google button.
+router.get('/config', (req, res) => {
+  res.json({ googleEnabled: googleOAuth.isEnabled() });
+});
+
+// ─── GET /api/auth/google ─────────────────────────
+// Kick off the OAuth flow: set a CSRF state cookie, then redirect to Google.
+router.get('/google', (req, res) => {
+  if (!googleOAuth.isEnabled()) {
+    return res.status(404).json({ error: 'Google login is not configured' });
+  }
+  const state = crypto.randomBytes(16).toString('hex');
+  const isHttps = req.headers['x-forwarded-proto'] === 'https' || req.secure;
+  res.cookie(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isHttps,
+    maxAge: OAUTH_STATE_TTL_MS,
+    path: '/'
+  });
+  const url = googleOAuth.buildAuthUrl({ state, redirectUri: googleOAuth.getRedirectUri(req) });
+  return res.redirect(url);
+});
+
+// ─── GET /api/auth/google/callback ────────────────
+// Google redirects back here with ?code & ?state. We verify state, swap the
+// code for the verified email, match it to an active user, and start a session.
+// On any failure we bounce back to the login screen with ?auth_error=<reason>.
+router.get('/google/callback', async (req, res) => {
+  const ip = clientIp(req);
+  const ua = req.headers['user-agent'] || null;
+  const fail = (reason, logReason, username) => {
+    recordLogin({ username: username || null, ip, ua, success: false, reason: logReason });
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    return res.redirect('/?auth_error=' + encodeURIComponent(reason));
+  };
+
+  if (!googleOAuth.isEnabled()) return fail('google_disabled', 'google-disabled');
+
+  // The user denied consent, or Google returned an error.
+  if (req.query.error) return fail('cancelled', 'google-' + String(req.query.error).slice(0, 40));
+
+  const { code, state } = req.query;
+  const cookieState = req.cookies && req.cookies[OAUTH_STATE_COOKIE];
+  if (!code || !state || !cookieState || state !== cookieState) {
+    return fail('bad_state', 'google-bad-state');
+  }
+
+  let profile;
+  try {
+    profile = await googleOAuth.exchangeCodeForProfile({
+      code: String(code),
+      redirectUri: googleOAuth.getRedirectUri(req),
+    });
+  } catch (e) {
+    console.warn('[auth] google code exchange failed:', e.message);
+    return fail('exchange_failed', 'google-exchange-failed');
+  }
+
+  if (!profile.email || !profile.emailVerified) {
+    return fail('unverified_email', 'google-unverified', profile.email);
+  }
+
+  // Match the verified email to an active user (case-insensitive).
+  const user = getDb().prepare(
+    'SELECT * FROM users WHERE lower(email) = ? AND active = 1'
+  ).get(profile.email);
+
+  if (!user) {
+    // Email isn't on anyone's account — not authorized.
+    return fail('not_authorized', 'google-no-match', profile.email);
+  }
+
+  recordLogin({ userId: user.id, username: user.username, ip, ua, success: true, reason: 'google' });
+  res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+  const { token } = createSession(user.id);
+  res.cookie(COOKIE_NAME, token, cookieOptions(req));
+  return res.redirect('/');
 });
 
 module.exports = router;
